@@ -1,8 +1,8 @@
 import { loadRegistry, readRegistryCache } from "../openapi/registry";
-import { estimateCredits, enforceBudget, overBudget } from "./budget";
+import { estimateDetail, overBudget } from "./budget";
 import { loadConfig, getApiKey } from "./config";
 import { dryRun, failure } from "./envelope";
-import { validationError, unknownOperation } from "./errors";
+import { budgetExceeded, confirmationRequired, validationError, unknownOperation } from "./errors";
 import { NetworkRetryError, sendWithRetry } from "./retries";
 import { buildHttpRequest, InputNormalizationError, normalizeInput } from "./request-builder";
 import { normalizeResponse } from "./response-normalizer";
@@ -13,10 +13,10 @@ import {
   collectAllPages,
   type PaginationOptions,
 } from "./pagination";
-import { enforceSafety, requiresYes } from "./safety";
+import { requiresYes } from "./safety";
 import { OutTargetError } from "./files";
 import type { AnySchema, ValidateFunction } from "ajv";
-import type { AgentInput, Envelope, NormalizedError, OperationCard, RunOpts } from "./types";
+import type { AgentInput, Envelope, NormalizedError, OperationCard, RunOpts, Warning } from "./types";
 import type { HttpRequest } from "./request-builder";
 import type { ResponseContext } from "./response-normalizer";
 
@@ -48,25 +48,36 @@ export async function runOperation(
         raw: validation.raw,
       });
 
-    const estimate = estimateCredits(op, normalized, opts);
+    const { credits: estimate, warnings: estimateWarnings } = await estimateDetail(
+      op,
+      normalized,
+      opts,
+    );
     if (opts.dryRun) {
-      return dryRun({
-        cmd,
-        operationId,
-        request: {
-          operation_id: operationId,
-          method: op.method,
-          path: op.pathTemplate,
-          input: normalized,
-        },
-        creditsEstimated: estimate,
-        wouldRequireYes: requiresYes(op),
-        wouldExceedBudget: overBudget(estimate, opts),
-      });
+      return withWarnings(
+        dryRun({
+          cmd,
+          operationId,
+          request: {
+            operation_id: operationId,
+            method: op.method,
+            path: op.pathTemplate,
+            input: normalized,
+          },
+          creditsEstimated: estimate,
+          wouldRequireYes: requiresYes(op),
+          wouldExceedBudget: overBudget(estimate, opts),
+        }),
+        estimateWarnings,
+      );
     }
 
-    enforceSafety(op, opts);
-    enforceBudget(estimate, opts);
+    if (requiresYes(op) && !opts.yes) {
+      return confirmationRequired(cmd, `${operationId} (${op.risk}) requires --yes`, { operationId });
+    }
+    if (overBudget(estimate, opts)) {
+      return budgetExceeded(cmd, estimate, opts.maxCredits as number, { operationId });
+    }
 
     const config = loadConfig({
       profile: opts.profile,
@@ -113,10 +124,19 @@ export async function runOperation(
       requestPath: req.path,
       method: req.method,
     });
-    return addPaginationToEnvelope(env, op, normalized, { command: { kind: "call" }, limit: opts.limit });
+    const paginated = addPaginationToEnvelope(env, op, normalized, {
+      command: { kind: "call" },
+      limit: opts.limit,
+    });
+    return withWarnings(paginated, estimateWarnings);
   } catch (error) {
     return envelopeForThrown(cmd, operationId, error);
   }
+}
+
+function withWarnings(env: Envelope, warnings: Warning[]): Envelope {
+  if (!env.ok || warnings.length === 0) return env;
+  return { ...env, warnings: [...(env.warnings ?? []), ...warnings] };
 }
 
 export interface SendAndNormalizeContext extends ResponseContext {

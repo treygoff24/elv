@@ -1,9 +1,5 @@
-import type { OperationCard, RunOpts } from "./types";
+import type { OperationCard } from "./types";
 
-export function enforceSafety(_op: OperationCard, _opts: RunOpts): void {
-  // P7: --yes gates for destructive/external-side-effect operations.
-}
-
-export function requiresYes(_op: OperationCard): boolean {
-  return false;
+export function requiresYes(op: OperationCard): boolean {
+  return op.risk === "destructive" || op.risk === "external_side_effect";
 }

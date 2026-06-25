@@ -10,6 +10,8 @@ export interface RetryContext {
   jitter?: () => number;
 }
 
+export const DEFAULT_RETRY_ATTEMPTS = 3;
+
 export class NetworkRetryError extends Error {
   readonly normalizedError: NormalizedError;
   readonly retry: RetryInfo;
@@ -37,7 +39,7 @@ export async function sendWithRetry(
   _op: OperationCard,
   ctx: RetryContext = {},
 ): Promise<Response> {
-  const maxAttempts = ctx.maxAttempts ?? 3;
+  const maxAttempts = ctx.maxAttempts ?? DEFAULT_RETRY_ATTEMPTS;
   const sleep = ctx.sleep ?? defaultSleep;
   const jitter = ctx.jitter ?? (() => Math.floor(Math.random() * 100));
   let lastNetworkError: unknown;

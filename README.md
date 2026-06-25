@@ -118,6 +118,22 @@ elv wait --operation get_dubbing \
   --interval-ms 2000 --timeout-ms 600000
 ```
 
+## Safety & budget
+
+Destructive and external-side-effect operations require explicit confirmation — no interactive prompts:
+
+```bash
+elv call delete_voice --path voice_id=VOICE_ID --yes
+```
+
+Credit-consuming calls can be capped pre-flight with `--max-credits` (or `ELV_MAX_CREDITS`). Over-budget ops fail with exit 5 before any network request:
+
+```bash
+elv tts --voice-id VOICE --text "Long script…" --max-credits 500 --out ./out
+```
+
+Use `--dry-run` to preview a redacted request and see `would_require_yes` / `would_exceed_budget` without spending credits. See [AGENTS.md](./AGENTS.md) for the full agent protocol.
+
 ## Exit codes
 
 Branch on exit code without parsing JSON when possible:

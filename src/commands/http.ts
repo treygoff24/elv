@@ -75,7 +75,7 @@ export async function runHttp(
         cmd,
         operationId: op.operationId,
         request: { method: op.method, path, input },
-        creditsEstimated: estimateCredits(op, input, opts),
+        creditsEstimated: await estimateCredits(op, input, opts),
       });
     }
 
