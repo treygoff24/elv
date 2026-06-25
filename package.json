@@ -28,7 +28,6 @@
     "ajv": "^8",
     "ajv-formats": "^3",
     "commander": "^14",
-    "form-data": "^4",
     "mime-types": "^2",
     "music-metadata": "^10",
     "ws": "^8"
