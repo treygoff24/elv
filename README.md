@@ -158,10 +158,10 @@ elv ws tts-realtime --query voice_id=VOICE --query model_id=eleven_flash_v2_5 \
   --send script.ndjson --out ./session
 
 # Poll an operation until a status field resolves.
-elv wait --operation get_dubbing \
+elv wait --operation get_dubbed_metadata \
   --json '{"path":{"dubbing_id":"abc"}}' \
   --status-path '$.data.status' \
-  --success 'done,completed' --failure 'failed,error' \
+  --success 'dubbed' --failure 'failed' \
   --interval-ms 2000 --timeout-ms 600000
 ```
 
