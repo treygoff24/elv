@@ -19,6 +19,24 @@ Run it.                   → elv call <id> / elv <alias>
 Where did output go?      → files[] in the envelope
 ```
 
+## Discovery
+
+Search the vendored OpenAPI registry, inspect an operation, then copy a runnable example:
+
+```bash
+elv ops search "text to speech"
+elv ops get text_to_speech_full
+elv ops schema text_to_speech_full --example
+```
+
+The `--example` flag prints a ready-to-run `elv call` skeleton. Fill in parameters and run:
+
+```bash
+elv call text_to_speech_full \
+  --json '{"path":{"voice_id":"21m00Tcm4TlvDq8ikWAM"},"body":{"text":"Hello from elv.","model_id":"eleven_v3"}}' \
+  --out ./out
+```
+
 ## Command surface
 
 ```bash

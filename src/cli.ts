@@ -7,6 +7,8 @@ import { configDoctor, loadConfig } from "./core/config";
 import { emitAndExit, notImplemented, validationError } from "./core/errors";
 import { success } from "./core/envelope";
 import { ExitCode } from "./core/types";
+import { handleOpsGet, handleOpsSchema, handleOpsSearch } from "./commands/ops";
+import { updateSpecCache } from "./openapi/fetch-spec";
 import type { ConfigOverrides } from "./core/config";
 import type { Envelope } from "./core/types";
 
@@ -60,19 +62,23 @@ function buildProgram(version: string): Command {
     .action(() => notImplExit("elv ops"));
   addCommonFlags(
     ops
-      .command("search [query]")
-      .action((query: string | undefined) =>
-        notImplExit(`elv ops search${query ? ` ${query}` : ""}`),
+      .command("search <query>")
+      .option("--limit <n>", "maximum results", "10")
+      .action((query: string, options: Record<string, unknown>) =>
+        handleOpsSearch(query, { limit: optionString(options.limit) }),
       ),
   );
   addCommonFlags(
-    ops.command("get <operation_id>").action((id: string) => notImplExit(`elv ops get ${id}`)),
+    ops.command("get <operation_id>").action((id: string) => handleOpsGet(id)),
   );
   addCommonFlags(
     ops
       .command("schema <operation_id>")
+      .option("--raw")
       .option("--example")
-      .action((id: string) => notImplExit(`elv ops schema ${id}`)),
+      .action((id: string, options: Record<string, unknown>) =>
+        handleOpsSchema(id, { raw: Boolean(options.raw), example: Boolean(options.example) }),
+      ),
   );
 
   addCommonFlags(
@@ -116,7 +122,20 @@ function buildProgram(version: string): Command {
     .command("spec")
     .description("OpenAPI spec cache")
     .action(() => notImplExit("elv spec"));
-  addCommonFlags(spec.command("update").action(() => notImplExit("elv spec update")));
+  addCommonFlags(
+    spec
+      .command("update")
+      .option("--from <file_or_url>")
+      .option("--offline")
+      .action(async (options: Record<string, unknown>) => {
+        const result = await updateSpecCache({
+          from: optionString(options.from),
+          offline: Boolean(options.offline),
+          cmd: "elv spec update",
+        });
+        emitAndExit(result.env, result.exitCode);
+      }),
+  );
 
   for (const alias of ALIASES) {
     addCommonFlags(
@@ -164,6 +183,10 @@ function configOverrides(command: Command): ConfigOverrides {
 
 function lastCommand(args: unknown[]): Command {
   return args[args.length - 1] as Command;
+}
+
+function optionString(value: unknown): string | undefined {
+  return typeof value === "string" ? value : undefined;
 }
 
 function mergedOptions(command: Command): Record<string, unknown> {
