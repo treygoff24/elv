@@ -76,7 +76,14 @@ function characterCount(input: AgentInput, warnings: Warning[]): number {
       message: "Shared/library voice multiplier is unknown; estimate is a lower bound.",
     });
   }
-  return textFromBody(input.body).length;
+  return textFromBody(input.body).length * ttsCreditFactor(input.body);
+}
+
+// Flash/Turbo models bill at 0.5 credits/char via the API; all other models at 1.0.
+// Unknown/unset model_id defaults to 1.0 (conservative for the pre-flight guard).
+function ttsCreditFactor(body: unknown): number {
+  const modelId = isRecord(body) && typeof body.model_id === "string" ? body.model_id : "";
+  return /flash|turbo/iu.test(modelId) ? 0.5 : 1;
 }
 
 function textFromBody(body: unknown): string {
@@ -138,7 +145,11 @@ function firstFile(files: AgentInput["files"]): string | null {
 }
 
 function creditsPerAudioMinute(operationId: string): number {
-  return operationId === "speech_to_text" || operationId === "transcribe" ? 330 : 1_000;
+  // Scribe STT bills ~27 credits/min via the API — empirically 51 credits for a ~115s scribe_v1
+  // clip (confirmed against the account meter), cross-checked against $0.22/hr. The 330/min figure
+  // on the pricing help page is a non-API/legacy rate that overestimates API STT by ~12x.
+  if (operationId === "speech_to_text" || operationId === "transcribe") return 27;
+  return 1_000;
 }
 
 function isAudioSecondsOperation(operationId: string): boolean {

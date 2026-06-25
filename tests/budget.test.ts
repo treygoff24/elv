@@ -65,6 +65,25 @@ describe("budget estimates", () => {
     ).resolves.toBe(5);
   });
 
+  it("applies the Flash/Turbo 0.5 credit-per-character discount", async () => {
+    await expect(
+      estimateCredits(
+        op("text_to_speech_full", "characters"),
+        { body: { text: "abcdef", model_id: "eleven_flash_v2_5" } },
+        {},
+      ),
+    ).resolves.toBe(3);
+  });
+
+  it("estimates Scribe speech-to-text at the calibrated ~27 credits/minute", async () => {
+    const path = join(tempDir, "stt-two-seconds.wav");
+    await writeFile(path, wav(2));
+
+    await expect(
+      estimateCredits(op("speech_to_text", "audio_seconds"), { files: { file: path } }, {}),
+    ).resolves.toBeCloseTo((27 * 2) / 60);
+  });
+
   it("joins dialogue input text for character estimates", async () => {
     await expect(
       estimateCredits(
