@@ -8,9 +8,13 @@ import { emitAndExit, notImplemented, validationError } from "./core/errors";
 import { success } from "./core/envelope";
 import { ExitCode } from "./core/types";
 import { handleCall } from "./commands/call";
+import { handleHttp } from "./commands/http";
+import { handleWait } from "./commands/wait";
+import { runWs } from "./commands/ws";
 import { handleOpsGet, handleOpsSchema, handleOpsSearch } from "./commands/ops";
 import { updateSpecCache } from "./openapi/fetch-spec";
 import type { ConfigOverrides } from "./core/config";
+import type { RunWsOptions } from "./commands/ws";
 import type { Envelope } from "./core/types";
 
 const ALIASES = [
@@ -90,6 +94,9 @@ function buildProgram(version: string): Command {
     .option("--allow-unknown", "route unknown flat keys to body")
     .option("--unpack", "unpack zip responses when supported")
     .option("--hash", "force sha256 hashing for large output files")
+    .option("--all", "fetch and save all pages")
+    .option("--limit <n>", "max items inlined in the envelope")
+    .option("--save-json <path>", "write the full JSON result to a path")
     .action((id: string, _options: Record<string, unknown>, command: Command) =>
       handleCall(id, mergedOptions(command) as Parameters<typeof handleCall>[1]),
     );
@@ -97,14 +104,43 @@ function buildProgram(version: string): Command {
   addCommonFlags(
     program
       .command("http <method> <path>")
-      .action((method: string, path: string) => notImplExit(`elv http ${method} ${path}`)),
+      .option("--query <key=value>", "add query parameter", collect, [])
+      .option("--body-json <json>", "JSON request body")
+      .option("--file <field=path>", "add file upload field", collect, [])
+      .option("--all", "fetch and save all pages")
+      .option("--limit <n>", "max items inlined in the envelope")
+      .option("--save-json <path>", "write the full JSON result to a path")
+      .action((method: string, path: string, _options: Record<string, unknown>, command: Command) =>
+        handleHttp(method, path, httpOptions(command)),
+      ),
   );
   addCommonFlags(
     program
       .command("ws [target]")
-      .action((target: string | undefined) => notImplExit(`elv ws${target ? ` ${target}` : ""}`)),
+      .option("--list", "list the WebSocket catalog")
+      .option("--query <key=value>", "add query parameter", collect, [])
+      .option("--send <path>", "NDJSON send-script")
+      .action(
+        async (target: string | undefined, _options: Record<string, unknown>, command: Command) => {
+          const result = await runWs(wsArgs(target, command), wsRunOptions(command));
+          emitAndExit(result.env, result.exitCode);
+        },
+      ),
   );
-  addCommonFlags(program.command("wait").action(() => notImplExit("elv wait")));
+  addCommonFlags(
+    program
+      .command("wait")
+      .option("--operation <id>", "operation to poll")
+      .option("--status-path <path>", "dotted status path, e.g. $.data.status")
+      .option("--success <csv>", "success status values (comma-separated)")
+      .option("--failure <csv>", "failure status values (comma-separated)")
+      .option("--interval-ms <ms>", "poll interval in milliseconds")
+      .option("--timeout-ms <ms>", "overall timeout in milliseconds")
+      .option("--cmd <json>", "JSON array command to poll instead of an operation")
+      .action((_options: Record<string, unknown>, command: Command) =>
+        handleWait(waitOptions(command)),
+      ),
+  );
   addCommonFlags(
     program.command("view <path>").action((path: string) => notImplExit(`elv view ${path}`)),
   );
@@ -178,6 +214,54 @@ function addCommonFlags(command: Command): Command {
     .option("--debug", "debug logs to stderr")
     .option("--retry-post", "retry POST requests")
     .option("--json <json>", "JSON input");
+}
+
+function httpOptions(command: Command): Parameters<typeof handleHttp>[2] {
+  const opts = mergedOptions(command);
+  return {
+    query: opts.query as string[] | undefined,
+    bodyJson: optionString(opts.bodyJson),
+    file: opts.file as string[] | undefined,
+    out: optionString(opts.out),
+    saveJson: optionString(opts.saveJson),
+    all: Boolean(opts.all),
+    limit: optionString(opts.limit),
+    dryRun: Boolean(opts.dryRun),
+    retryPost: Boolean(opts.retryPost),
+    hash: Boolean(opts.hash),
+    baseUrl: optionString(opts.baseUrl),
+    profile: optionString(opts.profile),
+  };
+}
+
+function wsArgs(target: string | undefined, command: Command): string[] {
+  const opts = mergedOptions(command);
+  const args: string[] = [];
+  if (target) args.push(target);
+  if (opts.list) args.push("--list");
+  for (const pair of (opts.query as string[] | undefined) ?? []) args.push("--query", pair);
+  if (typeof opts.send === "string") args.push("--send", opts.send);
+  if (typeof opts.out === "string") args.push("--out", opts.out);
+  return args;
+}
+
+function wsRunOptions(command: Command): RunWsOptions {
+  const opts = mergedOptions(command);
+  return { baseUrl: optionString(opts.baseUrl), profile: optionString(opts.profile) };
+}
+
+function waitOptions(command: Command): Parameters<typeof handleWait>[0] {
+  const opts = mergedOptions(command);
+  return {
+    operation: optionString(opts.operation),
+    json: optionString(opts.json),
+    statusPath: optionString(opts.statusPath),
+    success: optionString(opts.success),
+    failure: optionString(opts.failure),
+    intervalMs: optionString(opts.intervalMs),
+    timeoutMs: optionString(opts.timeoutMs),
+    cmd: optionString(opts.cmd),
+  };
 }
 
 function configOverrides(command: Command): ConfigOverrides {

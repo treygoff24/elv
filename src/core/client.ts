@@ -6,17 +6,26 @@ import { validationError, unknownOperation } from "./errors";
 import { NetworkRetryError, sendWithRetry } from "./retries";
 import { buildHttpRequest, InputNormalizationError, normalizeInput } from "./request-builder";
 import { normalizeResponse } from "./response-normalizer";
+import {
+  addPaginationToEnvelope,
+  allOutputTarget,
+  applyPaginationDefaults,
+  collectAllPages,
+  type PaginationOptions,
+} from "./pagination";
 import { enforceSafety, requiresYes } from "./safety";
 import { OutTargetError } from "./files";
 import type { AnySchema, ValidateFunction } from "ajv";
 import type { AgentInput, Envelope, NormalizedError, OperationCard, RunOpts } from "./types";
+import type { HttpRequest } from "./request-builder";
+import type { ResponseContext } from "./response-normalizer";
 
 const OPENAPI_SCHEMA_BASE = "elv://openapi";
 
 export async function runOperation(
   operationId: string,
   input: AgentInput | Record<string, unknown>,
-  opts: RunOpts = {},
+  opts: RunOpts & PaginationOptions = {},
 ): Promise<Envelope> {
   const cmd = `elv call ${operationId}`;
   try {
@@ -26,7 +35,11 @@ export async function runOperation(
     if (!baseOp) return unknownOperation(operationId);
     const op = hydrateBodySchema(baseOp, cached?.bundledSpec);
 
-    const normalized = normalizeInput(op, input, { allowUnknown: opts.allowUnknown });
+    const normalized = applyPaginationDefaults(
+      op,
+      normalizeInput(op, input, { allowUnknown: opts.allowUnknown }),
+      opts.limit ?? 20,
+    );
     const validation = await validateInput(op, normalized, cached?.bundledSpec);
     if (validation)
       return validationError(cmd, validation.message, {
@@ -60,22 +73,63 @@ export async function runOperation(
       baseUrl: opts.baseUrl,
       maxCredits: opts.maxCredits,
     });
-    const req = await buildHttpRequest(op, normalized, {
+    if (opts.all && !allOutputTarget(opts)) {
+      return validationError(cmd, "--all requires --save-json or --out", { operationId });
+    }
+
+    const requestContext = {
       baseUrl: opts.baseUrl ?? config.baseUrl,
       apiKey: opts.apiKey ?? getApiKey({ profile: opts.profile }),
-    });
-    const res = await sendWithRetry(req, op, { retryPost: opts.retryPost });
-    return await normalizeResponse(op, res, {
+    };
+    const makeRequest = (nextInput: AgentInput) => buildHttpRequest(op, nextInput, requestContext);
+
+    if (opts.all) {
+      return collectAllPages({
+        op,
+        input: normalized,
+        out: opts.out,
+        saveJson: opts.saveJson,
+        hash: opts.hash,
+        limit: opts.limit,
+        command: { kind: "call" },
+        fetchPage: async (pageInput) =>
+          sendAndNormalize(await makeRequest(pageInput), op, {
+            cmd,
+            out: opts.out ?? config.outputDir,
+            hash: opts.hash,
+            creditsEstimated: estimate,
+            retryPost: opts.retryPost,
+          }),
+      });
+    }
+
+    const req = await makeRequest(normalized);
+    const env = await sendAndNormalize(req, op, {
       cmd,
       out: opts.out ?? config.outputDir,
       hash: opts.hash,
       creditsEstimated: estimate,
+      retryPost: opts.retryPost,
       requestPath: req.path,
       method: req.method,
     });
+    return addPaginationToEnvelope(env, op, normalized, { command: { kind: "call" }, limit: opts.limit });
   } catch (error) {
     return envelopeForThrown(cmd, operationId, error);
   }
+}
+
+export interface SendAndNormalizeContext extends ResponseContext {
+  retryPost?: boolean;
+}
+
+export async function sendAndNormalize(
+  req: HttpRequest,
+  op: OperationCard,
+  ctx: SendAndNormalizeContext,
+): Promise<Envelope> {
+  const res = await sendWithRetry(req, op, { retryPost: ctx.retryPost });
+  return normalizeResponse(op, res, ctx);
 }
 
 async function validateInput(
@@ -178,7 +232,7 @@ function ajvParam(instancePath: string | undefined, params: unknown): string | n
   return last ?? null;
 }
 
-function envelopeForThrown(cmd: string, operationId: string, error: unknown): Envelope {
+export function envelopeForThrown(cmd: string, operationId: string, error: unknown): Envelope {
   if (error instanceof InputNormalizationError) {
     return failure({
       cmd,

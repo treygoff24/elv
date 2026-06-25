@@ -4,6 +4,7 @@ import { emitAndExit, exitCodeForError, validationError } from "../core/errors";
 import { runOperation } from "../core/client";
 import { ExitCode } from "../core/types";
 import type { AgentInput, RunOpts } from "../core/types";
+import type { PaginationOptions } from "../core/pagination";
 
 export interface CallOptions {
   json?: string;
@@ -22,6 +23,9 @@ export interface CallOptions {
   hash?: boolean;
   baseUrl?: string;
   profile?: string;
+  all?: boolean;
+  limit?: string | number;
+  saveJson?: string;
 }
 
 export async function handleCall(operationId: string, options: CallOptions): Promise<never> {
@@ -80,11 +84,13 @@ export function parseCallInput(
   return { ok: true, input };
 }
 
-function runOpts(options: CallOptions): RunOpts {
+function runOpts(options: CallOptions): RunOpts & PaginationOptions {
   const maxCredits =
     options.maxCredits === undefined || options.maxCredits === ""
       ? undefined
       : Number(options.maxCredits);
+  const limit =
+    options.limit === undefined || options.limit === "" ? undefined : Number(options.limit);
   return {
     dryRun: options.dryRun,
     yes: options.yes,
@@ -96,7 +102,14 @@ function runOpts(options: CallOptions): RunOpts {
     baseUrl: options.baseUrl,
     profile: options.profile,
     maxCredits: Number.isFinite(maxCredits) ? maxCredits : undefined,
+    all: options.all,
+    saveJson: options.saveJson,
+    limit: finitePositiveInt(limit),
   };
+}
+
+function finitePositiveInt(value: number | undefined): number | undefined {
+  return value !== undefined && Number.isFinite(value) ? Math.max(1, Math.trunc(value)) : undefined;
 }
 
 function parseJsonObject(raw: string): Record<string, unknown> {

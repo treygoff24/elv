@@ -55,6 +55,35 @@ elv view <file> [--jq <expr>]            # phase 2
 
 Power commands: `ops`, `call`, `http`, `ws`. Aliases are sugar over the same runner.
 
+## Escape hatches
+
+When an endpoint is missing from the registry, still in beta, or needs a raw REST/WebSocket path, use the generic primitives. They share the same auth, envelope, retries, and redaction as `call`.
+
+**HTTP** — arbitrary REST against the configured base URL:
+
+```bash
+elv http GET /v1/voices
+elv http POST /v1/text-to-speech/21m00Tcm4TlvDq8ikWAM \
+  --body-json '{"text":"Hi","model_id":"eleven_v3"}' --out ./out
+```
+
+**WebSocket** — scripted NDJSON sessions (catalog name or raw `wss://` URL):
+
+```bash
+elv ws tts-realtime --query voice_id=VOICE --query model_id=eleven_flash_v2_5 \
+  --send script.ndjson --out ./session
+```
+
+**Wait** — poll an operation in-process until a status field resolves:
+
+```bash
+elv wait --operation get_dubbing \
+  --json '{"path":{"dubbing_id":"abc"}}' \
+  --status-path '$.data.status' \
+  --success 'done,completed' --failure 'failed,error' \
+  --interval-ms 2000 --timeout-ms 600000
+```
+
 ## Exit codes
 
 Branch on exit code without parsing JSON when possible:
