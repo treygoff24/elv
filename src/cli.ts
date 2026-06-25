@@ -7,6 +7,7 @@ import { configDoctor, loadConfig } from "./core/config";
 import { emitAndExit, notImplemented, validationError } from "./core/errors";
 import { success } from "./core/envelope";
 import { ExitCode } from "./core/types";
+import { handleCall } from "./commands/call";
 import { handleOpsGet, handleOpsSchema, handleOpsSearch } from "./commands/ops";
 import { updateSpecCache } from "./openapi/fetch-spec";
 import type { ConfigOverrides } from "./core/config";
@@ -81,9 +82,18 @@ function buildProgram(version: string): Command {
       ),
   );
 
-  addCommonFlags(
-    program.command("call <operation_id>").action((id: string) => notImplExit(`elv call ${id}`)),
-  );
+  const call = program
+    .command("call <operation_id>")
+    .option("--json-file <path>", "read JSON input from a file")
+    .option("--stdin-json", "read JSON input from stdin")
+    .option("--query <key=value>", "add query parameter", collect, [])
+    .option("--path <key=value>", "add path parameter", collect, [])
+    .option("--file <field=path>", "add file upload field", collect, [])
+    .option("--allow-unknown", "route unknown flat keys to body")
+    .action((id: string, _options: Record<string, unknown>, command: Command) =>
+      handleCall(id, mergedOptions(command) as Parameters<typeof handleCall>[1]),
+    );
+  addCommonFlags(call);
   addCommonFlags(
     program
       .command("http <method> <path>")
@@ -187,6 +197,10 @@ function lastCommand(args: unknown[]): Command {
 
 function optionString(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
+}
+
+function collect(value: string, previous: string[]): string[] {
+  return [...previous, value];
 }
 
 function mergedOptions(command: Command): Record<string, unknown> {
