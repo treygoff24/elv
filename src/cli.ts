@@ -12,6 +12,7 @@ import { handleHttp } from "./commands/http";
 import { handleWait } from "./commands/wait";
 import { runWs } from "./commands/ws";
 import { handleOpsGet, handleOpsSchema, handleOpsSearch } from "./commands/ops";
+import { registerAliases } from "./commands/aliases";
 import { updateSpecCache } from "./openapi/fetch-spec";
 import type { ConfigOverrides } from "./core/config";
 import type { RunWsOptions } from "./commands/ws";
@@ -183,15 +184,7 @@ function buildProgram(version: string): Command {
       }),
   );
 
-  for (const alias of ALIASES) {
-    addCommonFlags(
-      program
-        .command(alias)
-        .allowUnknownOption()
-        .allowExcessArguments()
-        .action(() => notImplExit(`elv ${alias}`)),
-    );
-  }
+  registerAliases(program, addCommonFlags);
 
   return program;
 }

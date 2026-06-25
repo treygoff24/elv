@@ -55,6 +55,40 @@ elv view <file> [--jq <expr>]            # phase 2
 
 Power commands: `ops`, `call`, `http`, `ws`. Aliases are sugar over the same runner.
 
+## Aliases
+
+Twelve thin commands build an `AgentInput` and call the **same** core runner as `elv call` — same auth, retries, envelope, budget guard, and file output. No alias implements its own HTTP client.
+
+| Alias           | Purpose                                                                  |
+| --------------- | ------------------------------------------------------------------------ |
+| `tts`           | Text-to-speech (voice id/name, text or file, optional stream/timestamps) |
+| `stt`           | Speech-to-text transcription                                             |
+| `music`         | Text-to-music generation                                                 |
+| `sfx`           | Text-to-sound-effects generation                                         |
+| `voice-change`  | Speech-to-speech voice conversion                                        |
+| `voice-isolate` | Background noise removal                                                 |
+| `dubbing`       | Dubbing create/get/audio workflows                                       |
+| `voices`        | Voice list, search, get, clone                                           |
+| `models`        | List available models                                                    |
+| `agents`        | Shallow ElevenAgents CRUD/simulate surface                               |
+| `history`       | Generated audio history list/audio/delete                                |
+| `usage`         | Subscription balance or date-range character stats                       |
+
+Examples:
+
+```bash
+elv tts --voice-id 21m00Tcm4TlvDq8ikWAM --text "Hello from elv." --out ./out
+
+elv voices list --limit 20
+
+# Date-range usage uses millisecond start_unix/end_unix on the wire (not seconds).
+elv usage --from 2026-06-01 --to 2026-06-25
+
+elv dubbing get --id abc123
+```
+
+For anything outside the alias surface, use `elv call <operation_id>` or the `http` / `ws` escape hatches.
+
 ## Escape hatches
 
 When an endpoint is missing from the registry, still in beta, or needs a raw REST/WebSocket path, use the generic primitives. They share the same auth, envelope, retries, and redaction as `call`.
@@ -88,17 +122,17 @@ elv wait --operation get_dubbing \
 
 Branch on exit code without parsing JSON when possible:
 
-| Code | Meaning |
-|------|---------|
-| 0 | Success |
-| 2 | Input / validation (invalid parameters, local pre-flight) |
-| 3 | Auth / permission |
-| 4 | Confirmation required (`--yes` missing on destructive or external-side-effect op) |
-| 5 | Budget ceiling (`--max-credits` blocked the call pre-flight) |
-| 6 | Credit / quota exhausted at provider |
-| 7 | Transient / retryable exhausted (429, 5xx after retries, network) |
-| 8 | Provider error (other 4xx/5xx not covered above) |
-| 9 | Not found (404, unknown `operation_id`) |
+| Code | Meaning                                                                           |
+| ---- | --------------------------------------------------------------------------------- |
+| 0    | Success                                                                           |
+| 2    | Input / validation (invalid parameters, local pre-flight)                         |
+| 3    | Auth / permission                                                                 |
+| 4    | Confirmation required (`--yes` missing on destructive or external-side-effect op) |
+| 5    | Budget ceiling (`--max-credits` blocked the call pre-flight)                      |
+| 6    | Credit / quota exhausted at provider                                              |
+| 7    | Transient / retryable exhausted (429, 5xx after retries, network)                 |
+| 8    | Provider error (other 4xx/5xx not covered above)                                  |
+| 9    | Not found (404, unknown `operation_id`)                                           |
 
 ## Agent usage
 
