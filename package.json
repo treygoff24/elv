@@ -2,6 +2,28 @@
   "name": "eleven-agent-cli",
   "version": "0.1.0",
   "description": "elv — agent-first ElevenLabs CLI: one JSON envelope per command over the ElevenLabs OpenAPI spec.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/treygoff24/elv.git"
+  },
+  "bugs": {
+    "url": "https://github.com/treygoff24/elv/issues"
+  },
+  "homepage": "https://github.com/treygoff24/elv#readme",
+  "author": "Trey Goff <trey@newayfunds.com>",
+  "license": "MIT",
+  "keywords": [
+    "elevenlabs",
+    "tts",
+    "text-to-speech",
+    "speech-to-text",
+    "cli",
+    "agent",
+    "openapi",
+    "voice",
+    "ai",
+    "audio"
+  ],
   "type": "module",
   "bin": {
     "elv": "dist/cli.js"

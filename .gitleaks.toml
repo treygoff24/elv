@@ -1,0 +1,14 @@
+title = "elv gitleaks config"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "OpenAPI example placeholder tokens"
+condition = "AND"
+paths = ['''spec/openapi\.snapshot\.json''']
+regexTarget = "line"
+regexes = [
+  '''"token"\s*:\s*"sutkn_1234567890"''',
+  '''"xi_api_key"\s*:\s*"8so27l7327189x0h939ekx293380l920"''',
+]
