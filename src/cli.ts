@@ -42,7 +42,7 @@ export async function main(argv = process.argv): Promise<void> {
       emitAndExit(validationError("elv", "Missing command"), ExitCode.InputValidation);
     await program.parseAsync(argv);
   } catch (error) {
-    const { env, exitCode } = envelopeForError(error, argv, version);
+    const { env, exitCode } = envelopeForError(error, argv, version, program);
     emitAndExit(env, exitCode);
   }
 }
@@ -291,10 +291,24 @@ function notImplExit(cmd: string): never {
   emitAndExit(notImplemented(cmd), ExitCode.ProviderError);
 }
 
+function resolveCommandPath(program: Command, argv: string[]): Command {
+  let current = program;
+  for (const token of argv.slice(2)) {
+    if (token.startsWith("-")) break;
+    const next = current.commands.find(
+      (sub) => sub.name() === token || sub.aliases().includes(token),
+    );
+    if (!next) break;
+    current = next;
+  }
+  return current;
+}
+
 function envelopeForError(
   error: unknown,
   argv: string[],
   version: string,
+  program: Command,
 ): { env: Envelope; exitCode: ExitCode } {
   const cmd = argvToCmd(argv);
   if (error instanceof CommanderError) {
@@ -305,6 +319,16 @@ function envelopeForError(
       return {
         env: success({ cmd, data: { commands: commandNames() } }),
         exitCode: ExitCode.Success,
+      };
+    }
+    if (error.code === "commander.help") {
+      const subcommands = resolveCommandPath(program, argv)
+        .commands.map((sub) => sub.name())
+        .filter((name) => name !== "help");
+      const detail = subcommands.length ? ` (one of: ${subcommands.join(", ")})` : "";
+      return {
+        env: validationError(cmd, `missing subcommand${detail}`, { raw: { subcommands } }),
+        exitCode: ExitCode.InputValidation,
       };
     }
     if (error.code === "commander.unknownCommand") {
@@ -356,7 +380,7 @@ function packageVersion(): string {
 const entryPath = process.argv[1] ? resolve(process.argv[1]) : undefined;
 if (entryPath && fileURLToPath(import.meta.url) === entryPath) {
   void main().catch((error: unknown) => {
-    const { env, exitCode } = envelopeForError(error, process.argv, "0.0.0");
+    const { env, exitCode } = envelopeForError(error, process.argv, "0.0.0", buildProgram("0.0.0"));
     emitAndExit(env, exitCode);
   });
 }
