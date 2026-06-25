@@ -69,9 +69,7 @@ function buildProgram(version: string): Command {
         handleOpsSearch(query, { limit: optionString(options.limit) }),
       ),
   );
-  addCommonFlags(
-    ops.command("get <operation_id>").action((id: string) => handleOpsGet(id)),
-  );
+  addCommonFlags(ops.command("get <operation_id>").action((id: string) => handleOpsGet(id)));
   addCommonFlags(
     ops
       .command("schema <operation_id>")
@@ -90,6 +88,8 @@ function buildProgram(version: string): Command {
     .option("--path <key=value>", "add path parameter", collect, [])
     .option("--file <field=path>", "add file upload field", collect, [])
     .option("--allow-unknown", "route unknown flat keys to body")
+    .option("--unpack", "unpack zip responses when supported")
+    .option("--hash", "force sha256 hashing for large output files")
     .action((id: string, _options: Record<string, unknown>, command: Command) =>
       handleCall(id, mergedOptions(command) as Parameters<typeof handleCall>[1]),
     );

@@ -47,8 +47,9 @@ export async function sendWithRetry(
       const res = await fetch(req.url, {
         method: req.method,
         headers: req.headers,
-        body: req.body,
-      });
+        body: req.body as RequestInit["body"],
+        ...(req.duplex ? { duplex: req.duplex } : {}),
+      } as RequestInit & { duplex?: "half" });
       const decision = await retryDecision(res, req, ctx, attempt, maxAttempts, jitter);
       if (!decision.retry) return res;
       await sleep(decision.afterMs);
@@ -92,7 +93,11 @@ async function retryDecision(
 }
 
 function methodCanRetry(req: HttpRequest, ctx: RetryContext): boolean {
-  return req.method === "GET" || req.method === "HEAD" || (req.method === "POST" && Boolean(ctx.retryPost));
+  return (
+    req.method === "GET" ||
+    req.method === "HEAD" ||
+    (req.method === "POST" && Boolean(ctx.retryPost))
+  );
 }
 
 async function responseCode(res: Response): Promise<string> {

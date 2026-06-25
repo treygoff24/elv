@@ -7,6 +7,7 @@ import { NetworkRetryError, sendWithRetry } from "./retries";
 import { buildHttpRequest, InputNormalizationError, normalizeInput } from "./request-builder";
 import { normalizeResponse } from "./response-normalizer";
 import { enforceSafety, requiresYes } from "./safety";
+import { OutTargetError } from "./files";
 import type { AnySchema, ValidateFunction } from "ajv";
 import type { AgentInput, Envelope, NormalizedError, OperationCard, RunOpts } from "./types";
 
@@ -27,14 +28,24 @@ export async function runOperation(
 
     const normalized = normalizeInput(op, input, { allowUnknown: opts.allowUnknown });
     const validation = await validateInput(op, normalized, cached?.bundledSpec);
-    if (validation) return validationError(cmd, validation.message, { operationId, param: validation.param, raw: validation.raw });
+    if (validation)
+      return validationError(cmd, validation.message, {
+        operationId,
+        param: validation.param,
+        raw: validation.raw,
+      });
 
     const estimate = estimateCredits(op, normalized, opts);
     if (opts.dryRun) {
       return dryRun({
         cmd,
         operationId,
-        request: { operation_id: operationId, method: op.method, path: op.pathTemplate, input: normalized },
+        request: {
+          operation_id: operationId,
+          method: op.method,
+          path: op.pathTemplate,
+          input: normalized,
+        },
         creditsEstimated: estimate,
         wouldRequireYes: requiresYes(op),
         wouldExceedBudget: overBudget(estimate, opts),
@@ -44,8 +55,12 @@ export async function runOperation(
     enforceSafety(op, opts);
     enforceBudget(estimate, opts);
 
-    const config = loadConfig({ profile: opts.profile, baseUrl: opts.baseUrl, maxCredits: opts.maxCredits });
-    const req = buildHttpRequest(op, normalized, {
+    const config = loadConfig({
+      profile: opts.profile,
+      baseUrl: opts.baseUrl,
+      maxCredits: opts.maxCredits,
+    });
+    const req = await buildHttpRequest(op, normalized, {
       baseUrl: opts.baseUrl ?? config.baseUrl,
       apiKey: opts.apiKey ?? getApiKey({ profile: opts.profile }),
     });
@@ -84,7 +99,7 @@ async function validateInput(
 
   if (!op.requestBody) return null;
   if (!bundledSpec && op.requestBody.schemaRef) return null;
-  if (op.requestBody.required && input.body === undefined) {
+  if (op.requestBody.required && !hasRequestPayload(op, input)) {
     return {
       type: "validation_error",
       code: "validation_error",
@@ -96,7 +111,7 @@ async function validateInput(
 
   const validator = await getInputValidatorForOperation(op, bundledSpec ?? minimalSpec());
   if (!validator) return null;
-  if (validator(input.body ?? {})) return null;
+  if (validator(validationBody(op, input))) return null;
 
   const first = validator.errors?.[0];
   const param = ajvParam(first?.instancePath, first?.params);
@@ -107,6 +122,16 @@ async function validateInput(
     param,
     raw: validator.errors,
   };
+}
+
+function hasRequestPayload(op: OperationCard, input: AgentInput): boolean {
+  if (!op.requestBody?.multipart) return input.body !== undefined;
+  return input.body !== undefined || Object.keys(input.files ?? {}).length > 0;
+}
+
+function validationBody(op: OperationCard, input: AgentInput): unknown {
+  if (!op.requestBody?.multipart) return input.body ?? {};
+  return { ...asRecord(input.body), ...input.files };
 }
 
 async function getInputValidatorForOperation(
@@ -120,7 +145,8 @@ async function getInputValidatorForOperation(
   const ajv = new Ajv2020({ strict: false, allErrors: true, validateSchema: false });
   addFormats(ajv);
   ajv.addSchema(bundledSpec as AnySchema, OPENAPI_SCHEMA_BASE);
-  if (op.requestBody?.schemaRef) return ajv.getSchema(`${OPENAPI_SCHEMA_BASE}${op.requestBody.schemaRef}`) ?? null;
+  if (op.requestBody?.schemaRef)
+    return ajv.getSchema(`${OPENAPI_SCHEMA_BASE}${op.requestBody.schemaRef}`) ?? null;
   if (op.requestBody?.schema) return ajv.compile(op.requestBody.schema as AnySchema);
   return null;
 }
@@ -170,6 +196,20 @@ function envelopeForThrown(cmd: string, operationId: string, error: unknown): En
       retry: error.retry,
     });
   }
+  if (error instanceof OutTargetError) {
+    return failure({
+      cmd,
+      operation_id: operationId,
+      error: {
+        type: "validation_error",
+        code: error.code,
+        message: error.message,
+        raw: { hint: error.hint },
+      },
+      retry: { recommended: false, after_ms: null },
+      hints: [{ cmd, why: error.hint }],
+    });
+  }
   return failure({
     cmd,
     operation_id: operationId,
@@ -184,9 +224,16 @@ function envelopeForThrown(cmd: string, operationId: string, error: unknown): En
 }
 
 function minimalSpec(): unknown {
-  return { openapi: "3.1.0", info: { title: "elv", version: "0" }, paths: {}, components: { schemas: {} } };
+  return {
+    openapi: "3.1.0",
+    info: { title: "elv", version: "0" },
+    paths: {},
+    components: { schemas: {} },
+  };
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
 }

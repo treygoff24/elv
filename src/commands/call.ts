@@ -18,6 +18,8 @@ export interface CallOptions {
   yes?: boolean;
   retryPost?: boolean;
   allowUnknown?: boolean;
+  unpack?: boolean;
+  hash?: boolean;
   baseUrl?: string;
   profile?: string;
 }
@@ -27,23 +29,36 @@ export async function handleCall(operationId: string, options: CallOptions): Pro
   if (!parsed.ok) emitAndExit(parsed.env, ExitCode.InputValidation);
 
   const env = await runOperation(operationId, parsed.input, runOpts(options));
-  emitAndExit(env, env.ok ? ExitCode.Success : exitCodeForError(env.error, env.http?.status ?? undefined));
+  emitAndExit(
+    env,
+    env.ok ? ExitCode.Success : exitCodeForError(env.error, env.http?.status ?? undefined),
+  );
 }
 
 export function parseCallInput(
   operationId: string,
   options: CallOptions,
-): { ok: true; input: AgentInput | Record<string, unknown> } | { ok: false; env: ReturnType<typeof validationError> } {
+):
+  | { ok: true; input: AgentInput | Record<string, unknown> }
+  | { ok: false; env: ReturnType<typeof validationError> } {
   const cmd = `elv call ${operationId}`;
-  const jsonSources = [options.json, options.jsonFile, options.stdinJson ? "stdin" : undefined].filter(Boolean);
+  const jsonSources = [
+    options.json,
+    options.jsonFile,
+    options.stdinJson ? "stdin" : undefined,
+  ].filter(Boolean);
   if (jsonSources.length > 1) {
-    return { ok: false, env: validationError(cmd, "Use only one of --json, --json-file, or --stdin-json") };
+    return {
+      ok: false,
+      env: validationError(cmd, "Use only one of --json, --json-file, or --stdin-json"),
+    };
   }
 
   let input: Record<string, unknown> = {};
   try {
     if (options.json !== undefined) input = parseJsonObject(options.json);
-    else if (options.jsonFile !== undefined) input = parseJsonObject(readFileSync(options.jsonFile, "utf8"));
+    else if (options.jsonFile !== undefined)
+      input = parseJsonObject(readFileSync(options.jsonFile, "utf8"));
     else if (options.stdinJson) input = parseJsonObject(readFileSync(0, "utf8"));
   } catch (error) {
     return {
@@ -75,6 +90,8 @@ function runOpts(options: CallOptions): RunOpts {
     yes: options.yes,
     retryPost: options.retryPost,
     allowUnknown: options.allowUnknown,
+    unpack: options.unpack,
+    hash: options.hash,
     out: options.out,
     baseUrl: options.baseUrl,
     profile: options.profile,
@@ -90,7 +107,11 @@ function parseJsonObject(raw: string): Record<string, unknown> {
   return parsed as Record<string, unknown>;
 }
 
-function addPairs(input: Record<string, unknown>, bucket: "query" | "path", pairs: string[] | undefined): void {
+function addPairs(
+  input: Record<string, unknown>,
+  bucket: "query" | "path",
+  pairs: string[] | undefined,
+): void {
   if (!pairs || pairs.length === 0) return;
   const current = bucketObject(input, bucket);
   for (const pair of pairs) {
@@ -108,7 +129,11 @@ function addFiles(input: Record<string, unknown>, files: string[] | undefined): 
     const path = resolve(value);
     if (key.endsWith("[]")) {
       const previous = current[field];
-      current[field] = Array.isArray(previous) ? [...previous, path] : previous ? [previous, path] : [path];
+      current[field] = Array.isArray(previous)
+        ? [...previous, path]
+        : previous
+          ? [previous, path]
+          : [path];
     } else {
       current[field] = path;
     }
@@ -121,7 +146,10 @@ function parsePair(pair: string): { key: string; value: string } {
   return { key: pair.slice(0, index), value: pair.slice(index + 1) };
 }
 
-function bucketObject(input: Record<string, unknown>, bucket: "query" | "path" | "files"): Record<string, unknown> {
+function bucketObject(
+  input: Record<string, unknown>,
+  bucket: "query" | "path" | "files",
+): Record<string, unknown> {
   const existing = input[bucket];
   if (existing === undefined) {
     const next: Record<string, unknown> = {};

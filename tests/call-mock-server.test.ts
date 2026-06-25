@@ -69,7 +69,6 @@ describe("call mock server (black-box, integration gate)", () => {
   function runCall(args: string[], env?: Record<string, string>): Promise<CallResult> {
     return new Promise((resolve, reject) => {
       const child = spawn("npx", ["tsx", "src/cli.ts", ...args], {
-        encoding: "utf-8",
         env: {
           ...process.env,
           ELEVENLABS_BASE_URL: baseUrl,
@@ -88,7 +87,7 @@ describe("call mock server (black-box, integration gate)", () => {
         stderr += chunk.toString();
       });
       child.on("error", reject);
-      child.on("close", (code) => resolve({ stdout, stderr, code }));
+      child.on("close", (code: number | null) => resolve({ stdout, stderr, code }));
     });
   }
 
@@ -382,7 +381,12 @@ describe("call mock server (black-box, integration gate)", () => {
       const success = await runCall(["call", "get_voices"]);
       assertNoKeyLeak(success.stdout, success.stderr);
 
-      const failure = await runCall(["call", "text_to_speech_full", "--json", ttsJson("ERR_LEGACY")]);
+      const failure = await runCall([
+        "call",
+        "text_to_speech_full",
+        "--json",
+        ttsJson("ERR_LEGACY"),
+      ]);
       assertNoKeyLeak(failure.stdout, failure.stderr);
     },
     CALL_TIMEOUT_MS,

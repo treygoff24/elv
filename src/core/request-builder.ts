@@ -1,4 +1,12 @@
+import { openAsBlob, statSync } from "node:fs";
+import { basename } from "node:path";
+import { lookup } from "mime-types";
 import type { AgentInput, HttpMethod, NormalizedError, OperationCard } from "./types";
+
+// Multipart uses the native global FormData + fs.openAsBlob (lazy, file-backed) rather than the
+// `form-data` package: form-data's Node stream is not transmitted by native fetch/undici (the body
+// arrives empty), whereas a FormData with an openAsBlob-backed Blob streams without buffering the
+// whole file into memory — required for large dubbing uploads (spec §6).
 
 export interface NormalizeInputOptions {
   allowUnknown?: boolean;
@@ -7,17 +15,20 @@ export interface NormalizeInputOptions {
 export interface BuildRequestContext {
   baseUrl?: string;
   apiKey?: string;
+  maxUploadBytes?: number;
 }
 
 export interface HttpRequest {
   url: string;
   method: HttpMethod;
   headers: Record<string, string>;
-  body?: string;
+  body?: string | FormData;
+  duplex?: "half";
   path: string;
 }
 
 const DEFAULT_BASE_URL = "https://api.elevenlabs.io";
+const DEFAULT_MAX_UPLOAD_BYTES = 2 * 1024 * 1024 * 1024;
 const BUCKET_KEYS = new Set(["path", "query", "body", "headers", "files"]);
 
 export class InputNormalizationError extends Error {
@@ -62,11 +73,11 @@ export function normalizeInput(
   return compactInput(normalized);
 }
 
-export function buildHttpRequest(
+export async function buildHttpRequest(
   op: OperationCard,
   normalized: AgentInput,
   ctx: BuildRequestContext = {},
-): HttpRequest {
+): Promise<HttpRequest> {
   const path = resolvePath(op, normalized.path ?? {});
   const url = new URL(path, ctx.baseUrl ?? DEFAULT_BASE_URL);
   for (const [key, value] of Object.entries(normalized.query ?? {})) appendQuery(url, key, value);
@@ -74,12 +85,18 @@ export function buildHttpRequest(
   const headers: Record<string, string> = { ...normalized.headers };
   if (ctx.apiKey) headers["xi-api-key"] = ctx.apiKey;
 
-  let body: string | undefined;
+  let body: string | FormData | undefined;
   if (op.requestBody || normalized.body !== undefined) {
     const contentType = op.requestBody?.contentType ?? "application/json";
     if (op.requestBody?.multipart || contentType.toLowerCase().includes("multipart/form-data")) {
-      // P4: stream multipart/file uploads without buffering large media into memory.
-      throw new InputNormalizationError("Multipart uploads land in P4; this runner will not buffer files.");
+      // Do NOT set content-type: fetch derives multipart/form-data + boundary from the FormData body.
+      return {
+        url: url.toString(),
+        method: op.method,
+        headers,
+        body: await buildMultipartBody(op, normalized, ctx),
+        path,
+      };
     }
     headers["content-type"] = contentType;
     body = serializeBody(contentType, normalized.body ?? {});
@@ -101,7 +118,11 @@ function routeFlatKey(
       putBody(normalized, key, value);
       return;
     }
-    throw new InputNormalizationError(`Unknown input key "${key}"`, { key, bucketed_shape: {} }, key);
+    throw new InputNormalizationError(
+      `Unknown input key "${key}"`,
+      { key, bucketed_shape: {} },
+      key,
+    );
   }
   if (matches.length > 1) {
     throw new InputNormalizationError(
@@ -118,7 +139,10 @@ function routeFlatKey(
   else putBody(normalized, key, value);
 }
 
-function locationsForKey(op: OperationCard, key: string): Array<"path" | "query" | "header" | "body"> {
+function locationsForKey(
+  op: OperationCard,
+  key: string,
+): Array<"path" | "query" | "header" | "body"> {
   const matches: Array<"path" | "query" | "header" | "body"> = [];
   if (op.pathParams.some((param) => param.name === key)) matches.push("path");
   if (op.queryParams.some((param) => param.name === key)) matches.push("query");
@@ -132,10 +156,88 @@ function bodyFieldNames(op: OperationCard): Set<string> {
   return new Set(Object.keys(properties));
 }
 
+async function buildMultipartBody(
+  op: OperationCard,
+  normalized: AgentInput,
+  ctx: BuildRequestContext,
+): Promise<FormData> {
+  const form = new FormData();
+  const fileFields = new Set(op.requestBody?.fileFields ?? []);
+  const files = normalized.files ?? {};
+  const bodyRecord = normalized.body === undefined ? {} : asRecord(normalized.body);
+
+  for (const [field, value] of Object.entries(bodyRecord)) {
+    if (fileFields.has(field)) continue;
+    appendFormValue(form, field, value);
+  }
+
+  for (const [field, value] of Object.entries(files)) {
+    if (!fileFields.has(field)) {
+      throw new InputNormalizationError(
+        `Unknown file field "${field}" for ${op.operationId}`,
+        undefined,
+        field,
+      );
+    }
+    for (const path of Array.isArray(value) ? value : [value]) {
+      await appendFile(form, field, path, ctx);
+    }
+  }
+
+  return form;
+}
+
+function appendFormValue(form: FormData, field: string, value: unknown): void {
+  if (value === undefined) return;
+  if (Array.isArray(value)) {
+    for (const item of value) appendFormValue(form, field, item);
+    return;
+  }
+  if (value === null) {
+    form.append(field, "");
+    return;
+  }
+  if (typeof value === "object") {
+    form.append(field, JSON.stringify(value));
+    return;
+  }
+  form.append(field, String(value));
+}
+
+async function appendFile(
+  form: FormData,
+  field: string,
+  path: string,
+  ctx: BuildRequestContext,
+): Promise<void> {
+  const stats = statSync(path);
+  const cap = uploadCapBytes(ctx);
+  if (stats.size > cap) {
+    throw new InputNormalizationError(
+      `Upload file "${field}" exceeds max upload size (${stats.size} > ${cap} bytes)`,
+      { field, path, bytes: stats.size, max_bytes: cap },
+      field,
+    );
+  }
+  // openAsBlob is lazy/file-backed — it does not read the whole file into memory.
+  const blob = await openAsBlob(path, { type: lookup(path) || "application/octet-stream" });
+  form.append(field, blob, basename(path));
+}
+
+function uploadCapBytes(ctx: BuildRequestContext): number {
+  const envValue = Number(process.env.ELV_MAX_UPLOAD_BYTES);
+  if (ctx.maxUploadBytes !== undefined) return ctx.maxUploadBytes;
+  return Number.isFinite(envValue) && envValue > 0 ? envValue : DEFAULT_MAX_UPLOAD_BYTES;
+}
+
 function putBody(normalized: AgentInput, key: string, value: unknown): void {
   if (normalized.body === undefined) normalized.body = {};
   if (!isPlainObject(normalized.body)) {
-    throw new InputNormalizationError(`Cannot merge flat key "${key}" into non-object body`, undefined, key);
+    throw new InputNormalizationError(
+      `Cannot merge flat key "${key}" into non-object body`,
+      undefined,
+      key,
+    );
   }
   normalized.body = { ...(normalized.body as Record<string, unknown>), [key]: value };
 }
@@ -157,7 +259,11 @@ function resolvePath(op: OperationCard, pathInput: Record<string, unknown>): str
   return op.pathTemplate.replace(/\{([^}]+)\}/gu, (_, name: string) => {
     const value = pathInput[name];
     if (value === undefined || value === null || value === "") {
-      throw new InputNormalizationError(`Missing required path parameter "${name}"`, undefined, name);
+      throw new InputNormalizationError(
+        `Missing required path parameter "${name}"`,
+        undefined,
+        name,
+      );
     }
     return encodeURIComponent(String(value));
   });
@@ -205,11 +311,35 @@ function copyFiles(value: unknown): Record<string, string | string[]> {
   if (!isPlainObject(value)) throw new InputNormalizationError("files must be an object");
   const out: Record<string, string | string[]> = {};
   for (const [key, val] of Object.entries(value)) {
-    if (typeof val === "string") out[key] = val;
-    else if (Array.isArray(val) && val.every((item) => typeof item === "string")) out[key] = val;
-    else throw new InputNormalizationError(`files.${key} must be a path string or path string array`, undefined, key);
+    const field = key.endsWith("[]") ? key.slice(0, -2) : key;
+    if (!field) throw new InputNormalizationError(`files.${key} must name a field`, undefined, key);
+    if (typeof val === "string") mergeFile(out, field, key.endsWith("[]") ? [val] : val);
+    else if (Array.isArray(val) && val.every((item) => typeof item === "string"))
+      mergeFile(out, field, val);
+    else
+      throw new InputNormalizationError(
+        `files.${key} must be a path string or path string array`,
+        undefined,
+        key,
+      );
   }
   return out;
+}
+
+function mergeFile(
+  out: Record<string, string | string[]>,
+  field: string,
+  value: string | string[],
+): void {
+  const previous = out[field];
+  if (previous === undefined) {
+    out[field] = value;
+    return;
+  }
+  out[field] = [
+    ...(Array.isArray(previous) ? previous : [previous]),
+    ...(Array.isArray(value) ? value : [value]),
+  ];
 }
 
 function asRecord(value: unknown): Record<string, unknown> {

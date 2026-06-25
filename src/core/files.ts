@@ -1,5 +1,13 @@
 import { createHash } from "node:crypto";
-import { createReadStream, createWriteStream, existsSync, mkdirSync, statSync } from "node:fs";
+import { once } from "node:events";
+import {
+  createReadStream,
+  createWriteStream,
+  existsSync,
+  mkdirSync,
+  statSync,
+  type WriteStream,
+} from "node:fs";
 import { rename, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, extname, isAbsolute, join, resolve } from "node:path";
 import { Readable } from "node:stream";
@@ -23,6 +31,13 @@ export class OutTargetError extends Error {
     this.name = "OutTargetError";
     this.hint = hint;
   }
+}
+
+export interface TempFileWriter {
+  stream: WriteStream;
+  write: (chunk: Buffer | Uint8Array | string) => Promise<void>;
+  close: () => Promise<string>;
+  abort: () => Promise<void>;
 }
 
 export async function sha256File(path: string, opts: HashOptions = {}): Promise<string | null> {
@@ -93,6 +108,29 @@ export async function writeBufferToFile(
   return finalPath;
 }
 
+export function tempFileWriter(path: string): TempFileWriter {
+  mkdirSync(dirname(path), { recursive: true });
+  const tmpPath = `${path}.tmp-${process.pid}-${Date.now()}`;
+  const stream = createWriteStream(tmpPath);
+
+  return {
+    stream,
+    write: async (chunk) => {
+      if (!stream.write(chunk)) await once(stream, "drain");
+    },
+    close: async () => {
+      await closeWriteStream(stream);
+      const finalPath = await collisionPathForFile(path, tmpPath);
+      await rename(tmpPath, finalPath);
+      return finalPath;
+    },
+    abort: async () => {
+      stream.destroy();
+      await rm(tmpPath, { force: true });
+    },
+  };
+}
+
 export async function fileRecord(path: string, opts: HashOptions = {}): Promise<FileRecord> {
   const stats = statSync(path);
   return {
@@ -131,6 +169,14 @@ async function collisionPathForFile(path: string, contentPath: string): Promise<
   const extension = extname(path);
   const stem = path.slice(0, path.length - extension.length);
   return `${stem}-${contentHash?.slice(0, 8) ?? "content"}${extension}`;
+}
+
+async function closeWriteStream(stream: WriteStream): Promise<void> {
+  if (stream.closed) return;
+  await new Promise<void>((resolve, reject) => {
+    stream.once("error", reject);
+    stream.end(resolve);
+  });
 }
 
 function cleanPart(value: string): string {
