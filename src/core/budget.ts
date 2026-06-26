@@ -60,8 +60,8 @@ async function baseEstimate(
     return 100;
   }
   if (isAudioSecondsOperation(op.operationId))
-    return durationCredits(input, creditsPerAudioMinute(op.operationId), warnings);
-  if (isSourceMinuteOperation(op.operationId)) return sourceMinuteCredits(input, warnings);
+    return await durationCredits(input, creditsPerAudioMinute(op.operationId), warnings);
+  if (isSourceMinuteOperation(op.operationId)) return await sourceMinuteCredits(input, warnings);
   return null;
 }
 
@@ -132,7 +132,7 @@ async function sourceMinuteCredits(input: AgentInput, warnings: Warning[]): Prom
 
 async function inputDurationSeconds(input: AgentInput): Promise<number | null> {
   const filePath = firstFile(input.files);
-  return filePath ? probeDurationSeconds(filePath) : null;
+  return filePath ? await probeDurationSeconds(filePath) : null;
 }
 
 function firstFile(files: AgentInput["files"]): string | null {
