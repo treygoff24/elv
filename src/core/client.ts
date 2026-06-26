@@ -55,6 +55,8 @@ interface PreparedOperationRun {
   method?: HttpMethod;
 }
 
+type ExecutableOperationRun = Omit<PreparedOperationRun, "dryRunRequest">;
+
 export async function runOperation(
   operationId: string,
   input: AgentInput | Record<string, unknown>,
@@ -122,6 +124,58 @@ export async function runPreparedOperation({
   requestPath,
   method,
 }: PreparedOperationRun): Promise<Envelope> {
+  const preflightEnvelope = preparedOperationPreflight({
+    cmd,
+    op,
+    input,
+    opts,
+    command,
+    dryRunRequest,
+    creditsEstimated,
+    warnings,
+    requestPath,
+    method,
+  });
+  if (preflightEnvelope) return preflightEnvelope;
+
+  const config = loadConfig({
+    profile: opts.profile,
+    baseUrl: opts.baseUrl,
+    maxCredits: opts.maxCredits,
+  });
+  if (opts.all && !allOutputTarget(opts)) {
+    return validationError(cmd, "--all requires --save-json or --out", {
+      operationId: op.operationId,
+    });
+  }
+
+  const requestContext = {
+    baseUrl: opts.baseUrl ?? config.baseUrl,
+    apiKey: opts.apiKey ?? getApiKey({ profile: opts.profile }),
+  };
+  const makeRequest = (nextInput: AgentInput) => buildHttpRequest(op, nextInput, requestContext);
+
+  return opts.all
+    ? runAllPages(
+        { cmd, op, input, opts, command, creditsEstimated, requestPath, method },
+        makeRequest,
+        config.outputDir,
+      )
+    : runSinglePage(
+        { cmd, op, input, opts, command, creditsEstimated, warnings, requestPath, method },
+        makeRequest,
+        config.outputDir,
+      );
+}
+
+function preparedOperationPreflight({
+  cmd,
+  op,
+  opts,
+  dryRunRequest,
+  creditsEstimated,
+  warnings = [],
+}: PreparedOperationRun): Envelope | null {
   if (opts.dryRun) {
     return withWarnings(
       dryRun({
@@ -146,53 +200,58 @@ export async function runPreparedOperation({
       operationId: op.operationId,
     });
   }
+  return null;
+}
 
-  const config = loadConfig({
-    profile: opts.profile,
-    baseUrl: opts.baseUrl,
-    maxCredits: opts.maxCredits,
+type RequestFactory = (nextInput: AgentInput) => Promise<HttpRequest>;
+
+async function runAllPages(
+  { cmd, op, input, opts, command, creditsEstimated, requestPath, method }: ExecutableOperationRun,
+  makeRequest: RequestFactory,
+  outputDir: string,
+): Promise<Envelope> {
+  return collectAllPages({
+    op,
+    input,
+    out: opts.out,
+    saveJson: opts.saveJson,
+    hash: opts.hash,
+    limit: opts.limit,
+    command,
+    fetchPage: async (pageInput) =>
+      sendAndNormalize(await makeRequest(pageInput), op, {
+        cmd,
+        out: opts.out ?? outputDir,
+        hash: opts.hash,
+        creditsEstimated,
+        retryPost: opts.retryPost,
+        requestPath,
+        method,
+        inline: true,
+      }),
   });
-  if (opts.all && !allOutputTarget(opts)) {
-    return validationError(cmd, "--all requires --save-json or --out", {
-      operationId: op.operationId,
-    });
-  }
+}
 
-  const requestContext = {
-    baseUrl: opts.baseUrl ?? config.baseUrl,
-    apiKey: opts.apiKey ?? getApiKey({ profile: opts.profile }),
-  };
-  const makeRequest = (nextInput: AgentInput) => buildHttpRequest(op, nextInput, requestContext);
-
+async function runSinglePage(
+  {
+    cmd,
+    op,
+    input,
+    opts,
+    command,
+    creditsEstimated,
+    warnings = [],
+    requestPath,
+    method,
+  }: ExecutableOperationRun,
+  makeRequest: RequestFactory,
+  outputDir: string,
+): Promise<Envelope> {
   const isPaginated = supportsPagination(op);
-
-  if (opts.all) {
-    return collectAllPages({
-      op,
-      input,
-      out: opts.out,
-      saveJson: opts.saveJson,
-      hash: opts.hash,
-      limit: opts.limit,
-      command,
-      fetchPage: async (pageInput) =>
-        sendAndNormalize(await makeRequest(pageInput), op, {
-          cmd,
-          out: opts.out ?? config.outputDir,
-          hash: opts.hash,
-          creditsEstimated,
-          retryPost: opts.retryPost,
-          requestPath,
-          method,
-          inline: true,
-        }),
-    });
-  }
-
   const req = await makeRequest(input);
   const env = await sendAndNormalize(req, op, {
     cmd,
-    out: opts.out ?? config.outputDir,
+    out: opts.out ?? outputDir,
     hash: opts.hash,
     creditsEstimated,
     retryPost: opts.retryPost,
@@ -211,7 +270,7 @@ export async function runPreparedOperation({
     (isPaginated || opts.saveJson !== undefined) && !opts.inline
       ? await spillIfLarge(op, paginatedEnv, {
           cmd,
-          out: opts.out ?? config.outputDir,
+          out: opts.out ?? outputDir,
           saveJson: opts.saveJson,
           hash: opts.hash,
         })
