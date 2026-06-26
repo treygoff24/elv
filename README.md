@@ -34,7 +34,7 @@ Three layers sit over the ElevenLabs OpenAPI spec, from most general to most con
 
 The generic runner, `elv call <operation_id> --json '{...}'`, can invoke any of the 320 operations in the spec. Nothing is hidden behind a hand-written subset.
 
-Escape hatches cover anything the registry doesn't. `elv http <METHOD> <path>` makes an arbitrary REST call against the configured base URL. `elv ws <catalog|url>` runs a scripted WebSocket session. `elv wait` polls an operation until a status field resolves. All three share the same auth, envelope, retries, and secret redaction as `call`.
+Escape hatches cover anything the registry doesn't. `elv http <METHOD> <path>` makes an arbitrary REST call against the configured base URL. `elv ws <catalog|url>` runs a scripted WebSocket session. `elv wait` polls an operation until a status field resolves. All three share the same auth, envelope, retries, secret redaction, and `--yes`/`--max-credits` safety gating as `call`.
 
 Twelve thin aliases wrap the common workflows: `tts`, `stt`, `music`, `sfx`, `voice-change`, `voice-isolate`, `dubbing`, `voices`, `agents`, `models`, `history`, and `usage`. Each one builds an input and calls the same runner as `call`. No alias ships its own HTTP client, so they all inherit the same behavior.
 

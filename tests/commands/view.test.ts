@@ -123,4 +123,28 @@ describe("view command", () => {
     if (!env.ok) throw new Error("expected success");
     expect(env.data).toEqual([{ id: 1 }, { id: 2 }]);
   });
+
+  it("returns validation_error with cat hint for malformed JSON", () => {
+    const file = join(dir, "bad.json");
+    writeFileSync(file, "{not json", "utf8");
+
+    const { env, exitCode } = buildViewResult(file);
+    expect(exitCode).toBe(ExitCode.InputValidation);
+    expect(env.ok).toBe(false);
+    if (env.ok) throw new Error("expected failure");
+    expect(env.error.type).toBe("validation_error");
+    expect(env.error.message).toContain("Use cat to inspect raw contents.");
+  });
+
+  it("returns validation_error with cat hint for malformed NDJSON", () => {
+    const file = join(dir, "bad.ndjson");
+    writeFileSync(file, '{"id":1}\n{not json}\n', "utf8");
+
+    const { env, exitCode } = buildViewResult(file);
+    expect(exitCode).toBe(ExitCode.InputValidation);
+    expect(env.ok).toBe(false);
+    if (env.ok) throw new Error("expected failure");
+    expect(env.error.type).toBe("validation_error");
+    expect(env.error.message).toContain("Use cat to inspect raw contents.");
+  });
 });

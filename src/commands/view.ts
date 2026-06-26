@@ -5,7 +5,7 @@ import { validationError } from "../core/errors";
 import { SMALL_JSON_LIMIT, summarizeData } from "../core/response-normalizer";
 import { ExitCode } from "../core/types";
 import type { CommandResult, Hint } from "../core/types";
-import { isRecord, parseJson } from "../util/json";
+import { isRecord, JsonParseError, parseJson } from "../util/json";
 import { readPath } from "../util/jsonpath";
 import { shellArg } from "../util/shell";
 
@@ -44,7 +44,7 @@ export function buildViewResult(path: string, options: ViewOptions = {}): Comman
       };
     }
     const message =
-      error instanceof SyntaxError
+      error instanceof JsonParseError
         ? `File is not valid JSON: ${resolved}. Use cat to inspect raw contents.`
         : error instanceof Error
           ? error.message

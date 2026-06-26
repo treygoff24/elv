@@ -324,7 +324,7 @@ function configOverrides(command: Command): ConfigOverrides {
     profile: optionString(opts.profile),
     baseUrl: optionString(opts.baseUrl),
     maxCredits: numberValue(opts.maxCredits),
-    debug: Boolean(opts.debug),
+    debug: opts.debug ? true : undefined,
   };
 }
 

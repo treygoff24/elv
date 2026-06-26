@@ -29,6 +29,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - `--limit` accepted `0`, negative, and fractional values, producing empty or malformed output; it is now validated as a positive integer before any request (exit 2).
 - Spilled-result hint commands now shell-quote the file path and `--path` value so they are safe to copy-paste when a key or path contains shell metacharacters.
 - `elv tts` and `elv voice-change` reported a missing `--voice`/`--voice-id` as a generic `internal_error` (exit 8) because the voice resolver threw before the command's `try`; missing required input is now a `validation_error` (exit 2), matching every other command.
+- `elv view` no longer drops its "use cat to inspect raw contents" hint on a malformed JSON/NDJSON file (an extracted JSON helper had started throwing a plain error, making the hint branch unreachable).
+- `config get` / `config doctor` again honor `ELV_DEBUG` when `--debug` is not passed (a boolean coercion had broken the environment-variable fallthrough).
 
 ### Changed
 
@@ -43,6 +45,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Bare `elv` (no command) now prints the command list and exits 0 instead of a `Missing command` validation error, and both it and the top-level `--help` now carry a tagline plus a one-line description per command. Every subcommand (including discovery leaves like `ops search` and `voices list`) now has its own `--help` description.
 - `elv voices get` accepts the voice id as a positional argument (`elv voices get <id>`), matching `voices find <query>`; `--voice-id` still works as an alternative.
 - Provider and runtime error envelopes now include actionable `hints[]` (for example `elv config doctor` on an auth failure, `elv voices list` on an unknown voice id, `elv usage` when out of credits).
+- `elv http` now applies the same safety and budget gating as `elv call`: destructive/external operations require `--yes`, and `--max-credits` is enforced pre-flight. Previously raw HTTP calls ran ungated.
+- Operation risk classification was tightened so more workspace-mutating operations (secrets, webhooks, MCP servers, auth connections, resource sharing, WhatsApp/Twilio config, etc.) require `--yes`. This only ever adds confirmation prompts; nothing that required `--yes` before is now ungated.
+- Invalid `--max-credits` / `--limit` values (non-numeric, non-finite) are now rejected as `validation_error` (exit 2) instead of being silently ignored.
+- A malformed local config file is now reported as a `validation_error` (exit 2) with a `config_json_invalid` code, instead of a generic internal error.
 
 ### Security
 

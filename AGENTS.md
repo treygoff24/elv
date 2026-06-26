@@ -62,7 +62,7 @@ When the registry is not enough:
 - `elv ws <catalog-name|url>` — scripted WebSocket sessions
 - `elv wait` — poll an operation until a JSONPath status resolves
 
-Same auth, envelope, retries, and redaction as `call`.
+Same auth, envelope, retries, redaction, and `--yes`/`--max-credits` gating as `call`.
 
 ## Auth and config
 

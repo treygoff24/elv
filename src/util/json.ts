@@ -1,8 +1,18 @@
+export class JsonParseError extends Error {
+  override name = "JsonParseError";
+
+  constructor(message: string, options?: { cause?: unknown }) {
+    super(message, options);
+  }
+}
+
 export function parseJson(raw: string, label = "JSON"): unknown {
   try {
     return JSON.parse(raw) as unknown;
   } catch (error) {
-    throw new Error(`${label} is not valid JSON: ${errorMessage(error)}`);
+    throw new JsonParseError(`${label} is not valid JSON: ${errorMessage(error)}`, {
+      cause: error,
+    });
   }
 }
 
