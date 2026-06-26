@@ -75,36 +75,49 @@ export async function updateSpecCache(
       exitCode: ExitCode.Success,
     };
   } catch (error) {
-    if (error instanceof SpecInputError) {
-      return {
-        env: failure({
-          cmd,
-          error: {
-            type: "validation_error",
-            code: "validation_error",
-            message: error.message,
-            raw: error.raw,
-          },
-          retry: { recommended: false, after_ms: null },
-        }),
-        exitCode: ExitCode.InputValidation,
-      };
-    }
-    return {
-      env: failure({
-        cmd,
-        error: {
-          type: "provider_error",
-          code: error instanceof SpecProviderError ? "spec_fetch_failed" : "spec_update_failed",
-          message: error instanceof Error ? error.message : String(error),
-          raw: error,
-        },
-        retry: { recommended: false, after_ms: null },
-        hints: [{ cmd: "elv spec update --offline", why: "Recompile from the vendored snapshot." }],
-      }),
-      exitCode: ExitCode.ProviderError,
-    };
+    return specUpdateFailure(cmd, error);
   }
+}
+
+function specUpdateFailure(cmd: string, error: unknown): { env: Envelope; exitCode: ExitCode } {
+  if (error instanceof SpecInputError) return specInputFailure(cmd, error);
+  return specProviderFailure(cmd, error);
+}
+
+function specInputFailure(
+  cmd: string,
+  error: SpecInputError,
+): { env: Envelope; exitCode: ExitCode } {
+  return {
+    env: failure({
+      cmd,
+      error: {
+        type: "validation_error",
+        code: "validation_error",
+        message: error.message,
+        raw: error.raw,
+      },
+      retry: { recommended: false, after_ms: null },
+    }),
+    exitCode: ExitCode.InputValidation,
+  };
+}
+
+function specProviderFailure(cmd: string, error: unknown): { env: Envelope; exitCode: ExitCode } {
+  return {
+    env: failure({
+      cmd,
+      error: {
+        type: "provider_error",
+        code: error instanceof SpecProviderError ? "spec_fetch_failed" : "spec_update_failed",
+        message: error instanceof Error ? error.message : String(error),
+        raw: error,
+      },
+      retry: { recommended: false, after_ms: null },
+      hints: [{ cmd: "elv spec update --offline", why: "Recompile from the vendored snapshot." }],
+    }),
+    exitCode: ExitCode.ProviderError,
+  };
 }
 
 async function documentForUpdate(options: UpdateSpecOptions): Promise<SpecDocument> {

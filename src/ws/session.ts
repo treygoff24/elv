@@ -182,35 +182,49 @@ async function abortSession(
     socket.terminate();
 }
 
-function createInactivityTimer(
-  socket: WebSocket,
-  timeoutMs: number,
-): {
-  reset: () => void;
-  clear: () => void;
-  timedOut: () => boolean;
-} {
-  let timer: NodeJS.Timeout | undefined;
-  let didTimeOut = false;
-  const clear = (): void => {
-    if (timer) clearTimeout(timer);
-    timer = undefined;
-  };
-  return {
-    reset: () => {
-      clear();
-      timer = setTimeout(() => {
-        didTimeOut = true;
-        if (socket.readyState === WebSocket.OPEN) socket.close();
-        setTimeout(() => {
-          if (socket.readyState !== WebSocket.CLOSED) socket.terminate();
-        }, 100).unref();
-      }, timeoutMs);
-      timer.unref();
-    },
-    clear,
-    timedOut: () => didTimeOut,
-  };
+class InactivityTimer {
+  private timer: NodeJS.Timeout | undefined;
+  private didTimeOut = false;
+
+  constructor(
+    private readonly socket: WebSocket,
+    private readonly timeoutMs: number,
+  ) {}
+
+  reset(): void {
+    this.clear();
+    this.timer = setTimeout(handleInactivityTimeout.bind(null, this), this.timeoutMs);
+    this.timer.unref();
+  }
+
+  clear(): void {
+    if (this.timer) clearTimeout(this.timer);
+    this.timer = undefined;
+  }
+
+  timedOut(): boolean {
+    return this.didTimeOut;
+  }
+
+  handleTimeout(): void {
+    this.didTimeOut = true;
+    if (this.socket.readyState === WebSocket.OPEN) this.socket.close();
+    setTimeout(forceTerminateSocket.bind(null, this.socket), 100).unref();
+  }
+}
+
+function createInactivityTimer(socket: WebSocket, timeoutMs: number): InactivityTimer {
+  return new InactivityTimer(socket, timeoutMs);
+}
+
+function handleInactivityTimeout(timer: InactivityTimer): void {
+  timer.handleTimeout();
+}
+
+function forceTerminateSocket(socket: WebSocket): void {
+  if (socket.readyState !== WebSocket.CLOSED) {
+    socket.terminate();
+  }
 }
 
 async function processMessage(
