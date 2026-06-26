@@ -1,4 +1,4 @@
-import Ajv2020 from "ajv/dist/2020";
+import Ajv2020 from "ajv/dist/2020.js";
 import addFormats from "ajv-formats";
 import type { AnySchema, ValidateFunction } from "ajv";
 import type { OperationCard } from "./types";

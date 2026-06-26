@@ -25,7 +25,7 @@ import {
 } from "./pagination";
 import { requiresYes } from "./safety";
 import { OutTargetError } from "./files";
-import type { AnySchema, ValidateFunction } from "ajv";
+import type { ValidateFunction } from "ajv";
 import type {
   AgentInput,
   Envelope,
@@ -37,8 +37,6 @@ import type {
 } from "./types";
 import type { HttpRequest } from "./request-builder";
 import type { ResponseContext } from "./response-normalizer";
-
-const OPENAPI_SCHEMA_BASE = "elv://openapi";
 
 type OperationRunOpts = RunOpts & PaginationOptions & { inline?: boolean };
 
@@ -384,17 +382,8 @@ async function getInputValidatorForOperation(
   op: OperationCard,
   bundledSpec: unknown,
 ): Promise<ValidateFunction | null> {
-  const [{ default: Ajv2020 }, { default: addFormats }] = await Promise.all([
-    import("ajv/dist/2020.js"),
-    import("ajv-formats"),
-  ]);
-  const ajv = new Ajv2020({ strict: false, allErrors: true, validateSchema: false });
-  addFormats(ajv);
-  ajv.addSchema(bundledSpec as AnySchema, OPENAPI_SCHEMA_BASE);
-  if (op.requestBody?.schemaRef)
-    return ajv.getSchema(`${OPENAPI_SCHEMA_BASE}${op.requestBody.schemaRef}`) ?? null;
-  if (op.requestBody?.schema) return ajv.compile(op.requestBody.schema as AnySchema);
-  return null;
+  const { buildAjv, getInputValidator } = await import("../openapi/ajv");
+  return getInputValidator(buildAjv(bundledSpec), op);
 }
 
 function hydrateBodySchema(op: OperationCard, bundledSpec: unknown): OperationCard {
