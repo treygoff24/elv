@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { readFileSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
 import { Command, CommanderError } from "commander";
@@ -377,8 +377,18 @@ function packageVersion(): string {
   return json.version ?? "0.0.0";
 }
 
-const entryPath = process.argv[1] ? resolve(process.argv[1]) : undefined;
-if (entryPath && fileURLToPath(import.meta.url) === entryPath) {
+// Resolve symlinks on both sides: when installed via `npm link`/`-g`, argv[1] is
+// the bin symlink (e.g. /opt/homebrew/bin/elv), not the real module path, so a
+// plain resolve() comparison would never match and main() would silently skip.
+function realEntry(path: string): string {
+  try {
+    return realpathSync(path);
+  } catch {
+    return resolve(path);
+  }
+}
+const entryPath = process.argv[1] ? realEntry(process.argv[1]) : undefined;
+if (entryPath && realEntry(fileURLToPath(import.meta.url)) === entryPath) {
   void main().catch((error: unknown) => {
     const { env, exitCode } = envelopeForError(error, process.argv, "0.0.0", buildProgram("0.0.0"));
     emitAndExit(env, exitCode);

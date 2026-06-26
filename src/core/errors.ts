@@ -151,7 +151,7 @@ export function notImplemented(cmd: string): ErrorEnvelope {
     error: {
       type: "not_implemented",
       code: "not_implemented",
-      message: `${cmd} is not implemented in P1`,
+      message: `${cmd} is not implemented`,
     },
     retry: { recommended: false, after_ms: null },
   });

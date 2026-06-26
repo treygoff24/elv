@@ -200,7 +200,7 @@ function registryCheck(cacheDir: string): DoctorCheck {
   return {
     name: "registry_cache",
     status: "warn",
-    detail: "Registry not yet compiled; P2 builds this cache",
+    detail: "Registry not yet compiled; run `elv spec update --offline` to build it",
   };
 }
 
