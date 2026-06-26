@@ -40,6 +40,30 @@ export interface TempFileWriter {
   abort: () => Promise<void>;
 }
 
+class TempFileWriterImpl implements TempFileWriter {
+  constructor(
+    private readonly path: string,
+    private readonly tmpPath: string,
+    readonly stream: WriteStream,
+  ) {}
+
+  async write(chunk: Buffer | Uint8Array | string): Promise<void> {
+    if (!this.stream.write(chunk)) await once(this.stream, "drain");
+  }
+
+  async close(): Promise<string> {
+    await closeWriteStream(this.stream);
+    const finalPath = await collisionPathForFile(this.path, this.tmpPath);
+    await rename(this.tmpPath, finalPath);
+    return finalPath;
+  }
+
+  async abort(): Promise<void> {
+    this.stream.destroy();
+    await rm(this.tmpPath, { force: true });
+  }
+}
+
 export async function sha256File(path: string, opts: HashOptions = {}): Promise<string | null> {
   const maxBytes = opts.maxBytes ?? DEFAULT_HASH_CAP_BYTES;
   const stats = statSync(path);
@@ -113,24 +137,7 @@ export async function writeBufferToFile(
 export function tempFileWriter(path: string): TempFileWriter {
   mkdirSync(dirname(path), { recursive: true });
   const tmpPath = `${path}.tmp-${process.pid}-${Date.now()}`;
-  const stream = createWriteStream(tmpPath);
-
-  return {
-    stream,
-    write: async (chunk) => {
-      if (!stream.write(chunk)) await once(stream, "drain");
-    },
-    close: async () => {
-      await closeWriteStream(stream);
-      const finalPath = await collisionPathForFile(path, tmpPath);
-      await rename(tmpPath, finalPath);
-      return finalPath;
-    },
-    abort: async () => {
-      stream.destroy();
-      await rm(tmpPath, { force: true });
-    },
-  };
+  return new TempFileWriterImpl(path, tmpPath, createWriteStream(tmpPath));
 }
 
 export async function fileRecord(path: string, opts: HashOptions = {}): Promise<FileRecord> {

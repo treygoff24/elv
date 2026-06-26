@@ -10,6 +10,7 @@ import {
   resolveOutTarget,
   sha256File,
   streamToFile,
+  tempFileWriter,
   writeBufferToFile,
   writeManifest,
 } from "../../src/core/files";
@@ -62,6 +63,18 @@ describe("files", () => {
 
     expect(different).not.toBe(target);
     expect(basename(different)).toMatch(/^out-[a-f0-9]{8}\.txt$/);
+  });
+
+  it("writes temp files atomically and reuses identical collision targets", async () => {
+    const target = join(dir, "stream.txt");
+
+    const first = tempFileWriter(target);
+    await first.write("same");
+    await expect(first.close()).resolves.toBe(target);
+
+    const second = tempFileWriter(target);
+    await second.write("same");
+    await expect(second.close()).resolves.toBe(target);
   });
 
   it("rejects file-looking --out targets for multi-file operations", () => {
