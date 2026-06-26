@@ -72,7 +72,8 @@ elv ops schema text_to_speech_full --example   # runnable elv call skeleton
 ```
 
 `--example` prints a ready-to-run `call` with the input buckets filled in. Add
-`--raw` to `ops schema` for the raw JSON Schema.
+`--raw` to `ops schema` for the raw JSON Schema. `elv <command> --help` prints
+that command's own flags and arguments.
 
 ## Safety gates
 
@@ -115,8 +116,9 @@ field names and may echo a secret passed as a plain value.
 ## Output handling
 
 Binary output goes to a file. Pass `--out <file-or-dir>`; otherwise it lands in
-the output directory (default `./.elv/out`, override with `ELV_OUTPUT_DIR` or a
-profile). The envelope's `files[]` gives each path, mime, byte size, and sha256.
+the output directory (default `~/.cache/elv/out`, override with `ELV_OUTPUT_DIR`
+or a profile `output_dir`). An extensionless `--out` is treated as a directory.
+The envelope's `files[]` gives each path, mime, byte size, and sha256.
 
 Large JSON (long lists, big responses) also spills to disk: the envelope returns
 `files[]` plus a `data_summary` (type, count, a short preview) instead of
@@ -145,7 +147,7 @@ dry-run previews, or files. Check setup with `elv config get` and
 | Get one voice | `elv voices get --voice-id VOICE_ID` |
 | Text to speech | `elv tts --voice-id VOICE_ID --text "Hello" --model eleven_flash_v2_5 --out out.mp3` |
 | TTS by voice name | `elv tts --voice "Rachel" --text "Hello" --out out.mp3` |
-| TTS with timestamps | `elv tts --voice-id VOICE_ID --text "Hello" --timestamps --out out.mp3` |
+| TTS with timestamps | `elv tts --voice-id VOICE_ID --text "Hello" --timestamps --out out.mp3` (writes `out.mp3` plus a sidecar `out.timestamps.json` with the alignment data) |
 | Speech to text | `elv stt --file note.m4a --model scribe_v1` |
 | Sound effect | `elv sfx --prompt "thunderclap" --duration 5 --out sfx.mp3` |
 | Music | `elv music --prompt "lofi beat" --length-ms 30000 --out track.mp3` |
@@ -159,7 +161,7 @@ dry-run previews, or files. Check setup with `elv config get` and
 | Any operation by id | `elv call <operation_id> --json '{"path":{...},"query":{...},"body":{...}}'` |
 | Raw REST call | `elv http GET /v1/user` |
 | Scripted WebSocket session | `elv ws tts-realtime --query voice_id=VOICE --send script.ndjson --out ./session` |
-| Poll a long job | `elv wait --operation get_dubbed_metadata --json '{"path":{"dubbing_id":"abc"}}' --status-path '$.data.status' --success 'dubbed' --failure 'failed' --interval-ms 2000 --timeout-ms 600000` |
+| Poll a long job | `elv wait --operation get_dubbed_metadata --json '{"path":{"dubbing_id":"abc"}}' --status-path '$.data.status' --success 'dubbed' --failure 'failed' --interval-ms 2000 --timeout-ms 600000` (`--failure` is optional; success-only polling works) |
 
 ### call input shape
 

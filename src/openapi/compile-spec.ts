@@ -210,7 +210,13 @@ function fileFieldsForSchema(schema: unknown, spec: OpenApiDocument): string[] {
   const resolved = resolveMaybeRef(schema, spec);
   const properties = asObject(asObject(resolved).properties);
   return Object.entries(properties)
-    .filter(([, property]) => isBinarySchema(property, spec))
+    .filter(([, property]) => {
+      const resolvedProperty = asObject(resolveMaybeRef(property, spec));
+      return (
+        isBinarySchema(property, spec) ||
+        (resolvedProperty.type === "array" && isBinarySchema(resolvedProperty.items, spec))
+      );
+    })
     .map(([name]) => name);
 }
 

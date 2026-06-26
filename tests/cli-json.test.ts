@@ -75,4 +75,24 @@ describe("CLI JSON output contract", () => {
     const { stdout } = runCli(["config", "get"]);
     parseStdoutEnvelope(stdout);
   });
+
+  it("subcommand --help emits per-command metadata instead of the global list", () => {
+    const { stdout: ttsStdout, code: ttsCode } = runCli(["tts", "--help"]);
+    expect(ttsCode).toBe(0);
+    const ttsEnvelope = parseStdoutEnvelope(ttsStdout);
+    expect(ttsEnvelope.ok).toBe(true);
+    const ttsData = ttsEnvelope.data as Record<string, unknown>;
+    expect(ttsData.command).toBe("tts");
+    expect(ttsData.commands).toBeUndefined();
+    const ttsOptions = ttsData.options as Array<{ flags: string }>;
+    expect(ttsOptions.some((o) => o.flags.includes("--voice-id"))).toBe(true);
+    expect(ttsOptions.some((o) => o.flags.includes("--text"))).toBe(true);
+
+    const { stdout: viewStdout, code: viewCode } = runCli(["view", "--help"]);
+    expect(viewCode).toBe(0);
+    const viewEnvelope = parseStdoutEnvelope(viewStdout);
+    const viewData = viewEnvelope.data as Record<string, unknown>;
+    expect(viewData.command).toBe("view");
+    expect(viewData).not.toEqual(ttsData);
+  });
 });

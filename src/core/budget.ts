@@ -2,7 +2,7 @@ import { DEFAULT_RETRY_ATTEMPTS } from "./retries";
 import { probeDurationSeconds } from "./duration";
 import type { AgentInput, OperationCard, RunOpts, Warning } from "./types";
 
-const GUARDED_HINTS = new Set([
+export const GUARDED_HINTS = new Set([
   "characters",
   "audio_seconds",
   "per_generation",

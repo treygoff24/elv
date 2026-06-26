@@ -108,7 +108,6 @@ function parseOptions(options: WaitOptions):
   const statusPath = options.statusPath;
   if (!statusPath) return { ok: false, env: validationError(cmd, "--status-path is required") };
   if (!options.success) return { ok: false, env: validationError(cmd, "--success is required") };
-  if (!options.failure) return { ok: false, env: validationError(cmd, "--failure is required") };
 
   try {
     // Validate unsupported path syntax before the first poll.
@@ -123,7 +122,7 @@ function parseOptions(options: WaitOptions):
   const common = {
     statusPath,
     success: csvSet(options.success),
-    failure: csvSet(options.failure),
+    failure: csvSet(options.failure ?? ""),
     intervalMs: positiveMs(options.intervalMs, DEFAULT_INTERVAL_MS, "--interval-ms"),
     timeoutMs: positiveMs(options.timeoutMs, DEFAULT_TIMEOUT_MS, "--timeout-ms"),
   };

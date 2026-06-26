@@ -101,7 +101,7 @@ elv ops get text_to_speech_full
 elv ops schema text_to_speech_full --example
 ```
 
-The `--example` flag prints an `elv call` skeleton with the parameter shape filled in. Edit and run it.
+The `--example` flag prints an `elv call` skeleton with the parameter shape filled in. Edit and run it. And `elv <command> --help` lists that command's own flags.
 
 ### Aliases
 
@@ -179,7 +179,7 @@ elv config doctor
 
 Named profiles let you keep more than one setup. A config file at `.elv/config.json` (in the working directory) or `~/.config/elv/config.json` can define profiles with a base URL, an output directory, a default model, a default `max_credits`, and the name of the environment variable that holds the key. The config file stores the variable name, not the secret itself, so nothing sensitive lands on disk. Select a profile with `--profile <name>` or `ELV_PROFILE`.
 
-A few environment variables and flags adjust the rest. `--base-url` or `ELEVENLABS_BASE_URL` overrides the endpoint, `ELEVENLABS_API_RESIDENCY` (`us`, `eu`, `in`, `sg`) picks a residency host, `ELV_OUTPUT_DIR` changes where output spills (default `./.elv/out`), and `ELV_CACHE_DIR` changes where the compiled spec registry is cached (default `~/.cache/elv`).
+A few environment variables and flags adjust the rest. `--base-url` or `ELEVENLABS_BASE_URL` overrides the endpoint, `ELEVENLABS_API_RESIDENCY` (`us`, `eu`, `in`, `sg`) picks a residency host, `ELV_OUTPUT_DIR` changes where output spills (default `~/.cache/elv/out`), and `ELV_CACHE_DIR` changes where the compiled spec registry is cached (default `~/.cache/elv`).
 
 ## Safety and budget
 
@@ -232,7 +232,7 @@ List voices (the payload is large, so it spills to disk instead of flooding stdo
 
 ```bash
 elv voices list
-# {"v":1,"ok":true,"files":[{"path":".elv/out/get_voices-response.json",...}],"data_summary":{...}}
+# {"v":1,"ok":true,"files":[{"path":"~/.cache/elv/out/get_voices-response.json",...}],"data_summary":{...}}
 ```
 
 Synthesize speech and get the file back with a real charge from the response header:
@@ -247,7 +247,7 @@ Transcribe audio:
 
 ```bash
 elv stt --file note.m4a --model scribe_v1
-# transcript spilled to .elv/out/, cost includes the real credits_charged
+# transcript spilled to ~/.cache/elv/out/, cost includes the real credits_charged
 ```
 
 Hit the budget ceiling (exit 5, no network call):

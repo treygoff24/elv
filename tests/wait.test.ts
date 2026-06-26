@@ -65,4 +65,22 @@ describe("wait command", () => {
     expect(result.exitCode).toBe(ExitCode.InputValidation);
     expect(result.env.ok).toBe(false);
   });
+
+  it("polls without --failure until success or timeout", async () => {
+    const succeeded = await waitForOperation(
+      { operation: "op", json: "{}", statusPath: "data.status", success: "done", intervalMs: 1, timeoutMs: 100 },
+      { sleep: async () => undefined, now: () => 1, runOperation: async () => env("done") },
+    );
+    expect(succeeded.exitCode).toBe(ExitCode.Success);
+    expect(succeeded.env.ok).toBe(true);
+
+    let t = 0;
+    const timedOut = await waitForOperation(
+      { operation: "op", json: "{}", statusPath: "data.status", success: "done", intervalMs: 1, timeoutMs: 2 },
+      { sleep: async () => undefined, now: () => (t += 2), runOperation: async () => env("queued") },
+    );
+    expect(timedOut.exitCode).not.toBe(ExitCode.Success);
+    expect(timedOut.env.ok).toBe(false);
+    if (!timedOut.env.ok) expect(timedOut.env.error.code).toBe("wait_timeout");
+  });
 });

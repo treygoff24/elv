@@ -1,7 +1,8 @@
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { runOperation } from "../src/core/client";
 import { configDoctor, getApiKey, loadConfig } from "../src/core/config";
 
 let cwd: string;
@@ -28,6 +29,7 @@ beforeEach(() => {
 afterEach(() => {
   process.chdir(originalCwd);
   vi.unstubAllEnvs();
+  vi.unstubAllGlobals();
   rmSync(cwd, { recursive: true, force: true });
   rmSync(home, { recursive: true, force: true });
 });
@@ -80,6 +82,37 @@ describe("config", () => {
       maxCredits: 7,
       debug: true,
     });
+  });
+
+  it("defaults output outside cwd while preserving explicit cwd-relative overrides", () => {
+    expect(loadConfig().outputDir).toBe(join(home, ".cache", "elv", "out"));
+
+    vi.stubEnv("ELV_OUTPUT_DIR", "custom-out");
+    expect(loadConfig().outputDir).toBe(join(cwd, "custom-out"));
+  });
+
+  it("spills default reads outside cwd when no --out is passed", async () => {
+    const voices = Array.from({ length: 30 }, (_, index) => ({
+      voice_id: `v${index}`,
+      name: `Voice ${index}`,
+      description: "x".repeat(1200),
+    }));
+    vi.stubEnv("ELV_CACHE_DIR", join(home, ".cache", "elv"));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify({ voices }), { headers: { "content-type": "application/json" } })),
+    );
+
+    const env = await runOperation("get_voices", {}, { baseUrl: "https://api.test" });
+
+    expect(env.ok).toBe(true);
+    if (!env.ok) throw new Error("expected success");
+    const file = env.files?.[0];
+    expect(file?.path.startsWith(cwd)).toBe(false);
+    expect(file?.path.startsWith(join(home, ".cache", "elv", "out"))).toBe(true);
+    expect(basename(dirname(file!.path))).toBe("out");
+    expect(basename(file!.path)).not.toBe("out");
+    expect(existsSync(file!.path)).toBe(true);
   });
 
   it("returns doctor checks and fails only hard local failures", async () => {

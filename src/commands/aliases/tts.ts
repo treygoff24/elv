@@ -80,7 +80,7 @@ function ttsOperationId(stream: boolean, timestamps: boolean): string {
 async function resolveVoiceId(flags: TtsFlags, opts: RunOpts, cmd: string): Promise<string> {
   if (flags.voiceId) return flags.voiceId;
   if (!flags.voice) return required(undefined, "--voice-id or --voice");
-  const env = await runOperation("get_voices", {}, opts);
+  const env = await runOperation("get_voices", {}, { ...opts, inline: true });
   if (!env.ok) emit(env);
   const matches = exactVoiceMatches(flags.voice, voicesFrom(env));
   if (matches.length === 1) return String(matches[0]?.voice_id);

@@ -65,6 +65,9 @@ export function loadConfig(overrides: ConfigOverrides = {}): ResolvedConfig {
   const apiKeyEnv = activeProfile.api_key_env ?? "ELEVENLABS_API_KEY";
   const maxCredits =
     overrides.maxCredits ?? numberFromEnv("ELV_MAX_CREDITS") ?? activeProfile.max_credits;
+  const cacheDir = absolutePath(process.env.ELV_CACHE_DIR ?? join(homedir(), ".cache", "elv"));
+  const outputOverride = process.env.ELV_OUTPUT_DIR || activeProfile.output_dir;
+  const outputDir = outputOverride ? absolutePath(outputOverride) : join(cacheDir, "out");
 
   return {
     baseUrl:
@@ -74,12 +77,12 @@ export function loadConfig(overrides: ConfigOverrides = {}): ResolvedConfig {
       activeProfile.base_url ??
       DEFAULT_BASE_URL,
     apiKeyPresent: Boolean(process.env[apiKeyEnv]),
-    outputDir: absolutePath(process.env.ELV_OUTPUT_DIR ?? activeProfile.output_dir ?? "./.elv/out"),
+    outputDir,
     defaultModelId: activeProfile.default_model_id,
     maxCredits,
     profile,
     residency,
-    cacheDir: absolutePath(process.env.ELV_CACHE_DIR ?? join(homedir(), ".cache", "elv")),
+    cacheDir,
     specUrl: process.env.ELV_SPEC_URL ?? DEFAULT_SPEC_URL,
     debug: overrides.debug ?? boolFromEnv("ELV_DEBUG"),
   };

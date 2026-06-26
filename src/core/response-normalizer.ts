@@ -1,6 +1,7 @@
-import { join } from "node:path";
+import { extname, join } from "node:path";
 import { Readable } from "node:stream";
 import { extension } from "mime-types";
+import { GUARDED_HINTS } from "./budget";
 import { failure, success } from "./envelope";
 import { normalizeProviderError } from "./error-normalizer";
 import {
@@ -28,6 +29,7 @@ export interface ResponseContext {
   creditsEstimated?: number | null;
   requestPath?: string;
   method?: HttpMethod;
+  inline?: boolean;
 }
 
 const SMALL_JSON_LIMIT = 32 * 1024;
@@ -111,9 +113,14 @@ export async function normalizeResponse(
 
   if (isJson(runtimeType) || (!runtimeType && op.returnsJson)) {
     const text = await res.text();
-    if (Buffer.byteLength(text) >= SMALL_JSON_LIMIT) {
-      const data = parseJson(text);
+    const data = parseJson(text);
+    if (isFullTimestampResponse(op, data)) {
+      const files = await writeFullTimestampFiles(op, data, ctx);
+      return success({ ...base, files, truncated: false, warnings: optional(warnings), hints: [] });
+    }
+    if (!ctx.inline && Buffer.byteLength(text) >= SMALL_JSON_LIMIT) {
       const file = await spillJsonFile(op, text, ctx);
+      const jq = summaryJqHint(data);
       return success({
         ...base,
         data_summary: summarizeData(data),
@@ -122,15 +129,15 @@ export async function normalizeResponse(
         warnings: optional(warnings),
         hints: [
           {
-            cmd: `elv view ${file.path}${summaryJqHint(data)}`,
-            why: "Inspect without loading into context.",
+            cmd: jq ? `jq ${JSON.stringify(jq)} ${JSON.stringify(file.path)}` : `cat ${JSON.stringify(file.path)}`,
+            why: "Inspect spilled JSON file.",
           },
         ],
       });
     }
     return success({
       ...base,
-      data: parseJson(text),
+      data,
       truncated: false,
       warnings: optional(warnings),
       hints: [],
@@ -170,12 +177,54 @@ function summarizeData(data: unknown): DataSummary {
 }
 
 function summaryJqHint(data: unknown): string {
-  if (Array.isArray(data)) return " --jq '.[0]'";
+  if (Array.isArray(data)) return ".[0]";
   if (isRecord(data)) {
     const key = Object.keys(data)[0];
-    return key ? ` --jq '.${key}'` : "";
+    return key ? `.${key}` : "";
   }
   return "";
+}
+
+async function writeFullTimestampFiles(
+  op: OperationCard,
+  data: Record<string, unknown>,
+  ctx: ResponseContext,
+): Promise<FileRecord[]> {
+  const target = resolveOutTarget(ctx.out, false);
+  const audioName =
+    target.file ?? deriveFilename(op.operationId, "audio", audioExtensionFromRequestPath(ctx.requestPath));
+  const audioPath = await writeBufferToFile(
+    Buffer.from(String(data.audio_base64), "base64"),
+    join(target.dir, audioName),
+  );
+  const sidecar = {
+    alignment: data.alignment,
+    normalized_alignment: data.normalized_alignment,
+  };
+  const sidecarPath = await writeBufferToFile(
+    `${JSON.stringify(sidecar)}\n`,
+    timestampSidecarPath(audioPath),
+  );
+  return [
+    await fileRecord(audioPath, { hash: ctx.hash }),
+    { ...(await fileRecord(sidecarPath, { hash: ctx.hash })), mime: "application/json" },
+  ];
+}
+
+function isFullTimestampResponse(
+  op: OperationCard,
+  data: unknown,
+): data is Record<string, unknown> {
+  return (
+    op.operationId.endsWith("_full_with_timestamps") &&
+    isRecord(data) &&
+    typeof data.audio_base64 === "string"
+  );
+}
+
+function timestampSidecarPath(audioPath: string): string {
+  const ext = extname(audioPath);
+  return ext ? `${audioPath.slice(0, -ext.length)}.timestamps.json` : `${audioPath}.timestamps.json`;
 }
 
 async function streamJsonEventsFiles(
@@ -342,7 +391,7 @@ function costInfo(
   if (charged !== null) {
     return { credits_estimated: estimated, credits_charged: charged, credits_source: "header" };
   }
-  if (estimated !== null || op.costHint) {
+  if (estimated !== null || (op.costHint && GUARDED_HINTS.has(op.costHint))) {
     warnings.push({
       code: "cost_header_absent",
       message: "Provider did not return character-cost; credits_charged is unavailable.",

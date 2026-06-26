@@ -78,7 +78,9 @@ export function resolveOutTarget(
     return { dir: target };
   }
 
-  if (existing?.isDirectory() || (!existing && out?.endsWith("/"))) return { dir: target };
+  const looksLikeDirectory =
+    existing?.isDirectory() || (!existing && (out?.endsWith("/") || !fileLooking));
+  if (looksLikeDirectory) return { dir: target };
   return { dir: dirname(target), file: basename(target) };
 }
 

@@ -37,6 +37,7 @@ let dir: string;
 let audio: string;
 let video: string;
 let agentJson: string;
+let registry: Promise<Map<string, OperationCard>>;
 
 beforeAll(() => {
   dir = mkdtempSync(join(tmpdir(), "elv-aliases-"));
@@ -46,6 +47,7 @@ beforeAll(() => {
   writeFileSync(audio, "audio");
   writeFileSync(video, "video");
   writeFileSync(agentJson, JSON.stringify({ conversation_config: {}, name: "Agent" }));
+  registry = loadRegistry({ cacheDir: join(dir, "cache"), forceRecompile: true });
 });
 
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
@@ -118,7 +120,7 @@ const cases: Array<{ name: string; alias: () => BuiltAlias; call: () => BuiltAli
   { name: "voices list", alias: () => buildVoicesListInput({}), call: () => ({ operationId: "get_voices", input: {} }) },
   { name: "voices find", alias: () => buildVoicesFindInput({ query: "juniper" }), call: () => ({ operationId: "get_voices", input: {} }) },
   { name: "voices get", alias: () => buildVoicesGetInput({ voiceId: "voice_1" }), call: () => ({ operationId: "get_voice_by_id", input: { path: { voice_id: "voice_1" } } }) },
-  { name: "voices clone-instant", alias: () => buildVoicesCloneInstantInput({ name: "Clone", file: audio }), call: () => ({ operationId: "add_voice", input: { files: { files: resolve(audio) }, body: { name: "Clone" } } }) },
+  { name: "voices clone-instant", alias: () => buildVoicesCloneInstantInput({ name: "Clone", file: audio }), call: () => ({ operationId: "add_voice", input: { files: { files: [resolve(audio)] }, body: { name: "Clone" } } }) },
   { name: "agents list", alias: () => buildAgentsListInput({ limit: "5" }), call: () => ({ operationId: "get_agents_route", input: { query: { page_size: 5 } } }) },
   { name: "agents get", alias: () => buildAgentsGetInput({ agentId: "agent_1" }), call: () => ({ operationId: "get_agent_route", input: { path: { agent_id: "agent_1" } } }) },
   { name: "agents create", alias: () => buildAgentsCreateInput({ jsonFile: agentJson }), call: () => ({ operationId: "create_agent_route", input: { body: { conversation_config: {}, name: "Agent" } } }) },
@@ -176,13 +178,8 @@ describe("curated aliases", () => {
 });
 
 async function operation(operationId: string): Promise<OperationCard> {
-  const registry = await loadRegistry();
-  const op = registry.get(operationId);
+  const op = (await registry).get(operationId);
   if (!op) throw new Error(`missing operation ${operationId}`);
-  if (operationId === "add_voice" && op.requestBody?.multipart) {
-    // The vendored registry currently misses the binary array field; the alias still uses files.files per spec.
-    return { ...op, requestBody: { ...op.requestBody, fileFields: ["files"] } };
-  }
   return op;
 }
 

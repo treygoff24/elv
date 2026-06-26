@@ -37,7 +37,7 @@ export function buildVoicesCloneInstantInput(flags: VoicesFlags): { operationId:
   return {
     operationId: "add_voice",
     input: compactInput({
-      files: { files: resolve(required(flags.file, "--file")) },
+      files: { files: [resolve(required(flags.file, "--file"))] },
       body: compact({ name: required(flags.name, "--name"), remove_background_noise: flags.removeBackgroundNoise, description: flags.description }),
     }),
   };
@@ -76,7 +76,7 @@ export function registerVoicesCommand(program: Command, addCommonFlags: (command
 async function runFind(flags: VoicesFlags, command: Command): Promise<never> {
   try {
     const built = buildVoicesFindInput(flags);
-    const env = await runOperation(built.operationId, built.input, runOpts(command));
+    const env = await runOperation(built.operationId, built.input, { ...runOpts(command), inline: true });
     if (!env.ok) emit(env);
     const data = env.data as { voices?: unknown } | undefined;
     const voices = Array.isArray(data?.voices) ? (data.voices as VoiceRecord[]) : [];

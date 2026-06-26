@@ -124,6 +124,48 @@ describe("multipart request builder (native FormData + openAsBlob)", () => {
     expect(count(req.body as FormData, "samples")).toBe(2);
   });
 
+  it("builds clone-instant files as repeated multipart parts", async () => {
+    const a = join(dir, "a.mp3");
+    const b = join(dir, "b.mp3");
+    writeFileSync(a, "a");
+    writeFileSync(b, "b");
+    const op = multipartOp({
+      operationId: "add_voice",
+      pathTemplate: "/v1/voices/add",
+      requestBody: {
+        contentType: "multipart/form-data",
+        required: true,
+        multipart: true,
+        schema: {
+          type: "object",
+          properties: {
+            name: { type: "string" },
+            files: { type: "array", items: { type: "string", format: "binary" } },
+          },
+        },
+        fileFields: ["files"],
+      },
+      returnsBinary: false,
+      returnsJson: true,
+      responses: [{ status: "200", contentType: "application/json", binary: false }],
+    });
+
+    const one = await buildHttpRequest(
+      op,
+      { body: { name: "Clone" }, files: { files: a } },
+      { baseUrl: "https://api.test" },
+    );
+    const two = await buildHttpRequest(
+      op,
+      { body: { name: "Clone" }, files: { files: [a, b] } },
+      { baseUrl: "https://api.test" },
+    );
+
+    expect(count(one.body as FormData, "files")).toBe(1);
+    expect(count(two.body as FormData, "files")).toBe(2);
+    expect(count(two.body as FormData, "name")).toBe(1);
+  });
+
   it("rejects uploads above the configured hard cap before opening streams", async () => {
     const audio = join(dir, "huge.mp3");
     writeFileSync(audio, "abc");

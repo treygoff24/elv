@@ -52,6 +52,19 @@ describe("OpenAPI compiler", () => {
     expect(tts?.requestBody?.schemaRef).toBe("#/components/schemas/Body_text_to_speech_full");
   });
 
+  it("detects array binary multipart fields", async () => {
+    const compiled = await compileSpec({ sourcePath: snapshotPath });
+    const byId = new Map(compiled.operations.map((op) => [op.operationId, op]));
+
+    expect(byId.get("add_voice")?.requestBody?.fileFields).toEqual(["files"]);
+    expect(byId.get("add_pvc_voice_samples")?.requestBody?.fileFields).toEqual(["files"]);
+    expect(byId.get("edit_voice")?.requestBody?.fileFields).toEqual(["files"]);
+    expect(byId.get("request_pvc_manual_verification")?.requestBody?.fileFields).toEqual([
+      "files",
+    ]);
+    expect(byId.get("video_to_music")?.requestBody?.fileFields).toEqual(["videos"]);
+  });
+
   it("bundles instead of dereferencing recursive schemas", async () => {
     const compiled = await compileSpec({ sourcePath: snapshotPath });
     const recursive = JSON.stringify(

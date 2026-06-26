@@ -52,7 +52,7 @@ Either way, confirm the binary responds before continuing. The version command p
 `elv` reads the key from the environment and sends it as the `xi-api-key` header. Two rules are absolute:
 
 1. Never pass the key as a command-line argument. It is read only from the environment (or a profile that names an environment variable). Passing it as an arg would risk leaking it into shell history and process listings. The key never appears in `elv` output, dry-run previews, debug logs, or written files, and keeping it out of argv keeps it that way.
-2. Never commit the key. Do not write it into any tracked file. The repo's `.gitignore` already excludes the `.elv/` directory, so anything `elv` writes there stays untracked.
+2. Never commit the key. Do not write it into any tracked file. The repo's `.gitignore` already excludes the `.elv/` directory, and by default `elv` writes its output outside the repo under `~/.cache/elv/out`, so nothing it produces lands in a tracked file.
 
 The simplest setup is a single environment variable:
 
@@ -76,7 +76,7 @@ If you need more than one configuration (for example, separate accounts or resid
 }
 ```
 
-Note what the config file stores: `api_key_env` is the name of the environment variable that holds the key, not the key itself. The secret value still lives only in the environment. Select a profile at runtime with `--profile main` or by setting `ELV_PROFILE=main`.
+Note what the config file stores: `api_key_env` is the name of the environment variable that holds the key, not the key itself. The secret value still lives only in the environment. The `output_dir` above is an explicit override; omit it and `elv` writes to the default `~/.cache/elv/out`. Select a profile at runtime with `--profile main` or by setting `ELV_PROFILE=main`.
 
 ## Step 4: Verify the environment
 
@@ -155,7 +155,7 @@ That recompiles the registry from the bundled snapshot. To instead pull the late
 
 ### Output went somewhere unexpected
 
-Binary and large payloads are not printed to stdout; they are written to disk and referenced as `files[]` in the envelope. By default they land in `./.elv/out`. Change the destination per command with `--out <file-or-dir>`, or globally with `ELV_OUTPUT_DIR` or a profile's `output_dir`.
+Binary and large payloads are not printed to stdout; they are written to disk and referenced as `files[]` in the envelope. By default they land in `~/.cache/elv/out`. Change the destination per command with `--out <file-or-dir>`, or globally with `ELV_OUTPUT_DIR` or a profile's `output_dir`.
 
 ### The build or typecheck fails
 

@@ -316,8 +316,33 @@ function envelopeForError(
       return { env: success({ cmd, data: { version } }), exitCode: ExitCode.Success };
     }
     if (error.code === "commander.helpDisplayed") {
+      const cmdNode = resolveCommandPath(program, argv);
+      if (cmdNode === program) {
+        return {
+          env: success({ cmd, data: { commands: commandNames() } }),
+          exitCode: ExitCode.Success,
+        };
+      }
       return {
-        env: success({ cmd, data: { commands: commandNames() } }),
+        env: success({
+          cmd,
+          data: {
+            command: cmdNode.name(),
+            description: cmdNode.description(),
+            usage: cmdNode.usage(),
+            arguments: cmdNode.registeredArguments.map((a) => ({
+              name: a.name(),
+              required: a.required,
+              description: a.description,
+            })),
+            options: cmdNode.options.map((o) => ({
+              flags: o.flags,
+              description: o.description,
+              default: o.defaultValue,
+            })),
+            subcommands: cmdNode.commands.map((c) => c.name()).filter((n) => n !== "help"),
+          },
+        }),
         exitCode: ExitCode.Success,
       };
     }

@@ -22,10 +22,12 @@ import type { ResponseContext } from "./response-normalizer";
 
 const OPENAPI_SCHEMA_BASE = "elv://openapi";
 
+type OperationRunOpts = RunOpts & PaginationOptions & { inline?: boolean };
+
 export async function runOperation(
   operationId: string,
   input: AgentInput | Record<string, unknown>,
-  opts: RunOpts & PaginationOptions = {},
+  opts: OperationRunOpts = {},
 ): Promise<Envelope> {
   const cmd = `elv call ${operationId}`;
   try {
@@ -110,6 +112,7 @@ export async function runOperation(
             hash: opts.hash,
             creditsEstimated: estimate,
             retryPost: opts.retryPost,
+            inline: opts.inline,
           }),
       });
     }
@@ -123,6 +126,7 @@ export async function runOperation(
       retryPost: opts.retryPost,
       requestPath: req.path,
       method: req.method,
+      inline: opts.inline,
     });
     const paginated = addPaginationToEnvelope(env, op, normalized, {
       command: { kind: "call" },
@@ -205,7 +209,14 @@ function hasRequestPayload(op: OperationCard, input: AgentInput): boolean {
 
 function validationBody(op: OperationCard, input: AgentInput): unknown {
   if (!op.requestBody?.multipart) return input.body ?? {};
-  return { ...asRecord(input.body), ...input.files };
+  const props = asRecord(asRecord(op.requestBody.schema).properties);
+  const files = Object.fromEntries(
+    Object.entries(input.files ?? {}).map(([key, value]) => [
+      key,
+      asRecord(props[key]).type === "array" && !Array.isArray(value) ? [value] : value,
+    ]),
+  );
+  return { ...asRecord(input.body), ...files };
 }
 
 async function getInputValidatorForOperation(

@@ -63,7 +63,7 @@ async function runBuilt(flags: VoiceChangeFlags, command: Command): Promise<neve
 async function resolveVoiceId(flags: VoiceChangeFlags, opts: RunOpts, cmd: string): Promise<string> {
   if (flags.voiceId) return flags.voiceId;
   if (!flags.voice) return required(undefined, "--voice-id or --voice");
-  const env = await runOperation("get_voices", {}, opts);
+  const env = await runOperation("get_voices", {}, { ...opts, inline: true });
   if (!env.ok) emit(env);
   const voices = voicesFrom(env);
   const matches = exactVoiceMatches(flags.voice, voices);
