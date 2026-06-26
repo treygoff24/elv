@@ -66,30 +66,15 @@ export async function runWsSession(options: WsSessionOptions): Promise<WsSession
 }
 
 function waitForClose(socket: WebSocket, state: WsSessionState): Promise<void> {
-  return new Promise(waitForCloseExecutor.bind(null, socket, state));
-}
-
-function waitForCloseExecutor(
-  socket: WebSocket,
-  state: WsSessionState,
-  resolve: () => void,
-  reject: (error: Error) => void,
-): void {
-  socket.once("close", markClosed.bind(null, state, resolve));
-  socket.once("error", handleCloseError.bind(null, state, reject));
-}
-
-function markClosed(state: WsSessionState, resolve: () => void): void {
-  state.closed = true;
-  resolve();
-}
-
-function handleCloseError(
-  state: WsSessionState,
-  reject: (error: Error) => void,
-  error: Error,
-): void {
-  if (state.opened) reject(error);
+  return new Promise((resolve, reject) => {
+    socket.once("close", () => {
+      state.closed = true;
+      resolve();
+    });
+    socket.once("error", (error) => {
+      if (state.opened) reject(error);
+    });
+  });
 }
 
 function trackMessages(
@@ -100,9 +85,15 @@ function trackMessages(
   audio: AudioWriter,
 ): void {
   socket.on("message", (data) => {
-    state.messageChain = state.messageChain.then(() =>
-      processSessionMessage(data, socket, state, inactivity, events, audio),
-    );
+    state.messageChain = state.messageChain
+      .then(() => processSessionMessage(data, socket, state, inactivity, events, audio))
+      .catch((error: unknown) => {
+        if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING) {
+          socket.terminate();
+        }
+        throw error;
+      });
+    void state.messageChain.catch(() => undefined);
   });
 }
 
@@ -193,7 +184,7 @@ class InactivityTimer {
 
   reset(): void {
     this.clear();
-    this.timer = setTimeout(handleInactivityTimeout.bind(null, this), this.timeoutMs);
+    this.timer = setTimeout(() => this.handleTimeout(), this.timeoutMs);
     this.timer.unref();
   }
 
@@ -209,22 +200,14 @@ class InactivityTimer {
   handleTimeout(): void {
     this.didTimeOut = true;
     if (this.socket.readyState === WebSocket.OPEN) this.socket.close();
-    setTimeout(forceTerminateSocket.bind(null, this.socket), 100).unref();
+    setTimeout(() => {
+      if (this.socket.readyState !== WebSocket.CLOSED) this.socket.terminate();
+    }, 100).unref();
   }
 }
 
 function createInactivityTimer(socket: WebSocket, timeoutMs: number): InactivityTimer {
   return new InactivityTimer(socket, timeoutMs);
-}
-
-function handleInactivityTimeout(timer: InactivityTimer): void {
-  timer.handleTimeout();
-}
-
-function forceTerminateSocket(socket: WebSocket): void {
-  if (socket.readyState !== WebSocket.CLOSED) {
-    socket.terminate();
-  }
 }
 
 async function processMessage(

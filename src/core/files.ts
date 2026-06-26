@@ -1,5 +1,4 @@
 import { createHash } from "node:crypto";
-import { once } from "node:events";
 import {
   createReadStream,
   createWriteStream,
@@ -48,7 +47,18 @@ class TempFileWriterImpl implements TempFileWriter {
   ) {}
 
   async write(chunk: Buffer | Uint8Array | string): Promise<void> {
-    if (!this.stream.write(chunk)) await once(this.stream, "drain");
+    await new Promise<void>((resolve, reject) => {
+      const onError = (error: Error): void => {
+        this.stream.off("error", onError);
+        reject(error);
+      };
+      this.stream.once("error", onError);
+      this.stream.write(chunk, (error?: Error | null) => {
+        this.stream.off("error", onError);
+        if (error) reject(error);
+        else resolve();
+      });
+    });
   }
 
   async close(): Promise<string> {

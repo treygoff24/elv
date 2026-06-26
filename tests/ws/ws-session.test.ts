@@ -3,8 +3,8 @@ import { mkdtemp } from "node:fs/promises";
 import type { IncomingHttpHeaders } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { WebSocketServer, type WebSocket } from "ws";
-import { afterEach, describe, expect, it } from "vitest";
+import WebSocket, { WebSocketServer } from "ws";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { runWs } from "../../src/commands/ws";
 import { parseSendScript } from "../../src/ws/events";
 import { runWsSession } from "../../src/ws/session";
@@ -224,6 +224,50 @@ describe("ws session", () => {
       join(dir, "events.received.ndjson"),
       join(dir, "manifest.json"),
     ]);
+  });
+
+  it("fails active sessions when message processing rejects", async () => {
+    const originalSend = WebSocket.prototype.send;
+    const sendSpy = vi.spyOn(WebSocket.prototype, "send").mockImplementation(function (
+      this: WebSocket,
+      data: Parameters<WebSocket["send"]>[0],
+      ...args: unknown[]
+    ) {
+      const callback = args.findLast(
+        (arg): arg is (error?: Error) => void => typeof arg === "function",
+      );
+      if (String(data).includes('"type":"pong"')) {
+        callback?.(new Error("pong failed"));
+        return;
+      }
+      return Reflect.apply(originalSend, this, [data, ...args]);
+    });
+    const server = await startServer((socket) => {
+      socket.send(JSON.stringify({ type: "ping", event_id: "evt_1" }));
+    });
+    const dir = await tempDir();
+
+    try {
+      const session = runWsSession({
+        url: new URL(server.url),
+        catalog: "direct-test",
+        path: "/session",
+        outDir: dir,
+        script: parseSendScript(JSON.stringify({ type: "send", data: { text: " " } })),
+        timeoutMs: 5_000,
+      });
+      const result = await Promise.race([
+        session.then(
+          () => "resolved",
+          (error: unknown) => (error instanceof Error ? error.message : String(error)),
+        ),
+        new Promise<string>((resolve) => setTimeout(() => resolve("timed out"), 500)),
+      ]);
+
+      expect(result).toBe("pong failed");
+    } finally {
+      sendSpy.mockRestore();
+    }
   });
 
   it("parses and rejects unsupported send-script operations", () => {
