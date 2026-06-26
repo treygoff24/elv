@@ -106,59 +106,90 @@ async function normalizeSuccessResponse(
 ): Promise<Envelope> {
   if (op.streamKind === "json_events") {
     const files = await streamJsonEventsFiles(op, res, ctx);
-    return success({ ...base, files, truncated: false, warnings: optional(warnings), hints: [] });
+    return fileSuccess(base, files, warnings);
   }
 
-  if (
-    isBinary(runtimeType) ||
-    (!isJson(runtimeType) && declaredBinary(op)) ||
-    op.streamKind === "audio_bytes"
-  ) {
-    const files = [
-      await streamResponseFile(
-        op,
-        res,
-        ctx,
-        runtimeType || declaredContentType(op) || "application/octet-stream",
-      ),
-    ];
-    return success({ ...base, files, truncated: false, warnings: optional(warnings), hints: [] });
+  if (isBinarySuccess(op, runtimeType)) {
+    return streamFileSuccess(
+      op,
+      res,
+      ctx,
+      base,
+      warnings,
+      runtimeType || declaredContentType(op) || "application/octet-stream",
+    );
   }
 
   if (op.streamKind === "text" || isText(runtimeType)) {
-    const files = [await streamResponseFile(op, res, ctx, runtimeType || "text/plain")];
-    return success({ ...base, files, truncated: false, warnings: optional(warnings), hints: [] });
+    return streamFileSuccess(op, res, ctx, base, warnings, runtimeType || "text/plain");
   }
 
   if (isJson(runtimeType) || (!runtimeType && op.returnsJson)) {
-    const text = await res.text();
-    const data = parseJson(text);
-    if (isFullTimestampResponse(op, data)) {
-      const files = await writeFullTimestampFiles(op, data, ctx);
-      return success({ ...base, files, truncated: false, warnings: optional(warnings), hints: [] });
-    }
-    if (!ctx.inline && Buffer.byteLength(text) >= SMALL_JSON_LIMIT) {
-      const file = await spillJsonFile(op, text, ctx);
-      return success({
-        ...base,
-        data_summary: summarizeData(data),
-        files: [file],
-        truncated: true,
-        warnings: optional(warnings),
-        hints: [viewHint(file.path, data)],
-      });
-    }
-    return success({
-      ...base,
-      data,
-      truncated: false,
-      warnings: optional(warnings),
-      hints: [],
-    });
+    return jsonSuccess(op, res, ctx, base, warnings);
   }
 
-  const files = [await streamResponseFile(op, res, ctx, runtimeType || "application/octet-stream")];
+  return streamFileSuccess(op, res, ctx, base, warnings, runtimeType || "application/octet-stream");
+}
+
+async function streamFileSuccess(
+  op: OperationCard,
+  res: Response,
+  ctx: ResponseContext,
+  base: Omit<SuccessEnvelope, "v" | "ok">,
+  warnings: Warning[],
+  mime: string,
+): Promise<Envelope> {
+  const files = [await streamResponseFile(op, res, ctx, mime)];
+  return fileSuccess(base, files, warnings);
+}
+
+function fileSuccess(
+  base: Omit<SuccessEnvelope, "v" | "ok">,
+  files: FileRecord[],
+  warnings: Warning[],
+): Envelope {
   return success({ ...base, files, truncated: false, warnings: optional(warnings), hints: [] });
+}
+
+async function jsonSuccess(
+  op: OperationCard,
+  res: Response,
+  ctx: ResponseContext,
+  base: Omit<SuccessEnvelope, "v" | "ok">,
+  warnings: Warning[],
+): Promise<Envelope> {
+  const text = await res.text();
+  const data = parseJson(text);
+  if (isFullTimestampResponse(op, data)) {
+    const files = await writeFullTimestampFiles(op, data, ctx);
+    return fileSuccess(base, files, warnings);
+  }
+  if (!ctx.inline && Buffer.byteLength(text) >= SMALL_JSON_LIMIT) {
+    const file = await spillJsonFile(op, text, ctx);
+    return success({
+      ...base,
+      data_summary: summarizeData(data),
+      files: [file],
+      truncated: true,
+      warnings: optional(warnings),
+      hints: [viewHint(file.path, data)],
+    });
+  }
+  return success({
+    ...base,
+    data,
+    truncated: false,
+    warnings: optional(warnings),
+    hints: [],
+  });
+}
+
+function isBinarySuccess(op: OperationCard, runtimeType: string): boolean {
+  return (
+    isBinary(runtimeType) ||
+    (!isJson(runtimeType) && declaredBinary(op)) ||
+    op.streamKind === "audio_bytes"
+  );
 }
 
 async function spillJsonFile(
