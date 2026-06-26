@@ -270,6 +270,31 @@ describe("ws session", () => {
     }
   });
 
+  it("fails active sessions when a WebSocket message is malformed JSON", async () => {
+    const server = await startServer((socket) => {
+      socket.send("{broken");
+    });
+    const dir = await tempDir();
+
+    const session = runWsSession({
+      url: new URL(server.url),
+      catalog: "direct-test",
+      path: "/session",
+      outDir: dir,
+      script: parseSendScript(JSON.stringify({ type: "send", data: { text: " " } })),
+      timeoutMs: 5_000,
+    });
+    const result = await Promise.race([
+      session.then(
+        () => "resolved",
+        (error: unknown) => (error instanceof Error ? error.message : String(error)),
+      ),
+      new Promise<string>((resolve) => setTimeout(() => resolve("timed out"), 500)),
+    ]);
+
+    expect(result).toContain("WebSocket message is not valid JSON");
+  });
+
   it("parses and rejects unsupported send-script operations", () => {
     expect(() => parseSendScript('{"type":"wait"}\n')).toThrow(/unsupported/i);
   });

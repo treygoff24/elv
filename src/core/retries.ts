@@ -31,7 +31,6 @@ export class NetworkRetryError extends Error {
 
 const NEVER_RETRY = new Set([400, 401, 402, 403, 404, 409, 422]);
 const RETRY_HTTP = new Set([429, 500, 502, 503, 504]);
-const BACKOFF_429 = new Set(["rate_limit_exceeded", "system_busy"]);
 const CONCURRENT_429 = new Set(["concurrent_limit_exceeded", "too_many_concurrent_requests"]);
 
 export async function sendWithRetry(
@@ -83,9 +82,6 @@ async function retryDecision(
     const code = await responseCode(res);
     if (CONCURRENT_429.has(code)) {
       return { retry: true, afterMs: retryAfter ?? 250 };
-    }
-    if (BACKOFF_429.has(code) || code === "rate_limit_exceeded") {
-      return { retry: true, afterMs: backoffMs(attempt, retryAfter, jitter) };
     }
     return { retry: true, afterMs: backoffMs(attempt, retryAfter, jitter) };
   }

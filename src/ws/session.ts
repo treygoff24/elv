@@ -226,7 +226,7 @@ async function processMessage(
 ): Promise<void> {
   const raw = rawDataToString(data);
   await events.writeRaw(raw);
-  const parsed = parseJson(raw);
+  const parsed = parseJsonValue(raw, "WebSocket message");
   await audio.writeFromEvent(parsed);
   if (isPing(parsed) && socket.readyState === WebSocket.OPEN) {
     await sendJson(socket, { type: "pong", event_id: parsed.event_id });
@@ -254,14 +254,6 @@ function rawDataToString(data: RawData): string {
   if (Array.isArray(data)) return Buffer.concat(data).toString("utf8");
   if (data instanceof ArrayBuffer) return Buffer.from(new Uint8Array(data)).toString("utf8");
   return Buffer.from(data).toString("utf8");
-}
-
-function parseJson(raw: string): unknown {
-  try {
-    return parseJsonValue(raw, "WebSocket message");
-  } catch {
-    return null;
-  }
 }
 
 function isPing(value: unknown): value is { type: "ping"; event_id?: unknown } {

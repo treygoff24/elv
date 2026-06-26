@@ -161,7 +161,7 @@ async function jsonSuccess(
   const text = await res.text();
   let data: unknown;
   try {
-    data = parseJson(text);
+    data = parseOptionalJsonBody(text);
   } catch (error) {
     return invalidJsonSuccess(op, ctx, base, warnings, text, error);
   }
@@ -486,7 +486,7 @@ function extractJsonObjects(text: string): { objects: unknown[]; rest: string } 
     else if (char === "}") depth -= 1;
 
     if (depth === 0) {
-      objects.push(parseJson(text.slice(start, index + 1)));
+      objects.push(parseJsonValue(text.slice(start, index + 1)));
       start = -1;
       inString = false;
     }
@@ -568,7 +568,7 @@ async function parseErrorBody(res: Response): Promise<unknown> {
   if (!text) return {};
   if (isJson(contentType(res.headers))) {
     try {
-      return parseJson(text);
+      return parseOptionalJsonBody(text);
     } catch (error) {
       return {
         detail: text,
@@ -579,7 +579,7 @@ async function parseErrorBody(res: Response): Promise<unknown> {
   return { detail: text };
 }
 
-function parseJson(text: string): unknown {
+function parseOptionalJsonBody(text: string): unknown {
   if (!text) return null;
   return parseJsonValue(text);
 }
