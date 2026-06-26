@@ -117,6 +117,14 @@ describe("CLI JSON output contract", () => {
     expect((envelope.error as Record<string, unknown>).code).toBe("validation_error");
   });
 
+  it("nested alias validation reports the full command path", () => {
+    const { stdout, code } = runCli(["agents", "create"]);
+    expect(code).toBe(2);
+    const envelope = parseEnvelope(stdout);
+    expect(envelope.ok).toBe(false);
+    expect(envelope.cmd).toBe("elv agents create");
+  });
+
   it("tts validates local text input before resolving --voice by network lookup", () => {
     const { stdout, code } = runCli(["tts", "--voice", "Rachel"]);
     expect(code).toBe(2);

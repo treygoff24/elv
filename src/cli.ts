@@ -158,15 +158,19 @@ function registerOpsCommands(program: Command): void {
       .command("search <query>")
       .description("Search operations by keyword")
       .option("--limit <n>", "maximum results", "10")
-      .action((query: string, options: CliOptionValues) =>
-        handleOpsSearch(query, { limit: optionString(options.limit) }),
-      ),
+      .action(async (query: string, options: CliOptionValues) => {
+        const result = await handleOpsSearch(query, { limit: optionString(options.limit) });
+        emitAndExit(result.env, result.exitCode);
+      }),
   );
   addCommonFlags(
     ops
       .command("get <operation_id>")
       .description("Show an operation card: params, risk, examples")
-      .action((id: string) => handleOpsGet(id)),
+      .action(async (id: string) => {
+        const result = await handleOpsGet(id);
+        emitAndExit(result.env, result.exitCode);
+      }),
   );
   addCommonFlags(
     ops
@@ -174,9 +178,13 @@ function registerOpsCommands(program: Command): void {
       .description("Show the input schema or a runnable example")
       .option("--raw", "return raw JSON Schema for operation input")
       .option("--example", "return a runnable elv call example command")
-      .action((id: string, options: CliOptionValues) =>
-        handleOpsSchema(id, { raw: Boolean(options.raw), example: Boolean(options.example) }),
-      ),
+      .action(async (id: string, options: CliOptionValues) => {
+        const result = await handleOpsSchema(id, {
+          raw: Boolean(options.raw),
+          example: Boolean(options.example),
+        });
+        emitAndExit(result.env, result.exitCode);
+      }),
   );
 }
 

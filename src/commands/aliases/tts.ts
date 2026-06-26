@@ -74,14 +74,11 @@ export function registerTtsCommand(
 
 async function runTts(flags: TtsFlags, command: Command): Promise<never> {
   const opts = validationOrExit(command, () => aliasRunOpts(command));
-  const prebuilt = validationOrExit(command, () =>
-    buildTtsInput({ ...flags, voiceId: flags.voiceId ?? "__voice_lookup_pending__" }),
-  );
+  const text = validationOrExit(command, () => readText(flags.text, flags.textFile, "tts"));
   const voiceId = await resolveVoiceId(flags, opts, commandName(command));
-  const built = {
-    ...prebuilt,
-    input: { ...prebuilt.input, path: { ...prebuilt.input.path, voice_id: voiceId } },
-  };
+  const built = validationOrExit(command, () =>
+    buildTtsInput({ ...flags, text, textFile: undefined, voiceId }),
+  );
   const env = await runOperation(built.operationId, built.input, opts);
   emit(env);
 }

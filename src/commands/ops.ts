@@ -1,5 +1,5 @@
 import { failure, success } from "../core/envelope";
-import { emitAndExit, validationError } from "../core/errors";
+import { validationError } from "../core/errors";
 import { ExitCode } from "../core/types";
 import {
   buildExampleCommand,
@@ -9,6 +9,7 @@ import {
 import { readRegistryCache, loadRegistry } from "../openapi/registry";
 import type { OpenApiDocument } from "../openapi/compile-spec";
 import type { OperationCard, Risk } from "../openapi/types";
+import type { Envelope } from "../core/types";
 
 export interface SearchResult {
   operation_id: string;
@@ -28,58 +29,63 @@ export interface OpsSchemaOptions {
   example?: boolean;
 }
 
+type OpsResult = { env: Envelope; exitCode: ExitCode };
+
 export async function handleOpsSearch(
   query: string,
   options: OpsSearchOptions = {},
-): Promise<never> {
+): Promise<OpsResult> {
   const limit = parseLimit(options.limit);
   if (!query.trim()) {
-    emitAndExit(
-      validationError("elv ops search", "Missing search query"),
-      ExitCode.InputValidation,
-    );
+    return {
+      env: validationError("elv ops search", "Missing search query"),
+      exitCode: ExitCode.InputValidation,
+    };
   }
   if (limit === null) {
-    emitAndExit(
-      validationError("elv ops search", "--limit must be a positive integer"),
-      ExitCode.InputValidation,
-    );
+    return {
+      env: validationError("elv ops search", "--limit must be a positive integer"),
+      exitCode: ExitCode.InputValidation,
+    };
   }
   const registry = await loadRegistry();
-  emitAndExit(
-    success({ cmd: `elv ops search ${query}`, data: searchOperations(registry, query, limit) }),
-    ExitCode.Success,
-  );
+  return {
+    env: success({
+      cmd: `elv ops search ${query}`,
+      data: searchOperations(registry, query, limit),
+    }),
+    exitCode: ExitCode.Success,
+  };
 }
 
-export async function handleOpsGet(operationId: string): Promise<never> {
+export async function handleOpsGet(operationId: string): Promise<OpsResult> {
   const registry = await loadRegistry();
   const op = registry.get(operationId);
-  if (!op) emitUnknown(`elv ops get ${operationId}`, operationId);
-  emitAndExit(
-    success({ cmd: `elv ops get ${operationId}`, operation_id: operationId, data: op }),
-    ExitCode.Success,
-  );
+  if (!op) return unknownOperation(`elv ops get ${operationId}`, operationId);
+  return {
+    env: success({ cmd: `elv ops get ${operationId}`, operation_id: operationId, data: op }),
+    exitCode: ExitCode.Success,
+  };
 }
 
 export async function handleOpsSchema(
   operationId: string,
   options: OpsSchemaOptions = {},
-): Promise<never> {
+): Promise<OpsResult> {
   if (options.raw && options.example) {
-    emitAndExit(
-      validationError(`elv ops schema ${operationId}`, "Use only one of --raw or --example"),
-      ExitCode.InputValidation,
-    );
+    return {
+      env: validationError(`elv ops schema ${operationId}`, "Use only one of --raw or --example"),
+      exitCode: ExitCode.InputValidation,
+    };
   }
   const registry = await loadRegistry();
   const cached = readRegistryCache();
   const op = registry.get(operationId);
-  if (!op) emitUnknown(`elv ops schema ${operationId}`, operationId);
+  if (!op) return unknownOperation(`elv ops schema ${operationId}`, operationId);
   const spec = cached?.bundledSpec as OpenApiDocument | undefined;
   if (!spec) {
-    emitAndExit(
-      failure({
+    return {
+      env: failure({
         cmd: `elv ops schema ${operationId}`,
         operation_id: operationId,
         error: {
@@ -89,8 +95,8 @@ export async function handleOpsSchema(
         },
         retry: { recommended: false, after_ms: null },
       }),
-      ExitCode.ProviderError,
-    );
+      exitCode: ExitCode.ProviderError,
+    };
   }
 
   const data = options.example
@@ -98,10 +104,10 @@ export async function handleOpsSchema(
     : options.raw
       ? rawInputSchemaForOperation(op, spec)
       : compactSchemaForOperation(op, spec);
-  emitAndExit(
-    success({ cmd: `elv ops schema ${operationId}`, operation_id: operationId, data }),
-    ExitCode.Success,
-  );
+  return {
+    env: success({ cmd: `elv ops schema ${operationId}`, operation_id: operationId, data }),
+    exitCode: ExitCode.Success,
+  };
 }
 
 export function searchOperations(
@@ -172,9 +178,9 @@ function parseLimit(value: string | number | undefined): number | null {
   return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
 }
 
-function emitUnknown(cmd: string, operationId: string): never {
-  emitAndExit(
-    failure({
+function unknownOperation(cmd: string, operationId: string): OpsResult {
+  return {
+    env: failure({
       cmd,
       operation_id: operationId,
       error: {
@@ -185,6 +191,6 @@ function emitUnknown(cmd: string, operationId: string): never {
       retry: { recommended: false, after_ms: null },
       hints: [{ cmd: "elv ops search <query>", why: "Find a valid operation_id." }],
     }),
-    ExitCode.NotFound,
-  );
+    exitCode: ExitCode.NotFound,
+  };
 }

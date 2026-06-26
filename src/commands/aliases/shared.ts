@@ -131,7 +131,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 export function commandName(command: Command): string {
-  return `elv ${command.name()}`;
+  const names: string[] = [];
+  for (let current: Command | null | undefined = command; current; current = current.parent) {
+    if (current.name()) names.push(current.name());
+  }
+  return names.reverse().join(" ");
 }
 
 export function emit(env: Envelope): never {
