@@ -1,5 +1,6 @@
 import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import { mkdtemp } from "node:fs/promises";
+import type { IncomingHttpHeaders } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { WebSocketServer, type WebSocket } from "ws";
@@ -98,6 +99,26 @@ describe("ws session", () => {
     expect(result.env.ok).toBe(false);
     expect(result.exitCode).toBe(2);
     expect(server.connected).toBe(false);
+  });
+
+  it("does not send the profile API key to raw absolute WebSocket targets", async () => {
+    const server = await startServer((socket) => {
+      socket.on("message", () => socket.close(1000, "done"));
+    });
+    const dir = await tempDir();
+    const script = join(dir, "script.ndjson");
+    writeFileSync(script, JSON.stringify({ type: "send", data: { text: " " } }));
+
+    const result = await runWs(
+      { target: server.url, send: script, out: dir, query: {} },
+      {
+        apiKey: "sk_test_LEAK_CANARY",
+        timeoutMs: 500,
+      },
+    );
+
+    expect(result.env.ok).toBe(true);
+    expect(server.headers["xi-api-key"]).toBeUndefined();
   });
 
   it("rejects eleven_v3 for catalog targets", async () => {
@@ -216,15 +237,20 @@ async function tempDir(): Promise<string> {
   return dir;
 }
 
-async function startServer(
-  onConnection: (socket: WebSocket, received: string[]) => void,
-): Promise<{ url: string; received: string[]; connected: boolean }> {
+async function startServer(onConnection: (socket: WebSocket, received: string[]) => void): Promise<{
+  url: string;
+  received: string[];
+  connected: boolean;
+  headers: IncomingHttpHeaders;
+}> {
   const server = new WebSocketServer({ port: 0 });
   servers.push(server);
   const received: string[] = [];
   let connected = false;
-  server.on("connection", (socket) => {
+  let headers: IncomingHttpHeaders = {};
+  server.on("connection", (socket, request) => {
     connected = true;
+    headers = request.headers;
     socket.on("message", (data) => received.push(data.toString()));
     onConnection(socket, received);
   });
@@ -234,6 +260,9 @@ async function startServer(
   return {
     get connected() {
       return connected;
+    },
+    get headers() {
+      return headers;
     },
     received,
     url: `ws://127.0.0.1:${address.port}/session?single_use_token=tok_secret`,

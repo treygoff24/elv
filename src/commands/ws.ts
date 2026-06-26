@@ -64,8 +64,9 @@ export async function runWs(
       );
     }
     const outDir = resolveOutTarget(input.out ?? config.outputDir, true).dir;
-    const apiKey = options.apiKey ?? getApiKey({ profile: options.profile });
-    const headers = authHeaders(apiKey);
+    const headers = resolved.usesProfileAuth
+      ? authHeaders(options.apiKey ?? getApiKey({ profile: options.profile }))
+      : undefined;
     const result = await runWsSession({
       url: resolved.url,
       catalog: entry?.name ?? null,
@@ -91,17 +92,19 @@ function resolveTarget(
   entry: WsCatalogEntry | undefined,
   query: Record<string, string>,
   baseUrl: string,
-): { url: URL; path: string } {
-  if (entry) return { url: buildCatalogUrl(entry, { baseUrl, query }), path: entry.pathTemplate };
-  const url =
-    target.startsWith("ws://") || target.startsWith("wss://")
-      ? new URL(target)
-      : target.startsWith("/")
-        ? wsUrlFromPath(target, baseUrl)
-        : undefined;
+): { url: URL; path: string; usesProfileAuth: boolean } {
+  if (entry)
+    return {
+      url: buildCatalogUrl(entry, { baseUrl, query }),
+      path: entry.pathTemplate,
+      usesProfileAuth: true,
+    };
+  const rawAbsolute = target.startsWith("ws://") || target.startsWith("wss://");
+  const rawPath = target.startsWith("/");
+  const url = rawAbsolute ? new URL(target) : rawPath ? wsUrlFromPath(target, baseUrl) : undefined;
   if (!url) throw new Error(`Unknown WS catalog entry or raw path: ${target}`);
   for (const [key, value] of Object.entries(query)) url.searchParams.set(key, value);
-  return { url, path: url.pathname };
+  return { url, path: url.pathname, usesProfileAuth: rawPath };
 }
 
 function resolveTargetForInput(
@@ -109,7 +112,7 @@ function resolveTargetForInput(
   entry: WsCatalogEntry | undefined,
   query: Record<string, string>,
   baseUrl: string,
-): { url: URL; path: string } {
+): { url: URL; path: string; usesProfileAuth: boolean } {
   try {
     return resolveTarget(target, entry, query, baseUrl);
   } catch (error) {
