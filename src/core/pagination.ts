@@ -2,15 +2,8 @@ import { join } from "node:path";
 import { deriveFilename, fileRecord, resolveOutTarget, writeBufferToFile } from "./files";
 import { success } from "./envelope";
 import { shellArg } from "../util/shell";
-import type {
-  AgentInput,
-  Envelope,
-  FileRecord,
-  HttpMethod,
-  OperationCard,
-  SuccessEnvelope,
-  Warning,
-} from "./types";
+import type { HttpMethod, OperationCard } from "../openapi/types";
+import type { AgentInput, Envelope, FileRecord, SuccessEnvelope, Warning } from "./types";
 
 export interface PaginationOptions {
   all?: boolean;

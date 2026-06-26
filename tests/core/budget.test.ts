@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { estimateCredits, estimateDetail, overBudget } from "../../src/core/budget";
-import type { CostHint, OperationCard } from "../../src/core/types";
+import type { CostHint, OperationCard } from "../../src/openapi/types";
 
 let tempDir = "";
 

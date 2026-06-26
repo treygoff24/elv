@@ -1,7 +1,4 @@
-/**
- * Shared runtime contract types for elv. Operation-card/OpenAPI types live in
- * src/openapi/types and are re-exported here only for compatibility.
- */
+/** Shared runtime contract types for elv. OpenAPI operation-card types live in src/openapi/types. */
 
 import type { HttpMethod } from "../openapi/types";
 
@@ -19,18 +16,6 @@ export enum ExitCode {
   ProviderError = 8, // other 4xx/5xx not covered above
   NotFound = 9, // 404, unknown operation_id
 }
-
-export type {
-  BodyCard,
-  CostHint,
-  ExampleCard,
-  HttpMethod,
-  OperationCard,
-  ParamCard,
-  ResponseCard,
-  Risk,
-  StreamKind,
-} from "../openapi/types";
 
 /** Canonical bucketed input to the runner. Flat JSON is normalized into this shape. */
 export interface AgentInput {

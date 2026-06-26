@@ -1,7 +1,8 @@
 import { openAsBlob, statSync } from "node:fs";
 import { basename } from "node:path";
 import { lookup } from "mime-types";
-import type { AgentInput, HttpMethod, NormalizedError, OperationCard } from "./types";
+import type { AgentInput, NormalizedError } from "./types";
+import type { HttpMethod, OperationCard } from "../openapi/types";
 
 // Multipart uses the native global FormData + fs.openAsBlob (lazy, file-backed) rather than the
 // `form-data` package: form-data's Node stream is not transmitted by native fetch/undici (the body

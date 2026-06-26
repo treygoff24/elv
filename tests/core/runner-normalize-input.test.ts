@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { InputNormalizationError, normalizeInput } from "../../src/core/request-builder";
 import { exitCodeForError } from "../../src/core/errors";
 import { ExitCode } from "../../src/core/types";
-import type { OperationCard } from "../../src/core/types";
+import type { OperationCard } from "../../src/openapi/types";
 
 function op(): OperationCard {
   return {

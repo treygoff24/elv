@@ -7,7 +7,7 @@ import {
   buildHttpRequest,
   normalizeInput,
 } from "../../src/core/request-builder";
-import type { OperationCard } from "../../src/core/types";
+import type { OperationCard } from "../../src/openapi/types";
 
 let dir: string;
 

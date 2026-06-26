@@ -32,7 +32,8 @@ import {
 import { buildHttpRequest, normalizeInput } from "../../src/core/request-builder";
 import { loadRegistry } from "../../src/openapi/registry";
 import type { BuiltOperation } from "../../src/commands/aliases/shared";
-import type { AgentInput, OperationCard } from "../../src/core/types";
+import type { AgentInput } from "../../src/core/types";
+import type { OperationCard } from "../../src/openapi/types";
 
 let dir: string;
 let audio: string;

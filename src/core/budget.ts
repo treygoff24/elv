@@ -1,6 +1,7 @@
 import { DEFAULT_RETRY_ATTEMPTS } from "./retries";
 import { probeDurationSeconds } from "./duration";
-import type { AgentInput, OperationCard, RunOpts, Warning } from "./types";
+import type { AgentInput, RunOpts, Warning } from "./types";
+import type { OperationCard } from "../openapi/types";
 
 export const GUARDED_HINTS = new Set([
   "characters",

@@ -2,18 +2,22 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { compileSpec } from "./compile-spec";
 import { rawSpecCachePath, vendoredSpecPath, writeRegistryCache } from "./registry";
-import { failure, success } from "../core/envelope";
-import { ExitCode } from "../core/types";
 import { parseJson } from "../util/json";
 import type { RegistryOptions } from "./registry";
-import type { Envelope } from "../core/types";
 
 const LIVE_SPEC_URL = "https://api.elevenlabs.io/openapi.json";
 
 export interface UpdateSpecOptions extends RegistryOptions {
   from?: string;
   offline?: boolean;
-  cmd?: string;
+}
+
+export interface SpecUpdateResult {
+  operations: number;
+  totalOperations: number;
+  skippedOperations: number;
+  cachePath: string;
+  specCachePath: string;
 }
 
 interface SpecDocument {
@@ -22,7 +26,7 @@ interface SpecDocument {
   label: string;
 }
 
-class SpecInputError extends Error {
+export class SpecInputError extends Error {
   constructor(
     message: string,
     public readonly raw?: unknown,
@@ -32,91 +36,37 @@ class SpecInputError extends Error {
   }
 }
 
-class SpecProviderError extends Error {
+export class SpecProviderError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "SpecProviderError";
   }
 }
 
-export async function updateSpecCache(
-  options: UpdateSpecOptions = {},
-): Promise<{ env: Envelope; exitCode: ExitCode }> {
-  const cmd = options.cmd ?? "elv spec update";
+export async function updateSpecCache(options: UpdateSpecOptions = {}): Promise<SpecUpdateResult> {
+  const { document, source, label } = await documentForUpdate(options);
+  const specPath = rawSpecCachePath(options);
+  mkdirSync(dirname(specPath), { recursive: true });
+  writeFileSync(specPath, `${JSON.stringify(document)}\n`);
+
+  let compiled: Awaited<ReturnType<typeof compileSpec>>;
   try {
-    const { document, source, label } = await documentForUpdate(options);
-    const specPath = rawSpecCachePath(options);
-    mkdirSync(dirname(specPath), { recursive: true });
-    writeFileSync(specPath, `${JSON.stringify(document)}\n`);
-
-    let compiled: Awaited<ReturnType<typeof compileSpec>>;
-    try {
-      compiled = await compileSpec({ document });
-    } catch (error) {
-      if (source !== "url")
-        throw new SpecInputError(
-          `Invalid OpenAPI spec from ${label}: ${error instanceof Error ? error.message : String(error)}`,
-          { source: label },
-        );
-      throw error;
-    }
-    const cachePath = writeRegistryCache(compiled, options);
-    return {
-      env: success({
-        cmd,
-        data: {
-          operations: compiled.operations.length,
-          total_operations: compiled.totalOperations,
-          skipped_operations: compiled.skippedOperations,
-          cache_path: cachePath,
-          spec_cache_path: specPath,
-        },
-      }),
-      exitCode: ExitCode.Success,
-    };
+    compiled = await compileSpec({ document });
   } catch (error) {
-    return specUpdateFailure(cmd, error);
+    if (source !== "url")
+      throw new SpecInputError(
+        `Invalid OpenAPI spec from ${label}: ${error instanceof Error ? error.message : String(error)}`,
+        { source: label },
+      );
+    throw error;
   }
-}
-
-function specUpdateFailure(cmd: string, error: unknown): { env: Envelope; exitCode: ExitCode } {
-  if (error instanceof SpecInputError) return specInputFailure(cmd, error);
-  return specProviderFailure(cmd, error);
-}
-
-function specInputFailure(
-  cmd: string,
-  error: SpecInputError,
-): { env: Envelope; exitCode: ExitCode } {
+  const cachePath = writeRegistryCache(compiled, options);
   return {
-    env: failure({
-      cmd,
-      error: {
-        type: "validation_error",
-        code: "validation_error",
-        message: error.message,
-        raw: error.raw,
-      },
-      retry: { recommended: false, after_ms: null },
-    }),
-    exitCode: ExitCode.InputValidation,
-  };
-}
-
-function specProviderFailure(cmd: string, error: unknown): { env: Envelope; exitCode: ExitCode } {
-  return {
-    env: failure({
-      cmd,
-      error: {
-        type: "provider_error",
-        code: error instanceof SpecProviderError ? "spec_fetch_failed" : "spec_update_failed",
-        message: error instanceof Error ? error.message : String(error),
-        raw: error,
-      },
-      retry: { recommended: false, after_ms: null },
-      hints: [{ cmd: "elv spec update --offline", why: "Recompile from the vendored snapshot." }],
-    }),
-    exitCode: ExitCode.ProviderError,
+    operations: compiled.operations.length,
+    totalOperations: compiled.totalOperations,
+    skippedOperations: compiled.skippedOperations,
+    cachePath,
+    specCachePath: specPath,
   };
 }
 

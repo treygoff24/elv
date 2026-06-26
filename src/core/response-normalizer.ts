@@ -15,14 +15,13 @@ import {
 } from "./files";
 import { parseJson as parseJsonValue } from "../util/json";
 import { shellArg } from "../util/shell";
+import type { HttpMethod, OperationCard } from "../openapi/types";
 import type {
   CostInfo,
   DataSummary,
   Envelope,
   FileRecord,
   Hint,
-  HttpMethod,
-  OperationCard,
   SuccessEnvelope,
   Warning,
 } from "./types";

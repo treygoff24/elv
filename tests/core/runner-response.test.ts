@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { describe, expect, it } from "vitest";
 import { normalizeResponse } from "../../src/core/response-normalizer";
-import type { OperationCard } from "../../src/core/types";
+import type { OperationCard } from "../../src/openapi/types";
 
 function op(overrides: Partial<OperationCard> = {}): OperationCard {
   return {

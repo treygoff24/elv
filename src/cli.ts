@@ -23,7 +23,7 @@ import { runWs } from "./commands/ws";
 import { handleOpsGet, handleOpsSchema, handleOpsSearch } from "./commands/ops";
 import { handleView } from "./commands/view";
 import { registerAliases } from "./commands/aliases";
-import { updateSpecCache } from "./openapi/fetch-spec";
+import { handleSpecUpdate } from "./commands/spec";
 import { parseJson } from "./util/json";
 import type { ConfigOverrides } from "./core/config";
 import type { RunWsOptions, WsCommandInput } from "./commands/ws";
@@ -213,7 +213,7 @@ function registerSpecCommands(program: Command): void {
       .option("--from <file_or_url>", "OpenAPI spec file path or URL to fetch")
       .option("--offline", "recompile from the vendored spec snapshot")
       .action(async (options: CliOptionValues) => {
-        const result = await updateSpecCache({
+        const result = await handleSpecUpdate({
           from: optionString(options.from),
           offline: Boolean(options.offline),
           cmd: "elv spec update",

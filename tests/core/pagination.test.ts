@@ -9,7 +9,8 @@ import {
   nextCursor,
 } from "../../src/core/pagination";
 import { success } from "../../src/core/envelope";
-import type { Envelope, OperationCard } from "../../src/core/types";
+import type { Envelope } from "../../src/core/types";
+import type { OperationCard } from "../../src/openapi/types";
 
 function op(overrides: Partial<OperationCard>): OperationCard {
   return {

@@ -26,15 +26,8 @@ import {
 import { requiresYes } from "./safety";
 import { OutTargetError } from "./files";
 import type { ValidateFunction } from "ajv";
-import type {
-  AgentInput,
-  Envelope,
-  HttpMethod,
-  NormalizedError,
-  OperationCard,
-  RunOpts,
-  Warning,
-} from "./types";
+import type { HttpMethod, OperationCard } from "../openapi/types";
+import type { AgentInput, Envelope, NormalizedError, RunOpts, Warning } from "./types";
 import type { HttpRequest } from "./request-builder";
 import type { ResponseContext } from "./response-normalizer";
 

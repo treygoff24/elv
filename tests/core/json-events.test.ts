@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { Readable } from "node:stream";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { normalizeResponse } from "../../src/core/response-normalizer";
-import type { OperationCard } from "../../src/core/types";
+import type { OperationCard } from "../../src/openapi/types";
 
 let out: string;
 

@@ -1,6 +1,7 @@
 import { normalizeProviderError } from "./error-normalizer";
 import type { HttpRequest } from "./request-builder";
-import type { NormalizedError, OperationCard, RetryInfo } from "./types";
+import type { NormalizedError, RetryInfo } from "./types";
+import type { OperationCard } from "../openapi/types";
 
 export interface RetryContext {
   retryPost?: boolean;

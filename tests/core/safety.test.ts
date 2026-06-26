@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { requiresYes } from "../../src/core/safety";
-import type { OperationCard, Risk } from "../../src/core/types";
+import type { OperationCard, Risk } from "../../src/openapi/types";
 
 function op(
   operationId: string,

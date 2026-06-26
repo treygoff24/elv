@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { sendWithRetry } from "../../src/core/retries";
 import type { HttpRequest } from "../../src/core/request-builder";
-import type { OperationCard } from "../../src/core/types";
+import type { OperationCard } from "../../src/openapi/types";
 
 const op: OperationCard = {
   operationId: "retry_demo",
