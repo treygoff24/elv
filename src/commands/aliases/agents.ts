@@ -10,7 +10,7 @@ import {
   type BuiltOperation,
 } from "./shared";
 
-export interface AgentsFlags {
+interface AgentsFlags {
   agentId?: string;
   json?: string;
   jsonFile?: string;

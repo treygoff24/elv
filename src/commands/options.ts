@@ -2,21 +2,15 @@ import type { Command } from "commander";
 import type { RunOpts } from "../core/types";
 import type { PaginationOptions } from "../core/pagination";
 
-export interface RunOptionValues {
-  dryRun?: boolean;
-  yes?: boolean;
-  maxCredits?: string | number;
-  retryPost?: boolean;
-  hash?: boolean;
-  out?: string;
-  baseUrl?: string;
-  profile?: string;
+export interface RunOptionValues extends Pick<
+  RunOpts,
+  "dryRun" | "yes" | "retryPost" | "hash" | "out" | "baseUrl" | "profile"
+> {
+  maxCredits?: string | RunOpts["maxCredits"];
 }
 
-export interface PaginationOptionValues {
-  all?: boolean;
-  limit?: string | number;
-  saveJson?: string;
+export interface PaginationOptionValues extends Pick<PaginationOptions, "all" | "saveJson"> {
+  limit?: string | PaginationOptions["limit"];
 }
 
 export interface CliOptionValues extends RunOptionValues, PaginationOptionValues {

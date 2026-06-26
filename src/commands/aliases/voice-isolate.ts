@@ -1,8 +1,7 @@
-import { resolve } from "node:path";
 import type { Command } from "commander";
-import { compact, compactInput, required, runAlias, type BuiltOperation } from "./shared";
+import { compact, compactInput, requiredPath, runAlias, type BuiltOperation } from "./shared";
 
-export interface VoiceIsolateFlags {
+interface VoiceIsolateFlags {
   file?: string;
   fileFormat?: string;
   previewB64?: string;
@@ -12,7 +11,7 @@ export function buildVoiceIsolateInput(flags: VoiceIsolateFlags): BuiltOperation
   return {
     operationId: "audio_isolation",
     input: compactInput({
-      files: { audio: resolve(required(flags.file, "--file")) },
+      files: { audio: requiredPath(flags.file, "--file") },
       body: compact({ file_format: flags.fileFormat, preview_b64: flags.previewB64 }),
     }),
   };

@@ -14,7 +14,7 @@ import {
   waitAfterCreate,
 } from "./shared";
 
-export interface DubbingCreateFlags {
+interface DubbingCreateFlags {
   file?: string;
   source?: string;
   target?: string;
@@ -22,7 +22,7 @@ export interface DubbingCreateFlags {
   wait?: boolean;
 }
 
-export interface DubbingIdFlags {
+interface DubbingIdFlags {
   id?: string;
   language?: string;
 }

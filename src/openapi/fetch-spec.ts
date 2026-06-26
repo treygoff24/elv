@@ -12,7 +12,7 @@ export interface UpdateSpecOptions extends RegistryOptions {
   offline?: boolean;
 }
 
-export interface SpecUpdateResult {
+interface SpecUpdateResult {
   operations: number;
   totalOperations: number;
   skippedOperations: number;

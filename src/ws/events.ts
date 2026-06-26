@@ -1,7 +1,7 @@
 import { join } from "node:path";
 import { redact, redactString } from "../core/redaction";
 import { tempFileWriter } from "../core/files";
-import { parseJson } from "../util/json";
+import { isRecord, parseJson } from "../util/json";
 import type { TempFileWriter } from "../core/files";
 
 export type SendScriptAction = { type: "send"; data: Record<string, unknown> } | { type: "close" };
@@ -117,8 +117,4 @@ function isWsSecretKey(key: string): boolean {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
 }

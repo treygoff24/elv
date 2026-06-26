@@ -16,7 +16,7 @@ import type { FileRecord } from "./types";
 
 const DEFAULT_HASH_CAP_BYTES = 64 * 1024 * 1024;
 
-export interface HashOptions {
+interface HashOptions {
   maxBytes?: number;
   hash?: boolean;
 }

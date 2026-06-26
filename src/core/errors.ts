@@ -104,7 +104,7 @@ const HINT_RULES: HintRule[] = [
   },
 ];
 
-export function exitCodeForError(err: NormalizedError, httpStatus?: number): ExitCode {
+export function exitCodeForError(err: NormalizedError, httpStatus?: number | null): ExitCode {
   const code = err.code.toLowerCase();
   const codeExit = exitCodeFromCode(code);
   if (codeExit) return codeExit;

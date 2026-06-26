@@ -1,4 +1,5 @@
 import { resolve } from "node:path";
+import { isRecord } from "../util/json";
 
 export function addPairs(
   input: Record<string, unknown>,
@@ -53,8 +54,4 @@ function bucketObject(
     throw new Error(`${bucket} must be an object`);
   }
   return existing;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
 }

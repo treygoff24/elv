@@ -9,11 +9,11 @@ import type { HttpMethod, OperationCard } from "../openapi/types";
 // arrives empty), whereas a FormData with an openAsBlob-backed Blob streams without buffering the
 // whole file into memory — required for large dubbing uploads (spec §6).
 
-export interface NormalizeInputOptions {
+interface NormalizeInputOptions {
   allowUnknown?: boolean;
 }
 
-export interface BuildRequestContext {
+interface BuildRequestContext {
   baseUrl?: string;
   apiKey?: string;
   maxUploadBytes?: number;

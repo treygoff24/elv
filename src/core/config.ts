@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 import { success, failure } from "./envelope";
 import { ExitCode } from "./types";
-import { parseJson } from "../util/json";
+import { isRecord, parseJson } from "../util/json";
 import type { Envelope } from "./types";
 
 interface ProfileConfig {
@@ -19,7 +19,7 @@ interface FileConfig {
   profiles?: Record<string, ProfileConfig>;
 }
 
-export interface ResolvedConfig {
+interface ResolvedConfig {
   baseUrl: string;
   apiKeyPresent: boolean;
   outputDir: string;
@@ -45,7 +45,7 @@ interface DoctorCheck {
   detail: string;
 }
 
-export interface DoctorResult {
+interface DoctorResult {
   env: Envelope & { data?: unknown };
   exitCode: ExitCode;
   checks: DoctorCheck[];
@@ -335,8 +335,4 @@ function errorMessage(error: unknown): string {
 
 function asRecord(value: unknown): Record<string, unknown> {
   return isRecord(value) ? value : {};
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
 }

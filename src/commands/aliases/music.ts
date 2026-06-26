@@ -3,7 +3,7 @@ import type { Command } from "commander";
 import { numberValue } from "../options";
 import { compact, compactInput, runAlias, type BuiltOperation } from "./shared";
 
-export interface MusicFlags {
+interface MusicFlags {
   prompt?: string;
   promptFile?: string;
   model?: string;

@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { compileSpec } from "./compile-spec";
 import { parseJson } from "../util/json";
-import type { CompileSpecResult } from "./compile-spec";
+import type { CompileSpecResult, OpenApiDocument } from "./compile-spec";
 import type { OperationCard } from "./types";
 
 export interface RegistryOptions {
@@ -20,7 +20,7 @@ interface RegistryCache {
   totalOperations: number;
   skippedOperations: number;
   operations: OperationCard[];
-  bundledSpec: unknown;
+  bundledSpec?: OpenApiDocument;
 }
 
 export async function loadRegistry(

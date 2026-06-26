@@ -1,11 +1,12 @@
 import Ajv2020 from "ajv/dist/2020.js";
 import addFormats from "ajv-formats";
 import type { AnySchema, ValidateFunction } from "ajv";
+import type { OpenApiDocument } from "./compile-spec";
 import type { OperationCard } from "./types";
 
 const OPENAPI_SCHEMA_BASE = "elv://openapi";
 
-export function buildAjv(bundledSpec: unknown): Ajv2020 {
+export function buildAjv(bundledSpec: OpenApiDocument): Ajv2020 {
   const ajv = new Ajv2020({ strict: false, allErrors: true, validateSchema: false });
   addFormats(ajv);
   ajv.addSchema(bundledSpec as AnySchema, OPENAPI_SCHEMA_BASE);

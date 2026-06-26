@@ -1,8 +1,10 @@
+import { resolve } from "node:path";
 import type { Command } from "commander";
 import { runOperation } from "../../core/client";
 import { emitAndExit, exitCodeForError, validationError } from "../../core/errors";
 import { ExitCode } from "../../core/types";
 import { waitForOperation } from "../../core/wait-operation";
+import { isRecord } from "../../util/json";
 import type { WaitOptions } from "../../core/wait-operation";
 import {
   mergedOptions,
@@ -19,7 +21,7 @@ export interface BuiltOperation {
 
 type RequiredWaitFields = Required<Pick<WaitOptions, "operation" | "statusPath" | "success">>;
 
-export type OperationBuilder<T> = (flags: T) => BuiltOperation;
+type OperationBuilder<T> = (flags: T) => BuiltOperation;
 
 interface WaitAfterCreateConfig extends RequiredWaitFields, Pick<WaitOptions, "failure"> {
   commandName: string;
@@ -126,10 +128,6 @@ function pickFields(item: unknown, fields: string[]): unknown {
   return out;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-
 export function commandName(command: Command): string {
   const names: string[] = [];
   for (let current: Command | null | undefined = command; current; current = current.parent) {
@@ -234,6 +232,10 @@ function message(error: unknown): string {
 export function required(value: string | undefined, label: string): string {
   if (!value) throw new Error(`${label} is required`);
   return value;
+}
+
+export function requiredPath(value: string | undefined, label: string): string {
+  return resolve(required(value, label));
 }
 
 export function compact(record: Record<string, unknown>): Record<string, unknown> | undefined {

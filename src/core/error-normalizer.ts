@@ -1,3 +1,4 @@
+import { isRecord } from "../util/json";
 import { classifyTypeFromStatus } from "./errors";
 import type { NormalizedError } from "./types";
 
@@ -131,10 +132,6 @@ function statusText(status: number): string {
 
 function asRecord(value: unknown): Record<string, unknown> {
   return isRecord(value) ? value : {};
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
 function stringValue(value: unknown): string | undefined {

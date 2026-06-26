@@ -9,7 +9,7 @@ import { isRecord, parseJson } from "../util/json";
 import { readPath } from "../util/jsonpath";
 import { shellArg } from "../util/shell";
 
-export interface ViewOptions {
+interface ViewOptions {
   path?: string;
   limit?: string | number;
 }

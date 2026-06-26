@@ -1,7 +1,7 @@
 import type { Command } from "commander";
 import { addPaginationFlags, required, runListAlias, type BuiltOperation } from "./shared";
 
-export interface HistoryFlags {
+interface HistoryFlags {
   id?: string;
 }
 

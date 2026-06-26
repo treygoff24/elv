@@ -8,7 +8,7 @@ import { parseJson as parseJsonValue } from "../util/json";
 import type { FileRecord, WsInfo } from "../core/types";
 import type { SendScriptAction } from "./events";
 
-export interface WsSessionOptions {
+interface WsSessionOptions {
   url: URL;
   catalog: string | null;
   path: string;
@@ -19,7 +19,7 @@ export interface WsSessionOptions {
   outputFormat?: string;
 }
 
-export interface WsSessionResult {
+interface WsSessionResult {
   ws: WsInfo;
   files: FileRecord[];
 }
@@ -244,7 +244,7 @@ async function playScript(socket: WebSocket, script: SendScriptAction[]): Promis
   return eventsSent;
 }
 
-function sendJson(socket: WebSocket, value: unknown): Promise<void> {
+function sendJson(socket: WebSocket, value: Record<string, unknown>): Promise<void> {
   return new Promise((resolve, reject) => {
     socket.send(JSON.stringify(value), (error) => (error ? reject(error) : resolve()));
   });

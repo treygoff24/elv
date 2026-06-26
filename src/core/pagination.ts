@@ -1,6 +1,7 @@
 import { join } from "node:path";
 import { deriveFilename, fileRecord, resolveOutTarget, writeBufferToFile } from "./files";
 import { success } from "./envelope";
+import { isRecord } from "../util/json";
 import { shellArg } from "../util/shell";
 import type { HttpMethod, OperationCard } from "../openapi/types";
 import type { AgentInput, Envelope, FileRecord, SuccessEnvelope, Warning } from "./types";
@@ -19,14 +20,14 @@ export interface PaginationCommand {
   path?: string;
 }
 
-export interface CursorInfo {
+interface CursorInfo {
   hasMore: boolean;
   cursorParam?: string;
   cursor?: string;
   warnings: Warning[];
 }
 
-export interface CollectAllPagesOptions {
+interface CollectAllPagesOptions {
   op: OperationCard;
   input: AgentInput;
   out?: string;
@@ -306,8 +307,4 @@ function resourceFamily(op: OperationCard): Family {
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {
   return isRecord(value) ? value : undefined;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
 }

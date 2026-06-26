@@ -9,12 +9,12 @@ interface CompactBuckets {
   header: Record<string, CompactValue>;
   body: Record<string, CompactValue>;
 }
-export interface CompactSchema {
+interface CompactSchema {
   required: CompactBuckets;
   optional: CompactBuckets;
 }
 
-export interface ExampleCommand {
+interface ExampleCommand {
   cmd: string;
 }
 

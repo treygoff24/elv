@@ -3,7 +3,7 @@ import type { HttpRequest } from "./request-builder";
 import type { NormalizedError, RetryInfo } from "./types";
 import type { OperationCard } from "../openapi/types";
 
-export interface RetryContext {
+interface RetryContext {
   retryPost?: boolean;
   maxAttempts?: number;
   sleep?: (ms: number) => Promise<void>;

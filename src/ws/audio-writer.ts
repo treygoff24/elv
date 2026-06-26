@@ -1,5 +1,6 @@
 import { join } from "node:path";
 import { tempFileWriter } from "../core/files";
+import { isRecord } from "../util/json";
 import type { TempFileWriter } from "../core/files";
 
 export class AudioWriter {
@@ -47,8 +48,4 @@ function audioBase64(event: unknown): string | null {
   if (!isRecord(event)) return null;
   const value = event.audio ?? event.audio_base64;
   return typeof value === "string" && value.length > 0 ? value : null;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
 }

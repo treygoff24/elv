@@ -10,7 +10,7 @@ export const GUARDED_HINTS = new Set([
   "per_source_minute",
 ]);
 
-export interface EstimateDetail {
+interface EstimateDetail {
   credits: number | null;
   warnings: Warning[];
 }

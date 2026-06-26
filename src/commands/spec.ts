@@ -4,7 +4,7 @@ import { SpecInputError, SpecProviderError, updateSpecCache } from "../openapi/f
 import type { Envelope } from "../core/types";
 import type { UpdateSpecOptions } from "../openapi/fetch-spec";
 
-export interface SpecUpdateOptions extends UpdateSpecOptions {
+interface SpecUpdateOptions extends UpdateSpecOptions {
   cmd?: string;
 }
 

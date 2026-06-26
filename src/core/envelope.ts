@@ -14,7 +14,7 @@ export function failure(partial: Omit<ErrorEnvelope, "v" | "ok">): ErrorEnvelope
   return { v: ENVELOPE_VERSION, ok: false, ...partial };
 }
 
-export interface DryRunInput {
+interface DryRunInput {
   cmd: string;
   operationId?: string;
   request: unknown;

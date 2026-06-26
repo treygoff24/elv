@@ -1,4 +1,3 @@
-import { resolve } from "node:path";
 import type { Command } from "commander";
 import { runOperation } from "../../core/client";
 import { mergedOptions } from "../options";
@@ -9,14 +8,14 @@ import {
   compactInput,
   emit,
   required,
+  requiredPath,
   aliasRunOpts,
   validationOrExit,
 } from "./shared";
 import { resolveVoiceId } from "./voices";
+import type { VoiceSelector } from "./voices";
 
-export interface VoiceChangeFlags {
-  voiceId?: string;
-  voice?: string;
+interface VoiceChangeFlags extends VoiceSelector {
   file?: string;
   model?: string;
   format?: string;
@@ -30,7 +29,7 @@ export function buildVoiceChangeInput(flags: VoiceChangeFlags): BuiltOperation {
     input: compactInput({
       path: { voice_id: required(flags.voiceId, "--voice-id") },
       query: compact({ output_format: flags.format }),
-      files: { audio: resolve(required(flags.file, "--file")) },
+      files: { audio: requiredPath(flags.file, "--file") },
       body: compact({
         model_id: flags.model,
         remove_background_noise: flags.removeBackgroundNoise,

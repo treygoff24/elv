@@ -7,11 +7,10 @@ import {
   rawInputSchemaForOperation,
 } from "../openapi/compact-schema";
 import { readRegistryCache, loadRegistry } from "../openapi/registry";
-import type { OpenApiDocument } from "../openapi/compile-spec";
 import type { OperationCard, Risk } from "../openapi/types";
 import type { Envelope } from "../core/types";
 
-export interface SearchResult {
+interface SearchResult {
   operation_id: string;
   method: OperationCard["method"];
   path: string;
@@ -20,11 +19,11 @@ export interface SearchResult {
   risk: Risk;
 }
 
-export interface OpsSearchOptions {
+interface OpsSearchOptions {
   limit?: string | number;
 }
 
-export interface OpsSchemaOptions {
+interface OpsSchemaOptions {
   raw?: boolean;
   example?: boolean;
 }
@@ -82,7 +81,7 @@ export async function handleOpsSchema(
   const cached = readRegistryCache();
   const op = registry.get(operationId);
   if (!op) return unknownOperation(`elv ops schema ${operationId}`, operationId);
-  const spec = cached?.bundledSpec as OpenApiDocument | undefined;
+  const spec = cached?.bundledSpec;
   if (!spec) {
     return {
       env: failure({

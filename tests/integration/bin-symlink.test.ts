@@ -54,7 +54,6 @@ describe.skipIf(process.platform === "win32")(
 
     it("emits a JSON envelope when run through a bin symlink", async () => {
       const { stdout, code } = await runNode(link, ["--version"]);
-      // Before the realpath fix this was empty (main() silently skipped) with exit 0.
       expect(stdout.trim().length).toBeGreaterThan(0);
       const parsed = JSON.parse(stdout.trim()) as {
         v: number;

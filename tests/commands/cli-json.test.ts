@@ -9,7 +9,7 @@ function hasAnsiEscape(text: string): boolean {
   return text.includes("\u001b");
 }
 
-export function runCli(args: string[], env?: Record<string, string>): CliResult {
+function runCli(args: string[], env?: Record<string, string>): CliResult {
   const result = spawnSync("npx", ["tsx", "src/cli.ts", ...args], {
     encoding: "utf-8",
     env: { ...process.env, ...env },

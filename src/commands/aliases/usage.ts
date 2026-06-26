@@ -1,7 +1,7 @@
 import type { Command } from "commander";
 import { compact, required, runAlias, type BuiltOperation } from "./shared";
 
-export interface UsageFlags {
+interface UsageFlags {
   from?: string;
   to?: string;
   breakdown?: string;

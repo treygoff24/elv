@@ -237,17 +237,14 @@ describe("pagination mock server (black-box, integration gate)", () => {
       expect(envelope.ok).toBe(true);
       expect(envelope.operation_id).toBe("get_user_voices_v2");
 
-      // Large page → spilled to disk, not inlined.
       expect(Array.isArray(envelope.files)).toBe(true);
       expect((envelope.files as unknown[]).length).toBeGreaterThan(0);
       expect(envelope.data_summary).toBeDefined();
       expect(envelope.truncated).toBe(true);
 
-      // The bulky voices array must NOT be inline...
       const data = envelope.data as Record<string, unknown> | undefined;
       expect(data?.voices).toBeUndefined();
 
-      // ...but the next-page command must survive the spill.
       const next = (data?.next ?? envelope.next) as Record<string, unknown> | undefined;
       expect(next).toBeDefined();
       expect(String(next?.cmd ?? "")).toMatch(/get_user_voices_v2/);
@@ -325,7 +322,6 @@ describe("pagination mock server (black-box, integration gate)", () => {
         const voices = saved.voices as Array<Record<string, unknown>>;
         expect(voices[0]?.voice_id).toBe("v1");
 
-        // Small result still comes back inline; the file is the saved copy.
         const envelope = parseEnvelope(stdout);
         expect(envelope.ok).toBe(true);
         expect(envelope.data).toBeDefined();
@@ -360,7 +356,6 @@ describe("pagination mock server (black-box, integration gate)", () => {
       expect(v2VoicesRequestCount).toBe(1);
       const envelope = parseEnvelope(stdout);
       expect(envelope.ok).toBe(true);
-      // Dropping the fat `name` (2 KB each) keeps the whole list inline, no file spill.
       expect(envelope.files).toBeUndefined();
       const data = envelope.data as Record<string, unknown>;
       const voices = data.voices as Array<Record<string, unknown>>;

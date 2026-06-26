@@ -2,7 +2,7 @@ import type { Command } from "commander";
 import { numberValue } from "../options";
 import { compact, compactInput, required, runAlias, type BuiltOperation } from "./shared";
 
-export interface SfxFlags {
+interface SfxFlags {
   prompt?: string;
   duration?: string | number;
   model?: string;

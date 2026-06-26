@@ -1,4 +1,3 @@
-import { resolve } from "node:path";
 import type { Command } from "commander";
 import { runOperation } from "../../core/client";
 import {
@@ -6,13 +5,13 @@ import {
   compact,
   compactInput,
   emit,
-  required,
+  requiredPath,
   aliasRunOpts,
   validationOrExit,
   waitAfterCreate,
 } from "./shared";
 
-export interface SttFlags {
+interface SttFlags {
   file?: string;
   model?: string;
   timestamps?: string;
@@ -26,7 +25,7 @@ export function buildSttInput(flags: SttFlags): BuiltOperation {
   return {
     operationId: "speech_to_text",
     input: compactInput({
-      files: { file: resolve(required(flags.file, "--file")) },
+      files: { file: requiredPath(flags.file, "--file") },
       body: compact({
         model_id: flags.model,
         timestamps_granularity: flags.timestamps,

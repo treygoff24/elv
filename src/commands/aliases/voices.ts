@@ -1,4 +1,3 @@
-import { resolve } from "node:path";
 import type { Command } from "commander";
 import { runOperation } from "../../core/client";
 import { emitAndExit, validationError } from "../../core/errors";
@@ -11,12 +10,13 @@ import {
   compactInput,
   emit,
   required,
+  requiredPath,
   runListAlias,
   aliasRunOpts,
   validationOrExit,
 } from "./shared";
 
-export interface VoicesFlags {
+interface VoicesFlags {
   query?: string;
   search?: string;
   sort?: string;
@@ -29,10 +29,15 @@ export interface VoicesFlags {
 
 const RESOLVER_PAGE_SIZE = 100;
 
-export interface VoiceRecord {
+interface VoiceRecord {
   name?: string;
   voice_id?: string;
   [key: string]: unknown;
+}
+
+export interface VoiceSelector {
+  voiceId?: string;
+  voice?: string;
 }
 
 type VoiceListData = {
@@ -64,7 +69,7 @@ export function buildVoicesCloneInstantInput(flags: VoicesFlags): BuiltOperation
   return {
     operationId: "add_voice",
     input: compactInput({
-      files: { files: [resolve(required(flags.file, "--file"))] },
+      files: { files: [requiredPath(flags.file, "--file")] },
       body: compact({
         name: required(flags.name, "--name"),
         remove_background_noise: flags.removeBackgroundNoise,
@@ -86,7 +91,7 @@ export function findMatchingVoices(query: string, voices: VoiceRecord[]): VoiceR
 }
 
 export async function resolveVoiceId(
-  flags: { voiceId?: string; voice?: string },
+  flags: VoiceSelector,
   opts: RunOpts,
   cmd: string,
 ): Promise<string> {

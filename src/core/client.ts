@@ -1,4 +1,5 @@
 import { loadRegistry, readRegistryCache } from "../openapi/registry";
+import { isRecord } from "../util/json";
 import { estimateDetail, overBudget } from "./budget";
 import { ConfigFileError, loadConfig, getApiKey } from "./config";
 import { dryRun, failure } from "./envelope";
@@ -26,6 +27,7 @@ import {
 import { requiresYes } from "./safety";
 import { OutTargetError } from "./files";
 import type { ValidateFunction } from "ajv";
+import type { OpenApiDocument } from "../openapi/compile-spec";
 import type { HttpMethod, OperationCard } from "../openapi/types";
 import type { AgentInput, Envelope, NormalizedError, RunOpts, Warning } from "./types";
 import type { HttpRequest } from "./request-builder";
@@ -292,7 +294,7 @@ async function sendAndNormalize(
 async function validateInput(
   op: OperationCard,
   input: AgentInput,
-  bundledSpec: unknown,
+  bundledSpec: OpenApiDocument | undefined,
 ): Promise<NormalizedError | null> {
   const missingParam = missingRequiredParamError(op, input);
   if (missingParam) return missingParam;
@@ -322,7 +324,10 @@ function missingRequiredParamError(op: OperationCard, input: AgentInput): Normal
   return null;
 }
 
-function skipRequestBodyValidation(op: OperationCard, bundledSpec: unknown): boolean {
+function skipRequestBodyValidation(
+  op: OperationCard,
+  bundledSpec: OpenApiDocument | undefined,
+): boolean {
   return !op.requestBody || (!bundledSpec && Boolean(op.requestBody.schemaRef));
 }
 
@@ -373,13 +378,16 @@ function validationBody(op: OperationCard, input: AgentInput): unknown {
 
 async function getInputValidatorForOperation(
   op: OperationCard,
-  bundledSpec: unknown,
+  bundledSpec: OpenApiDocument,
 ): Promise<ValidateFunction | null> {
   const { buildAjv, getInputValidator } = await import("../openapi/ajv");
   return getInputValidator(buildAjv(bundledSpec), op);
 }
 
-function hydrateBodySchema(op: OperationCard, bundledSpec: unknown): OperationCard {
+function hydrateBodySchema(
+  op: OperationCard,
+  bundledSpec: OpenApiDocument | undefined,
+): OperationCard {
   if (!op.requestBody?.schemaRef || op.requestBody.schema || !bundledSpec) return op;
   return {
     ...op,
@@ -390,7 +398,7 @@ function hydrateBodySchema(op: OperationCard, bundledSpec: unknown): OperationCa
   };
 }
 
-function resolveRef(ref: string, spec: unknown): unknown {
+function resolveRef(ref: string, spec: OpenApiDocument): unknown {
   if (!ref.startsWith("#/")) return undefined;
   return ref
     .slice(2)
@@ -464,7 +472,7 @@ export function envelopeForThrown(cmd: string, operationId: string, error: unkno
   });
 }
 
-function minimalSpec(): unknown {
+function minimalSpec(): OpenApiDocument {
   return {
     openapi: "3.1.0",
     info: { title: "elv", version: "0" },
@@ -475,8 +483,4 @@ function minimalSpec(): unknown {
 
 function asRecord(value: unknown): Record<string, unknown> {
   return isRecord(value) ? value : {};
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
 }

@@ -28,7 +28,7 @@ export interface OpenApiDocument extends JsonObject {
   components: { schemas: Record<string, unknown> } & JsonObject;
 }
 
-export interface CompileSpecOptions {
+interface CompileSpecOptions {
   sourcePath?: string;
   document?: unknown;
 }

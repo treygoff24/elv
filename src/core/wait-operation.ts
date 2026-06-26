@@ -18,12 +18,12 @@ export interface WaitOptions {
   cmd?: string;
 }
 
-export interface WaitResult {
+interface WaitResult {
   env: Envelope;
   exitCode: ExitCode;
 }
 
-export interface WaitDeps {
+interface WaitDeps {
   runOperation?: (
     operationId: string,
     input: AgentInput | Record<string, unknown>,
@@ -124,7 +124,7 @@ async function runPoll(
   const env = await safeRun(runtime.run);
   if (!env.ok) {
     return {
-      result: { env, exitCode: exitCodeForError(env.error, env.http?.status ?? undefined) },
+      result: { env, exitCode: exitCodeForError(env.error, env.http?.status) },
     };
   }
   return statusObservation(parsed, env);

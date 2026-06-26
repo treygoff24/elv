@@ -13,10 +13,9 @@ import {
   validationOrExit,
 } from "./shared";
 import { resolveVoiceId } from "./voices";
+import type { VoiceSelector } from "./voices";
 
-export interface TtsFlags {
-  voiceId?: string;
-  voice?: string;
+interface TtsFlags extends VoiceSelector {
   text?: string;
   textFile?: string;
   model?: string;

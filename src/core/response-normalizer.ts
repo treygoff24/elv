@@ -13,7 +13,7 @@ import {
   tempFileWriter,
   writeBufferToFile,
 } from "./files";
-import { parseJson as parseJsonValue } from "../util/json";
+import { isRecord, parseJson as parseJsonValue } from "../util/json";
 import { shellArg } from "../util/shell";
 import type { HttpMethod, OperationCard } from "../openapi/types";
 import type {
@@ -533,10 +533,6 @@ function audioExtensionFromRequestPath(path: string | undefined): string {
 function requestPathSearchParams(path: string): URLSearchParams {
   const queryStart = path.indexOf("?");
   return new URLSearchParams(queryStart === -1 ? "" : path.slice(queryStart + 1));
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
 function costInfo(

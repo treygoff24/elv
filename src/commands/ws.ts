@@ -7,13 +7,10 @@ import { resolveOutTarget, OutTargetError } from "../core/files";
 import { buildCatalogUrl, getWsCatalogEntry, listWsCatalog, wsUrlFromPath } from "../ws/catalog";
 import { parseSendScript, scriptUsesModel } from "../ws/events";
 import { runWsSession } from "../ws/session";
-import type { Envelope } from "../core/types";
+import type { Envelope, RunOpts } from "../core/types";
 import type { WsCatalogEntry } from "../ws/catalog";
 
-export interface RunWsOptions {
-  apiKey?: string;
-  baseUrl?: string;
-  profile?: string;
+export interface RunWsOptions extends Pick<RunOpts, "apiKey" | "baseUrl" | "profile"> {
   timeoutMs?: number;
 }
 
@@ -40,10 +37,7 @@ export async function runWs(
   }
 }
 
-interface ValidatedWsInput extends WsCommandInput {
-  target: string;
-  send: string;
-}
+type ValidatedWsInput = WsCommandInput & Required<Pick<WsCommandInput, "target" | "send">>;
 
 function listCatalogResult(): { env: Envelope; exitCode: ExitCode } {
   return {

@@ -7,27 +7,16 @@ import type { AgentInput, Envelope, RunOpts } from "../core/types";
 import type { PaginationOptions } from "../core/pagination";
 import { addFiles, addPairs } from "./input";
 import { paginationOptionsFromOptions, runOptsFromOptions } from "./options";
+import type { PaginationOptionValues, RunOptionValues } from "./options";
 
-export interface CallOptions {
+interface CallOptions
+  extends RunOptionValues, PaginationOptionValues, Pick<RunOpts, "allowUnknown" | "unpack"> {
   json?: string;
   jsonFile?: string;
   stdinJson?: boolean;
   query?: string[];
   path?: string[];
   file?: string[];
-  out?: RunOpts["out"];
-  maxCredits?: string | number;
-  dryRun?: RunOpts["dryRun"];
-  yes?: RunOpts["yes"];
-  retryPost?: RunOpts["retryPost"];
-  allowUnknown?: RunOpts["allowUnknown"];
-  unpack?: RunOpts["unpack"];
-  hash?: RunOpts["hash"];
-  baseUrl?: RunOpts["baseUrl"];
-  profile?: RunOpts["profile"];
-  all?: PaginationOptions["all"];
-  limit?: string | number;
-  saveJson?: PaginationOptions["saveJson"];
 }
 
 export async function handleCall(
@@ -50,9 +39,7 @@ export async function handleCall(
   const env = await runOperation(operationId, parsed.input, opts);
   return {
     env,
-    exitCode: env.ok
-      ? ExitCode.Success
-      : exitCodeForError(env.error, env.http?.status ?? undefined),
+    exitCode: env.ok ? ExitCode.Success : exitCodeForError(env.error, env.http?.status),
   };
 }
 

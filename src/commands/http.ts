@@ -10,26 +10,15 @@ import type { HttpMethod, OperationCard } from "../openapi/types";
 import { ExitCode as Codes } from "../core/types";
 import { addFiles, addPairs } from "./input";
 import { paginationOptionsFromOptions, runOptsFromOptions } from "./options";
+import type { PaginationOptionValues, RunOptionValues } from "./options";
 
-export interface HttpOptions {
+interface HttpOptions extends RunOptionValues, PaginationOptionValues, Pick<RunOpts, "apiKey"> {
   query?: string[];
   bodyJson?: string;
   file?: string[];
-  out?: RunOpts["out"];
-  saveJson?: PaginationOptions["saveJson"];
-  all?: PaginationOptions["all"];
-  limit?: string | number;
-  dryRun?: RunOpts["dryRun"];
-  retryPost?: RunOpts["retryPost"];
-  hash?: RunOpts["hash"];
-  baseUrl?: RunOpts["baseUrl"];
-  apiKey?: RunOpts["apiKey"];
-  profile?: RunOpts["profile"];
-  maxCredits?: string | number;
-  yes?: RunOpts["yes"];
 }
 
-type HttpRunOpts = RunOpts & Omit<PaginationOptions, "limit"> & { limit?: number };
+type HttpRunOpts = RunOpts & PaginationOptions;
 
 export async function handleHttp(
   method: string,
@@ -39,7 +28,7 @@ export async function handleHttp(
   const env = await runHttp(method, path, options);
   return {
     env,
-    exitCode: env.ok ? Codes.Success : exitCodeForError(env.error, env.http?.status ?? undefined),
+    exitCode: env.ok ? Codes.Success : exitCodeForError(env.error, env.http?.status),
   };
 }
 
