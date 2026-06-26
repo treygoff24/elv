@@ -31,6 +31,8 @@
   "files": [
     "dist",
     "spec/openapi.snapshot.json",
+    "docs",
+    "skills",
     "AGENTS.md",
     "README.md"
   ],
@@ -51,7 +53,7 @@
     "ajv-formats": "^3",
     "commander": "^14",
     "mime-types": "^2",
-    "music-metadata": "^10",
+    "music-metadata": "^11",
     "ws": "^8"
   },
   "devDependencies": {
@@ -65,8 +67,10 @@
     "typescript": "^5",
     "vitest": "^3"
   },
+  "overrides": {
+    "esbuild": "^0.28.1"
+  },
   "allowScripts": {
-    "esbuild@0.27.7": true,
     "esbuild@0.28.1": true
   }
 }

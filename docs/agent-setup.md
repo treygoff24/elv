@@ -22,7 +22,7 @@ If `node --version` reports anything below v22, stop and install Node 22+ first.
 ```bash
 git clone https://github.com/treygoff24/elv.git
 cd elv
-npm install
+npm ci
 npm run build
 ```
 
@@ -159,7 +159,7 @@ Binary and large payloads are not printed to stdout; they are written to disk an
 
 ### The build or typecheck fails
 
-Confirm Node is 22 or newer, delete `node_modules` and reinstall with `npm install`, then `npm run build`. Run `npm run typecheck` for the detailed TypeScript output and `npm test` to confirm the suite passes.
+Confirm Node is 22 or newer, delete `node_modules` and reinstall with `npm ci`, then `npm run build`. Run `npm run typecheck` for the detailed TypeScript output and `npm test` to confirm the suite passes.
 
 ## You're done
 

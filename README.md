@@ -49,7 +49,7 @@ Not on npm yet. Publishing is planned; for now you clone and build. You need Nod
 ```bash
 git clone https://github.com/treygoff24/elv.git
 cd elv
-npm install
+npm ci
 npm run build
 ```
 
