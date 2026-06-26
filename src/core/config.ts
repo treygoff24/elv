@@ -78,27 +78,18 @@ const DEFAULT_SPEC_URL = httpsUrl(DEFAULT_API_HOST, "/openapi.json");
 
 export function loadConfig(overrides: ConfigOverrides = {}): ResolvedConfig {
   const file = readConfigFile();
-  const profile = overrides.profile ?? process.env.ELV_PROFILE ?? file.default_profile ?? "default";
-  const activeProfile = file.profiles?.[profile] ?? {};
+  const profile = resolveProfileName(file, overrides);
+  const activeProfile = resolveProfileConfig(file, profile);
   const residency = process.env.ELEVENLABS_API_RESIDENCY;
-  const apiKeyEnv = activeProfile.api_key_env ?? "ELEVENLABS_API_KEY";
-  const maxCredits =
-    overrides.maxCredits ?? numberFromEnv("ELV_MAX_CREDITS") ?? activeProfile.max_credits;
-  const cacheDir = absolutePath(process.env.ELV_CACHE_DIR ?? join(homedir(), ".cache", "elv"));
-  const outputOverride = process.env.ELV_OUTPUT_DIR || activeProfile.output_dir;
-  const outputDir = outputOverride ? absolutePath(outputOverride) : join(cacheDir, "out");
+  const apiKeyEnv = apiKeyEnvForProfile(activeProfile);
+  const cacheDir = configuredCacheDir();
 
   return {
-    baseUrl:
-      overrides.baseUrl ??
-      process.env.ELEVENLABS_BASE_URL ??
-      baseUrlFromResidency(residency) ??
-      activeProfile.base_url ??
-      DEFAULT_BASE_URL,
+    baseUrl: configuredBaseUrl(activeProfile, residency, overrides),
     apiKeyPresent: Boolean(process.env[apiKeyEnv]),
-    outputDir,
+    outputDir: configuredOutputDir(activeProfile, cacheDir),
     defaultModelId: activeProfile.default_model_id,
-    maxCredits,
+    maxCredits: configuredMaxCredits(activeProfile, overrides),
     profile,
     residency,
     cacheDir,
@@ -112,6 +103,48 @@ export function getApiKey(overrides: ConfigOverrides = {}): string | undefined {
   const profile = overrides.profile ?? process.env.ELV_PROFILE ?? file.default_profile ?? "default";
   const apiKeyEnv = file.profiles?.[profile]?.api_key_env ?? "ELEVENLABS_API_KEY";
   return process.env[apiKeyEnv];
+}
+
+function resolveProfileName(file: FileConfig, overrides: ConfigOverrides): string {
+  return overrides.profile ?? process.env.ELV_PROFILE ?? file.default_profile ?? "default";
+}
+
+function resolveProfileConfig(file: FileConfig, profile: string): ProfileConfig {
+  return file.profiles?.[profile] ?? {};
+}
+
+function apiKeyEnvForProfile(profile: ProfileConfig): string {
+  return profile.api_key_env ?? "ELEVENLABS_API_KEY";
+}
+
+function configuredMaxCredits(
+  profile: ProfileConfig,
+  overrides: ConfigOverrides,
+): number | undefined {
+  return overrides.maxCredits ?? numberFromEnv("ELV_MAX_CREDITS") ?? profile.max_credits;
+}
+
+function configuredCacheDir(): string {
+  return absolutePath(process.env.ELV_CACHE_DIR ?? join(homedir(), ".cache", "elv"));
+}
+
+function configuredOutputDir(profile: ProfileConfig, cacheDir: string): string {
+  const outputOverride = process.env.ELV_OUTPUT_DIR || profile.output_dir;
+  return outputOverride ? absolutePath(outputOverride) : join(cacheDir, "out");
+}
+
+function configuredBaseUrl(
+  profile: ProfileConfig,
+  residency: string | undefined,
+  overrides: ConfigOverrides,
+): string {
+  return (
+    overrides.baseUrl ??
+    process.env.ELEVENLABS_BASE_URL ??
+    baseUrlFromResidency(residency) ??
+    profile.base_url ??
+    DEFAULT_BASE_URL
+  );
 }
 
 export async function configDoctor(options: DoctorOptions = {}): Promise<DoctorResult> {

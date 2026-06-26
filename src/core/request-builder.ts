@@ -79,24 +79,63 @@ export function buildHttpRequest(
   ctx: BuildRequestContext = {},
 ): Promise<HttpRequest> {
   const path = resolvePath(op, normalized.path ?? {});
-  const url = new URL(path, ctx.baseUrl ?? DEFAULT_BASE_URL);
-  for (const [key, value] of Object.entries(normalized.query ?? {})) appendQuery(url, key, value);
+  const url = requestUrl(path, normalized, ctx.baseUrl);
+  const headers = requestHeaders(normalized, ctx);
+  if (hasBodyPayload(op, normalized))
+    return buildBodyRequest(op, normalized, ctx, url, headers, path);
+  return Promise.resolve(baseRequest(op, url, headers, path));
+}
 
+function requestUrl(path: string, normalized: AgentInput, baseUrl = DEFAULT_BASE_URL): URL {
+  const url = new URL(path, baseUrl);
+  for (const [key, value] of Object.entries(normalized.query ?? {})) appendQuery(url, key, value);
+  return url;
+}
+
+function requestHeaders(normalized: AgentInput, ctx: BuildRequestContext): Record<string, string> {
   const headers: Record<string, string> = { ...normalized.headers };
   if (ctx.apiKey) headers["xi-api-key"] = ctx.apiKey;
+  return headers;
+}
 
-  let body: string | FormData | undefined;
-  if (op.requestBody || normalized.body !== undefined) {
-    const contentType = op.requestBody?.contentType ?? "application/json";
-    if (op.requestBody?.multipart || contentType.toLowerCase().includes("multipart/form-data")) {
-      // Do NOT set content-type: fetch derives multipart/form-data + boundary from the FormData body.
-      return buildMultipartRequest(op, normalized, ctx, url, headers, path);
-    }
-    headers["content-type"] = contentType;
-    body = serializeBody(contentType, normalized.body ?? {});
+function hasBodyPayload(op: OperationCard, normalized: AgentInput): boolean {
+  return Boolean(op.requestBody || normalized.body !== undefined);
+}
+
+function buildBodyRequest(
+  op: OperationCard,
+  normalized: AgentInput,
+  ctx: BuildRequestContext,
+  url: URL,
+  headers: Record<string, string>,
+  path: string,
+): Promise<HttpRequest> {
+  const contentType = op.requestBody?.contentType ?? "application/json";
+  if (isMultipartRequest(op, contentType)) {
+    // Do NOT set content-type: fetch derives multipart/form-data + boundary from the FormData body.
+    return buildMultipartRequest(op, normalized, ctx, url, headers, path);
   }
+  return Promise.resolve(
+    baseRequest(op, url, { ...headers, "content-type": contentType }, path, {
+      body: serializeBody(contentType, normalized.body ?? {}),
+    }),
+  );
+}
 
-  return Promise.resolve({ url: url.toString(), method: op.method, headers, body, path });
+function isMultipartRequest(op: OperationCard, contentType: string): boolean {
+  return Boolean(
+    op.requestBody?.multipart || contentType.toLowerCase().includes("multipart/form-data"),
+  );
+}
+
+function baseRequest(
+  op: OperationCard,
+  url: URL,
+  headers: Record<string, string>,
+  path: string,
+  extra: Pick<HttpRequest, "body"> = {},
+): HttpRequest {
+  return { url: url.toString(), method: op.method, headers, path, ...extra };
 }
 
 async function buildMultipartRequest(

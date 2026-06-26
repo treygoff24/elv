@@ -29,62 +29,87 @@ export async function runWs(
   input: WsCommandInput,
   options: RunWsOptions = {},
 ): Promise<{ env: Envelope; exitCode: ExitCode }> {
-  if (input.list) {
-    return {
-      env: success({ cmd: "elv ws --list", data: listWsCatalog() }),
-      exitCode: ExitCode.Success,
-    };
-  }
-  const target = input.target;
-  if (!target) return inputError("Missing WS target");
-  if (!input.send) return inputError("Missing --send script.ndjson");
+  if (input.list) return listCatalogResult();
+  const validated = validateWsInput(input);
+  if (!validated.ok) return validated.result;
 
   try {
-    const config = loadConfig({
-      profile: options.profile,
-      baseUrl: options.baseUrl,
-    });
-    const entry = getWsCatalogEntry(target);
-    if (entry && !entry.scriptable) {
-      return inputError(
-        `${entry.name} is interactive and is not supported by the scripted ws player`,
-      );
-    }
-    const script = parseScriptFile(input.send);
-    if (entry && rejectsElevenV3(entry, input.query, script)) {
-      return inputError(
-        "eleven_v3 is not supported over ElevenLabs WebSocket TTS; use eleven_flash_v2_5",
-      );
-    }
-
-    const resolved = resolveTargetForInput(target, entry, input.query, config.baseUrl);
-    if (!entry && rejectsRawElevenV3(resolved.url, script)) {
-      return inputError(
-        "eleven_v3 is not supported over ElevenLabs WebSocket TTS; use eleven_flash_v2_5",
-      );
-    }
-    const outDir = resolveOutTarget(input.out ?? config.outputDir, true).dir;
-    const headers = resolved.usesProfileAuth
-      ? authHeaders(options.apiKey ?? getApiKey({ profile: options.profile }))
-      : undefined;
-    const result = await runWsSession({
-      url: resolved.url,
-      catalog: entry?.name ?? null,
-      path: resolved.path,
-      outDir,
-      script,
-      headers,
-      timeoutMs: options.timeoutMs,
-      outputFormat: resolved.url.searchParams.get("output_format") ?? input.query.output_format,
-    });
-
-    return {
-      env: success({ cmd: "elv ws", ws: result.ws, files: result.files }),
-      exitCode: ExitCode.Success,
-    };
+    return await runScriptedWs(validated.input, options);
   } catch (error) {
     return errorEnvelope(error);
   }
+}
+
+interface ValidatedWsInput extends WsCommandInput {
+  target: string;
+  send: string;
+}
+
+function listCatalogResult(): { env: Envelope; exitCode: ExitCode } {
+  return {
+    env: success({ cmd: "elv ws --list", data: listWsCatalog() }),
+    exitCode: ExitCode.Success,
+  };
+}
+
+function validateWsInput(
+  input: WsCommandInput,
+):
+  | { ok: true; input: ValidatedWsInput }
+  | { ok: false; result: { env: Envelope; exitCode: ExitCode } } {
+  if (!input.target) return { ok: false, result: inputError("Missing WS target") };
+  if (!input.send) return { ok: false, result: inputError("Missing --send script.ndjson") };
+  return { ok: true, input: { ...input, target: input.target, send: input.send } };
+}
+
+async function runScriptedWs(
+  input: ValidatedWsInput,
+  options: RunWsOptions,
+): Promise<{ env: Envelope; exitCode: ExitCode }> {
+  const config = loadConfig({
+    profile: options.profile,
+    baseUrl: options.baseUrl,
+  });
+  const entry = getWsCatalogEntry(input.target);
+  const script = parseScriptFile(input.send);
+  const resolved = resolveTargetForInput(input.target, entry, input.query, config.baseUrl);
+  const validationErrorResult = validateScriptedTarget(entry, input.query, script, resolved.url);
+  if (validationErrorResult) return validationErrorResult;
+
+  const result = await runWsSession({
+    url: resolved.url,
+    catalog: entry?.name ?? null,
+    path: resolved.path,
+    outDir: resolveOutTarget(input.out ?? config.outputDir, true).dir,
+    script,
+    headers: headersForTarget(resolved.usesProfileAuth, options),
+    timeoutMs: options.timeoutMs,
+    outputFormat: resolved.url.searchParams.get("output_format") ?? input.query.output_format,
+  });
+
+  return {
+    env: success({ cmd: "elv ws", ws: result.ws, files: result.files }),
+    exitCode: ExitCode.Success,
+  };
+}
+
+function validateScriptedTarget(
+  entry: WsCatalogEntry | undefined,
+  query: Record<string, string>,
+  script: ReturnType<typeof parseSendScript>,
+  url: URL,
+): { env: Envelope; exitCode: ExitCode } | undefined {
+  if (entry && !entry.scriptable) {
+    return inputError(
+      `${entry.name} is interactive and is not supported by the scripted ws player`,
+    );
+  }
+  if (rejectsElevenV3Target(entry, query, script, url)) {
+    return inputError(
+      "eleven_v3 is not supported over ElevenLabs WebSocket TTS; use eleven_flash_v2_5",
+    );
+  }
+  return undefined;
 }
 
 function resolveTarget(
@@ -120,6 +145,15 @@ function resolveTargetForInput(
   }
 }
 
+function rejectsElevenV3Target(
+  entry: WsCatalogEntry | undefined,
+  query: Record<string, string>,
+  script: ReturnType<typeof parseSendScript>,
+  url: URL,
+): boolean {
+  return entry ? rejectsElevenV3(entry, query, script) : rejectsRawElevenV3(url, script);
+}
+
 function rejectsElevenV3(
   entry: WsCatalogEntry,
   query: Record<string, string>,
@@ -134,6 +168,14 @@ function rejectsRawElevenV3(url: URL, script: ReturnType<typeof parseSendScript>
     url.searchParams.get("model_id")?.toLowerCase() === "eleven_v3" ||
     scriptUsesModel(script, "eleven_v3")
   );
+}
+
+function headersForTarget(
+  usesProfileAuth: boolean,
+  options: RunWsOptions,
+): Record<string, string> | undefined {
+  if (!usesProfileAuth) return undefined;
+  return authHeaders(options.apiKey ?? getApiKey({ profile: options.profile }));
 }
 
 function authHeaders(apiKey: string | undefined): Record<string, string> | undefined {

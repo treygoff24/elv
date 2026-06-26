@@ -61,55 +61,101 @@ interface CommandRunState {
   resolve: (env: Envelope) => void;
 }
 
-export async function waitForOperation(
-  options: WaitOptions,
-  deps: WaitDeps = {},
-): Promise<WaitResult> {
+export function waitForOperation(options: WaitOptions, deps: WaitDeps = {}): Promise<WaitResult> {
   const result = parseOptions(options);
-  if (!result.ok) return { env: result.env, exitCode: ExitCode.InputValidation };
-  const parsed = result.value;
+  if (!result.ok) {
+    return Promise.resolve({ env: result.env, exitCode: ExitCode.InputValidation });
+  }
+  return pollUntilComplete(result.value, waitRuntime(result.value, deps));
+}
 
-  const run =
-    parsed.mode === "cmd"
-      ? () => (deps.runCommand ?? runCommand)(parsed.cmd)
-      : () => (deps.runOperation ?? runOperation)(parsed.operation, parsed.input);
-  const sleep =
-    deps.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+interface WaitRuntime {
+  run: () => Promise<Envelope>;
+  sleep: (ms: number) => Promise<void>;
+  now: () => number;
+  deadline: number;
+}
+
+interface PollObservation {
+  env: Envelope;
+  status: unknown;
+}
+
+function waitRuntime(parsed: ParsedWait, deps: WaitDeps): WaitRuntime {
   const now = deps.now ?? (() => Date.now());
-  const deadline = now() + parsed.timeoutMs;
+  return {
+    run: waitRunner(parsed, deps),
+    sleep: deps.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))),
+    now,
+    deadline: now() + parsed.timeoutMs,
+  };
+}
 
+function waitRunner(parsed: ParsedWait, deps: WaitDeps): () => Promise<Envelope> {
+  if (parsed.mode === "cmd") return () => (deps.runCommand ?? runCommand)(parsed.cmd);
+  return () => (deps.runOperation ?? runOperation)(parsed.operation, parsed.input);
+}
+
+async function pollUntilComplete(parsed: ParsedWait, runtime: WaitRuntime): Promise<WaitResult> {
   for (;;) {
-    let env: Envelope;
-    try {
-      env = await run();
-    } catch (error) {
-      env = commandEnvelopeError(error instanceof Error ? error.message : String(error));
+    const poll = await runPoll(parsed, runtime);
+    if ("result" in poll) return poll.result;
+    if (runtime.now() >= runtime.deadline) {
+      return waitTimeout(parsed.statusPath, poll.status, poll.env);
     }
-    if (!env.ok)
-      return {
-        env,
-        exitCode: exitCodeForError(env.error, env.http?.status ?? undefined),
-      };
+    await runtime.sleep(parsed.intervalMs);
+  }
+}
 
-    let status: unknown;
-    try {
-      status = readPath(env, parsed.statusPath);
-    } catch (error) {
-      return {
+async function runPoll(
+  parsed: ParsedWait,
+  runtime: WaitRuntime,
+): Promise<PollObservation | { result: WaitResult }> {
+  const env = await safeRun(runtime.run);
+  if (!env.ok) {
+    return {
+      result: { env, exitCode: exitCodeForError(env.error, env.http?.status ?? undefined) },
+    };
+  }
+  return statusObservation(parsed, env);
+}
+
+async function safeRun(run: () => Promise<Envelope>): Promise<Envelope> {
+  try {
+    return await run();
+  } catch (error) {
+    return commandEnvelopeError(error instanceof Error ? error.message : String(error));
+  }
+}
+
+function statusObservation(
+  parsed: ParsedWait,
+  env: Envelope,
+): PollObservation | { result: WaitResult } {
+  try {
+    const status = readPath(env, parsed.statusPath);
+    const result = terminalStatusResult(parsed, env, status);
+    return result ? { result } : { env, status };
+  } catch (error) {
+    return {
+      result: {
         env: validationError("elv wait", error instanceof Error ? error.message : String(error)),
         exitCode: ExitCode.InputValidation,
-      };
-    }
-
-    if (isScalar(status)) {
-      const value = String(status);
-      if (parsed.success.has(value)) return { env, exitCode: ExitCode.Success };
-      if (parsed.failure.has(value)) return waitFailure(value, env);
-    }
-
-    if (now() >= deadline) return waitTimeout(parsed.statusPath, status, env);
-    await sleep(parsed.intervalMs);
+      },
+    };
   }
+}
+
+function terminalStatusResult(
+  parsed: ParsedWait,
+  env: Envelope,
+  status: unknown,
+): WaitResult | undefined {
+  if (!isScalar(status)) return undefined;
+  const value = String(status);
+  if (parsed.success.has(value)) return { env, exitCode: ExitCode.Success };
+  if (parsed.failure.has(value)) return waitFailure(value, env);
+  return undefined;
 }
 
 function parseOptions(
