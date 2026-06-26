@@ -22,94 +22,148 @@ export interface WsSessionResult {
   files: FileRecord[];
 }
 
+interface WsSessionState {
+  eventsSent: number;
+  eventsReceived: number;
+  closed: boolean;
+  opened: boolean;
+  messageChain: Promise<void>;
+}
+
 export async function runWsSession(options: WsSessionOptions): Promise<WsSessionResult> {
   await mkdir(options.outDir, { recursive: true });
   const events = new NdjsonEventWriter(options.outDir);
   const audio = new AudioWriter(options.outDir, options.outputFormat);
   const socket = new WebSocket(options.url, { headers: options.headers });
   const timeoutMs = options.timeoutMs ?? 20_000;
-  let eventsSent = 0;
-  let eventsReceived = 0;
-  let closed = false;
-  let opened = false;
-  let messageChain = Promise.resolve();
+  const state: WsSessionState = {
+    eventsSent: 0,
+    eventsReceived: 0,
+    closed: false,
+    opened: false,
+    messageChain: Promise.resolve(),
+  };
   const inactivity = createInactivityTimer(socket, timeoutMs);
 
   try {
-    const closedPromise = new Promise<void>((resolve, reject) => {
-      socket.once("close", () => {
-        closed = true;
-        resolve();
-      });
-      socket.once("error", (error) => {
-        if (opened) reject(error);
-      });
-    });
-
-    socket.on("message", (data) => {
-      messageChain = messageChain.then(async () => {
-        inactivity.reset();
-        eventsReceived += 1;
-        await processMessage(data, socket, events, audio);
-      });
-    });
-
-    await new Promise<void>((resolve, reject) => {
-      const failBeforeOpen = (error: Error): void => reject(error);
-      socket.once("open", () => {
-        opened = true;
-        socket.off("error", failBeforeOpen);
-        resolve();
-      });
-      socket.once("error", failBeforeOpen);
-    });
+    const closedPromise = waitForClose(socket, state);
+    trackMessages(socket, state, inactivity, events, audio);
+    await waitForOpen(socket, state);
 
     inactivity.reset();
-    await playScript(socket, options.script, () => {
-      eventsSent += 1;
-    });
+    state.eventsSent = await playScript(socket, options.script);
 
     await closedPromise;
 
     inactivity.clear();
-    await messageChain;
-    const files: FileRecord[] = [];
-    const eventPath = await events.close();
-    files.push(await fileRecord(eventPath, { hash: true }));
-    const audioPath = await audio.close();
-    if (audioPath) files.push(await fileRecord(audioPath, { hash: true }));
-    const manifestPath = await writeManifest(
-      options.outDir,
-      redactWs({
-        catalog: options.catalog,
-        path: options.path,
-        connection_url: redactWsString(options.url.toString()),
-        headers: options.headers ?? {},
-        events_sent: eventsSent,
-        events_received: eventsReceived,
-        closed,
-        timed_out: inactivity.timedOut(),
-      }),
-    );
-    files.push(await fileRecord(manifestPath, { hash: true }));
-
-    return {
-      ws: {
-        catalog: options.catalog,
-        path: options.path,
-        events_sent: eventsSent,
-        events_received: eventsReceived,
-        closed,
-      },
-      files,
-    };
+    await state.messageChain;
+    return await finishSession(options, state, events, audio, inactivity);
   } catch (error) {
-    inactivity.clear();
-    await Promise.allSettled([events.abort(), audio.abort()]);
-    if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)
-      socket.terminate();
+    await abortSession(socket, events, audio, inactivity);
     throw error;
   }
+}
+
+function waitForClose(socket: WebSocket, state: WsSessionState): Promise<void> {
+  return new Promise((resolve, reject) => {
+    socket.once("close", () => {
+      state.closed = true;
+      resolve();
+    });
+    socket.once("error", (error) => {
+      if (state.opened) reject(error);
+    });
+  });
+}
+
+function trackMessages(
+  socket: WebSocket,
+  state: WsSessionState,
+  inactivity: ReturnType<typeof createInactivityTimer>,
+  events: NdjsonEventWriter,
+  audio: AudioWriter,
+): void {
+  socket.on("message", (data) => {
+    state.messageChain = state.messageChain.then(() =>
+      processSessionMessage(data, socket, state, inactivity, events, audio),
+    );
+  });
+}
+
+async function processSessionMessage(
+  data: RawData,
+  socket: WebSocket,
+  state: WsSessionState,
+  inactivity: ReturnType<typeof createInactivityTimer>,
+  events: NdjsonEventWriter,
+  audio: AudioWriter,
+): Promise<void> {
+  inactivity.reset();
+  state.eventsReceived += 1;
+  await processMessage(data, socket, events, audio);
+}
+
+function waitForOpen(socket: WebSocket, state: WsSessionState): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const failBeforeOpen = (error: Error): void => reject(error);
+    socket.once("open", () => {
+      state.opened = true;
+      socket.off("error", failBeforeOpen);
+      resolve();
+    });
+    socket.once("error", failBeforeOpen);
+  });
+}
+
+async function finishSession(
+  options: WsSessionOptions,
+  state: WsSessionState,
+  events: NdjsonEventWriter,
+  audio: AudioWriter,
+  inactivity: ReturnType<typeof createInactivityTimer>,
+): Promise<WsSessionResult> {
+  const files: FileRecord[] = [];
+  const eventPath = await events.close();
+  files.push(await fileRecord(eventPath, { hash: true }));
+  const audioPath = await audio.close();
+  if (audioPath) files.push(await fileRecord(audioPath, { hash: true }));
+  const manifestPath = await writeManifest(
+    options.outDir,
+    redactWs({
+      catalog: options.catalog,
+      path: options.path,
+      connection_url: redactWsString(options.url.toString()),
+      headers: options.headers ?? {},
+      events_sent: state.eventsSent,
+      events_received: state.eventsReceived,
+      closed: state.closed,
+      timed_out: inactivity.timedOut(),
+    }),
+  );
+  files.push(await fileRecord(manifestPath, { hash: true }));
+
+  return {
+    ws: {
+      catalog: options.catalog,
+      path: options.path,
+      events_sent: state.eventsSent,
+      events_received: state.eventsReceived,
+      closed: state.closed,
+    },
+    files,
+  };
+}
+
+async function abortSession(
+  socket: WebSocket,
+  events: NdjsonEventWriter,
+  audio: AudioWriter,
+  inactivity: ReturnType<typeof createInactivityTimer>,
+): Promise<void> {
+  inactivity.clear();
+  await Promise.allSettled([events.abort(), audio.abort()]);
+  if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)
+    socket.terminate();
 }
 
 function createInactivityTimer(
@@ -158,17 +212,15 @@ async function processMessage(
   }
 }
 
-async function playScript(
-  socket: WebSocket,
-  script: SendScriptAction[],
-  onSent: () => void,
-): Promise<void> {
+async function playScript(socket: WebSocket, script: SendScriptAction[]): Promise<number> {
+  let eventsSent = 0;
   for (const action of script) {
     if (action.type === "close") break;
     if (socket.readyState !== WebSocket.OPEN) break;
     await sendJson(socket, action.data);
-    onSent();
+    eventsSent += 1;
   }
+  return eventsSent;
 }
 
 function sendJson(socket: WebSocket, value: unknown): Promise<void> {
