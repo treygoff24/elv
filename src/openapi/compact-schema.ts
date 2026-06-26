@@ -89,33 +89,64 @@ function compactValue(
   visited = new Set<string>(),
 ): CompactValue {
   const ref = refValue(schema);
-  if (ref) {
-    if (visited.has(ref)) return { $recursive: schemaNameFromRef(ref) };
-    if (!spec) return { $ref: ref };
-    return compactValue(resolveRef(ref, spec), spec, new Set([...visited, ref]));
-  }
+  if (ref) return compactRefValue(ref, spec, visited);
 
   const object = asObject(schema);
   const variant = firstUsefulVariant(object);
   if (variant) return compactValue(variant, spec, visited);
 
+  return compactConcreteValue(object, spec, visited);
+}
+
+function compactRefValue(
+  ref: string,
+  spec: OpenApiDocument | undefined,
+  visited: Set<string>,
+): CompactValue {
+  if (visited.has(ref)) return { $recursive: schemaNameFromRef(ref) };
+  if (!spec) return { $ref: ref };
+  return compactValue(resolveRef(ref, spec), spec, new Set([...visited, ref]));
+}
+
+function compactConcreteValue(
+  object: JsonObject,
+  spec: OpenApiDocument | undefined,
+  visited: Set<string>,
+): CompactValue {
   if (Array.isArray(object.enum)) return { type: typeName(object) ?? "string", enum: object.enum };
   if (object.const !== undefined)
     return { type: typeName(object) ?? typeof object.const, const: object.const };
 
   const type = typeName(object);
-  if (type === "array")
-    return { type: "array", items: compactValue(object.items ?? {}, spec, visited) };
-  if (type === "object" || Object.keys(asObject(object.properties)).length > 0) {
-    const nested = Object.fromEntries(
-      Object.entries(asObject(object.properties)).map(([name, property]) => [
-        name,
-        compactValue(property, spec, visited),
-      ]),
-    );
-    return Object.keys(nested).length > 0 ? { type: "object", properties: nested } : "object";
-  }
+  if (type === "array") return compactArrayValue(object, spec, visited);
+  if (isObjectShape(type, object)) return compactObjectValue(object, spec, visited);
   return type ?? "unknown";
+}
+
+function compactArrayValue(
+  object: JsonObject,
+  spec: OpenApiDocument | undefined,
+  visited: Set<string>,
+): CompactValue {
+  return { type: "array", items: compactValue(object.items ?? {}, spec, visited) };
+}
+
+function compactObjectValue(
+  object: JsonObject,
+  spec: OpenApiDocument | undefined,
+  visited: Set<string>,
+): CompactValue {
+  const nested = Object.fromEntries(
+    Object.entries(asObject(object.properties)).map(([name, property]) => [
+      name,
+      compactValue(property, spec, visited),
+    ]),
+  );
+  return Object.keys(nested).length > 0 ? { type: "object", properties: nested } : "object";
+}
+
+function isObjectShape(type: string | undefined, object: JsonObject): boolean {
+  return type === "object" || Object.keys(asObject(object.properties)).length > 0;
 }
 
 function firstUsefulVariant(object: JsonObject): unknown {
