@@ -6,6 +6,7 @@ import { WebSocketServer, type WebSocket } from "ws";
 import { afterEach, describe, expect, it } from "vitest";
 import { runWs } from "../../src/commands/ws";
 import { parseSendScript } from "../../src/ws/events";
+import { runWsSession } from "../../src/ws/session";
 
 const dirs: string[] = [];
 let servers: WebSocketServer[] = [];
@@ -167,6 +168,41 @@ describe("ws session", () => {
       type: "network_error",
       code: "ws_session_failed",
     });
+  });
+
+  it("runs a scripted WS session directly and writes event, audio, and manifest files", async () => {
+    const server = await startServer((socket) => {
+      socket.on("message", () => {
+        socket.send(JSON.stringify({ audio: Buffer.from("direct").toString("base64") }), () =>
+          socket.close(1000, "done"),
+        );
+      });
+    });
+    const dir = await tempDir();
+
+    const result = await runWsSession({
+      url: new URL(server.url),
+      catalog: "direct-test",
+      path: "/session",
+      outDir: dir,
+      script: parseSendScript(JSON.stringify({ type: "send", data: { text: " " } })),
+      timeoutMs: 500,
+      outputFormat: "opus_48000",
+    });
+
+    expect(result.ws).toMatchObject({
+      catalog: "direct-test",
+      path: "/session",
+      events_sent: 1,
+      events_received: 1,
+      closed: true,
+    });
+    expect(readFileSync(join(dir, "audio.opus"), "utf8")).toBe("direct");
+    expect(result.files.map((file) => file.path).sort()).toEqual([
+      join(dir, "audio.opus"),
+      join(dir, "events.received.ndjson"),
+      join(dir, "manifest.json"),
+    ]);
   });
 
   it("parses and rejects unsupported send-script operations", () => {
