@@ -1,4 +1,5 @@
 import WebSocket, { type RawData } from "ws";
+import { once } from "node:events";
 import { mkdir } from "node:fs/promises";
 import { fileRecord, writeManifest } from "../core/files";
 import { AudioWriter } from "./audio-writer";
@@ -48,6 +49,7 @@ export async function runWsSession(options: WsSessionOptions): Promise<WsSession
 
   try {
     const closedPromise = waitForClose(socket, state);
+    void closedPromise.catch(() => undefined);
     trackMessages(socket, state, inactivity, events, audio);
     await waitForOpen(socket, state);
 
@@ -66,15 +68,21 @@ export async function runWsSession(options: WsSessionOptions): Promise<WsSession
 }
 
 function waitForClose(socket: WebSocket, state: WsSessionState): Promise<void> {
-  return new Promise((resolve, reject) => {
-    socket.once("close", () => {
-      state.closed = true;
-      resolve();
-    });
-    socket.once("error", (error) => {
-      if (state.opened) reject(error);
-    });
-  });
+  const closed = closeEvent(socket, state);
+  const failed = openedErrorEvent(socket, state);
+  void closed.catch(() => undefined);
+  void failed.catch(() => undefined);
+  return Promise.race([closed, failed]).then(() => undefined);
+}
+
+async function closeEvent(socket: WebSocket, state: WsSessionState): Promise<void> {
+  await once(socket, "close");
+  state.closed = true;
+}
+
+async function openedErrorEvent(socket: WebSocket, state: WsSessionState): Promise<void> {
+  const [error] = (await once(socket, "error")) as [Error];
+  if (state.opened) throw error;
 }
 
 function trackMessages(
