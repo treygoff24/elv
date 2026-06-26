@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { failure, success } from "../core/envelope";
-import { emitAndExit, validationError } from "../core/errors";
+import { validationError } from "../core/errors";
 import { SMALL_JSON_LIMIT, summarizeData } from "../core/response-normalizer";
 import { ExitCode } from "../core/types";
 import type { Envelope, Hint } from "../core/types";
@@ -12,11 +12,6 @@ import { shellArg } from "../util/shell";
 export interface ViewOptions {
   path?: string;
   limit?: string | number;
-}
-
-export function handleView(path: string, options: ViewOptions = {}): never {
-  const { env, exitCode } = buildViewResult(path, options);
-  emitAndExit(env, exitCode);
 }
 
 export function buildViewResult(

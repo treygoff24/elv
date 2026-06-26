@@ -21,7 +21,7 @@ import {
 import { handleWait } from "./commands/wait";
 import { runWs } from "./commands/ws";
 import { handleOpsGet, handleOpsSchema, handleOpsSearch } from "./commands/ops";
-import { handleView } from "./commands/view";
+import { buildViewResult } from "./commands/view";
 import { registerAliases } from "./commands/aliases";
 import { handleSpecUpdate } from "./commands/spec";
 import { parseJson } from "./util/json";
@@ -138,9 +138,13 @@ function buildProgram(version: string): Command {
       .description("Inspect a spilled JSON/NDJSON result file without loading it into context")
       .option("--path <dotted>", "drill into a JSON path, e.g. data.voices.0.name or voices[].name")
       .option("--limit <n>", "max array items to show")
-      .action((path: string, options: CliOptionValues) =>
-        handleView(path, { path: optionString(options.path), limit: optionString(options.limit) }),
-      ),
+      .action((path: string, options: CliOptionValues) => {
+        const result = buildViewResult(path, {
+          path: optionString(options.path),
+          limit: optionString(options.limit),
+        });
+        emitAndExit(result.env, result.exitCode);
+      }),
   );
 
   registerConfigCommands(program);
