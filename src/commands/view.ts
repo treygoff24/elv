@@ -13,7 +13,7 @@ export interface ViewOptions {
   limit?: string | number;
 }
 
-export async function handleView(path: string, options: ViewOptions = {}): Promise<never> {
+export function handleView(path: string, options: ViewOptions = {}): never {
   const { env, exitCode } = buildViewResult(path, options);
   emitAndExit(env, exitCode);
 }
