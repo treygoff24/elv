@@ -66,15 +66,30 @@ export async function runWsSession(options: WsSessionOptions): Promise<WsSession
 }
 
 function waitForClose(socket: WebSocket, state: WsSessionState): Promise<void> {
-  return new Promise((resolve, reject) => {
-    socket.once("close", () => {
-      state.closed = true;
-      resolve();
-    });
-    socket.once("error", (error) => {
-      if (state.opened) reject(error);
-    });
-  });
+  return new Promise(waitForCloseExecutor.bind(null, socket, state));
+}
+
+function waitForCloseExecutor(
+  socket: WebSocket,
+  state: WsSessionState,
+  resolve: () => void,
+  reject: (error: Error) => void,
+): void {
+  socket.once("close", markClosed.bind(null, state, resolve));
+  socket.once("error", handleCloseError.bind(null, state, reject));
+}
+
+function markClosed(state: WsSessionState, resolve: () => void): void {
+  state.closed = true;
+  resolve();
+}
+
+function handleCloseError(
+  state: WsSessionState,
+  reject: (error: Error) => void,
+  error: Error,
+): void {
+  if (state.opened) reject(error);
 }
 
 function trackMessages(
