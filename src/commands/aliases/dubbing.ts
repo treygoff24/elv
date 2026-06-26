@@ -51,11 +51,11 @@ export function registerDubbingCommand(program: Command, addCommonFlags: (comman
   addCommonFlags(
     dubbing
       .command("create")
-      .option("--file <path>")
-      .option("--source <code>")
-      .option("--target <code>")
-      .option("--name <name>")
-      .option("--wait")
+      .option("--file <path>", "source video or audio file to dub")
+      .option("--source <code>", "source language code")
+      .option("--target <code>", "target language code")
+      .option("--name <name>", "dubbing project name")
+      .option("--wait", "poll until dubbing completes")
       .action(async (options: DubbingCreateFlags, command: Command) => {
         try {
           const opts = runOpts(command);
@@ -68,9 +68,9 @@ export function registerDubbingCommand(program: Command, addCommonFlags: (comman
         }
       }),
   );
-  addCommonFlags(dubbing.command("get").option("--id <id>").action((options: DubbingIdFlags, command: Command) => runBuilt(buildDubbingGetInput, options, command)));
-  addCommonFlags(dubbing.command("audio").option("--id <id>").option("--language <code>").action((options: DubbingIdFlags, command: Command) => runBuilt(buildDubbingAudioInput, options, command)));
-  addCommonFlags(dubbing.command("list").option("--limit <n>").action((options: DubbingIdFlags, command: Command) => runBuilt(buildDubbingListInput, options, command)));
+  addCommonFlags(dubbing.command("get").option("--id <id>", "dubbing project id").action((options: DubbingIdFlags, command: Command) => runBuilt(buildDubbingGetInput, options, command)));
+  addCommonFlags(dubbing.command("audio").option("--id <id>", "dubbing project id").option("--language <code>", "target language code for dubbed audio").action((options: DubbingIdFlags, command: Command) => runBuilt(buildDubbingAudioInput, options, command)));
+  addCommonFlags(dubbing.command("list").option("--limit <n>", "max dubs per page (page_size)").action((options: DubbingIdFlags, command: Command) => runBuilt(buildDubbingListInput, options, command)));
 }
 
 async function waitForDubbing(env: Envelope, opts: RunOpts): Promise<never> {

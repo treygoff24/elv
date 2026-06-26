@@ -30,11 +30,11 @@ export function registerMusicCommand(program: Command, addCommonFlags: (command:
   const configure = (command: Command, stream: boolean) =>
     addCommonFlags(
       command
-        .option("--prompt <text>")
-        .option("--prompt-file <path>")
-        .option("--model <id>")
-        .option("--format <format>")
-        .option("--length-ms <ms>")
+        .option("--prompt <text>", "music generation prompt")
+        .option("--prompt-file <path>", "read prompt from a file")
+        .option("--model <id>", "music model id")
+        .option("--format <format>", "output audio format (output_format)")
+        .option("--length-ms <ms>", "target track length in milliseconds")
         .action(async (options: MusicFlags, command: Command) => runBuilt({ ...options, stream }, command)),
     );
   configure(music, false);

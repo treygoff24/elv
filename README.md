@@ -124,7 +124,7 @@ The twelve aliases are sugar over the same runner as `call`.
 
 ```bash
 elv tts --voice-id JBFqnCBsd6RMkjVDRZzb --text "Hello from elv." --out ./out
-elv voices list --limit 20
+elv voices list
 elv usage --from 2026-06-01 --to 2026-06-25
 elv dubbing get --id abc123
 ```

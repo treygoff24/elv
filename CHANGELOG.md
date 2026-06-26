@@ -23,6 +23,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - The published package now ships the agent setup guide (`docs/`) and the bundled `elv` skill (`skills/`).
 - Bumped `music-metadata` to v11; clone-and-build instructions now use `npm ci`.
 - The default output directory moved from the working-directory-relative `./.elv/out` (which littered any repo you ran `elv` in) to `~/.cache/elv/out`; `--out`, `ELV_OUTPUT_DIR`, and a profile's `output_dir` still override it, and an extensionless `--out` path is now treated as a directory.
+- Every command flag now carries a `--help` description, so `elv <command> --help` is self-documenting.
+- Removed the no-op `--limit` flag from `voices list`; the underlying `get_voices` endpoint returns every voice and does not paginate, so the flag was silently ignored.
 
 ### Security
 

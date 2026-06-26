@@ -28,11 +28,11 @@ export function registerSfxCommand(program: Command, addCommonFlags: (command: C
     program
       .command("sfx")
       .description("Sound effects")
-      .option("--prompt <text>")
-      .option("--duration <seconds>")
-      .option("--model <id>")
-      .option("--format <format>")
-      .option("--loop")
+      .option("--prompt <text>", "sound effect description")
+      .option("--duration <seconds>", "effect duration in seconds")
+      .option("--model <id>", "sound effects model id")
+      .option("--format <format>", "output audio format (output_format)")
+      .option("--loop", "generate a seamlessly looping effect")
       .action(async (options: SfxFlags, command: Command) => runBuilt(options, command)),
   );
 }

@@ -38,13 +38,13 @@ export function registerSttCommand(program: Command, addCommonFlags: (command: C
     program
       .command("stt")
       .description("Speech to text")
-      .option("--file <path>")
-      .option("--model <id>")
-      .option("--timestamps <granularity>")
-      .option("--diarize")
-      .option("--language <code>")
-      .option("--webhook <url>")
-      .option("--wait")
+      .option("--file <path>", "audio file to transcribe")
+      .option("--model <id>", "STT model id")
+      .option("--timestamps <granularity>", "timestamp granularity (e.g. word, segment)")
+      .option("--diarize", "enable speaker diarization")
+      .option("--language <code>", "expected language code")
+      .option("--webhook <url>", "webhook URL for async completion")
+      .option("--wait", "poll until transcription completes")
       .action(async (options: SttFlags, command: Command) => {
         try {
           const opts = runOpts(command);

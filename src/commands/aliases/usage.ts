@@ -32,10 +32,10 @@ export function registerUsageCommand(program: Command, addCommonFlags: (command:
     program
       .command("usage")
       .description("Usage and subscription")
-      .option("--from <YYYY-MM-DD>")
-      .option("--to <YYYY-MM-DD>")
-      .option("--breakdown <type>")
-      .option("--metric <metric>")
+      .option("--from <YYYY-MM-DD>", "usage range start date (requires --to)")
+      .option("--to <YYYY-MM-DD>", "usage range end date (requires --from)")
+      .option("--breakdown <type>", "usage breakdown type for character usage")
+      .option("--metric <metric>", "usage metric to report")
       .action((options: UsageFlags, command: Command) => runBuilt(options, command)),
   );
 }

@@ -93,7 +93,7 @@ export async function handleWs(args: string[] = process.argv.slice(2)): Promise<
 
 export function buildWsCommand(): CommanderCommand {
   return new Command("ws")
-    .argument("[target]")
+    .argument("[target]", "WebSocket catalog name or URL")
     .option("--list", "list WebSocket catalog")
     .option("--query <key=value>", "add query parameter", collect, [])
     .option("--send <path>", "NDJSON send-script")

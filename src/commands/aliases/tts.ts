@@ -39,16 +39,16 @@ export function registerTtsCommand(program: Command, addCommonFlags: (command: C
   const configure = (command: Command, stream: boolean) =>
     addCommonFlags(
       command
-        .option("--voice-id <id>")
-        .option("--voice <name>")
-        .option("--text <text>")
-        .option("--text-file <path>")
-        .option("--model <id>")
-        .option("--format <format>")
-        .option("--language <code>")
-        .option("--timestamps")
-        .option("--optimize-streaming-latency <n>")
-        .option("--enable-logging")
+        .option("--voice-id <id>", "ElevenLabs voice id to synthesize with")
+        .option("--voice <name>", "resolve voice by exact name instead of id")
+        .option("--text <text>", "text to synthesize")
+        .option("--text-file <path>", "read synthesis text from a file")
+        .option("--model <id>", "TTS model id")
+        .option("--format <format>", "output audio format (output_format)")
+        .option("--language <code>", "language code for synthesis")
+        .option("--timestamps", "include word/char alignment (writes .timestamps.json sidecar)")
+        .option("--optimize-streaming-latency <n>", "streaming latency tradeoff level (0-4)")
+        .option("--enable-logging", "enable provider request logging")
         .action(async (options: TtsFlags, command: Command) => {
           const merged = mergedOptions(command) as TtsFlags;
           await runTts({ ...merged, stream }, command);

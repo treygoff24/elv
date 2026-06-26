@@ -84,9 +84,12 @@ describe("CLI JSON output contract", () => {
     const ttsData = ttsEnvelope.data as Record<string, unknown>;
     expect(ttsData.command).toBe("tts");
     expect(ttsData.commands).toBeUndefined();
-    const ttsOptions = ttsData.options as Array<{ flags: string }>;
+    const ttsOptions = ttsData.options as Array<{ flags: string; description?: string }>;
     expect(ttsOptions.some((o) => o.flags.includes("--voice-id"))).toBe(true);
     expect(ttsOptions.some((o) => o.flags.includes("--text"))).toBe(true);
+    for (const option of ttsOptions) {
+      expect(option.description?.trim().length).toBeGreaterThan(0);
+    }
 
     const { stdout: viewStdout, code: viewCode } = runCli(["view", "--help"]);
     expect(viewCode).toBe(0);

@@ -24,9 +24,9 @@ export function buildHistoryDeleteInput(flags: HistoryFlags): { operationId: str
 
 export function registerHistoryCommand(program: Command, addCommonFlags: (command: Command) => Command): void {
   const history = program.command("history").description("Speech history");
-  addCommonFlags(history.command("list").option("--limit <n>").action((options: HistoryFlags, command: Command) => runBuilt(buildHistoryListInput, options, command)));
-  addCommonFlags(history.command("audio").option("--id <id>").action((options: HistoryFlags, command: Command) => runBuilt(buildHistoryAudioInput, options, command)));
-  addCommonFlags(history.command("delete").option("--id <id>").action((options: HistoryFlags, command: Command) => runBuilt(buildHistoryDeleteInput, options, command)));
+  addCommonFlags(history.command("list").option("--limit <n>", "max history items per page (page_size)").action((options: HistoryFlags, command: Command) => runBuilt(buildHistoryListInput, options, command)));
+  addCommonFlags(history.command("audio").option("--id <id>", "speech history item id").action((options: HistoryFlags, command: Command) => runBuilt(buildHistoryAudioInput, options, command)));
+  addCommonFlags(history.command("delete").option("--id <id>", "speech history item id").action((options: HistoryFlags, command: Command) => runBuilt(buildHistoryDeleteInput, options, command)));
 }
 
 async function runBuilt<T>(builder: (flags: T) => { operationId: string; input: AgentInput }, flags: T, command: Command): Promise<never> {

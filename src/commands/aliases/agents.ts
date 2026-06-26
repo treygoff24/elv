@@ -40,11 +40,11 @@ export function buildAgentsSimulateInput(flags: AgentsFlags): { operationId: str
 
 export function registerAgentsCommand(program: Command, addCommonFlags: (command: Command) => Command): void {
   const agents = program.command("agents").description("Conversational AI agents");
-  addCommonFlags(agents.command("list").option("--limit <n>").option("--search <query>").action((options: AgentsFlags, command: Command) => runBuilt(buildAgentsListInput, options, command)));
-  addCommonFlags(agents.command("get").option("--agent-id <id>").action((options: AgentsFlags, command: Command) => runBuilt(buildAgentsGetInput, options, command)));
-  addCommonFlags(agents.command("create").option("--json-file <path>").action((options: AgentsFlags, command: Command) => runBuilt(buildAgentsCreateInput, options, command)));
-  addCommonFlags(agents.command("update").option("--agent-id <id>").option("--json-file <path>").action((options: AgentsFlags, command: Command) => runBuilt(buildAgentsUpdateInput, options, command)));
-  addCommonFlags(agents.command("simulate").option("--agent-id <id>").option("--text <text>").option("--json-file <path>").action((options: AgentsFlags, command: Command) => runBuilt(buildAgentsSimulateInput, options, command)));
+  addCommonFlags(agents.command("list").option("--limit <n>", "max agents per page (page_size)").option("--search <query>", "filter agents by search query").action((options: AgentsFlags, command: Command) => runBuilt(buildAgentsListInput, options, command)));
+  addCommonFlags(agents.command("get").option("--agent-id <id>", "conversational agent id").action((options: AgentsFlags, command: Command) => runBuilt(buildAgentsGetInput, options, command)));
+  addCommonFlags(agents.command("create").option("--json-file <path>", "agent configuration JSON file").action((options: AgentsFlags, command: Command) => runBuilt(buildAgentsCreateInput, options, command)));
+  addCommonFlags(agents.command("update").option("--agent-id <id>", "conversational agent id").option("--json-file <path>", "partial agent settings JSON file").action((options: AgentsFlags, command: Command) => runBuilt(buildAgentsUpdateInput, options, command)));
+  addCommonFlags(agents.command("simulate").option("--agent-id <id>", "conversational agent id").option("--text <text>", "first user message for a simple simulation").option("--json-file <path>", "full simulation specification JSON file").action((options: AgentsFlags, command: Command) => runBuilt(buildAgentsSimulateInput, options, command)));
 }
 
 async function runBuilt<T>(builder: (flags: T) => { operationId: string; input: AgentInput }, flags: T, command: Command): Promise<never> {

@@ -86,7 +86,7 @@ describe.skipIf(!HAS_API_KEY)("integration (live API, read-only)", () => {
   it(
     "voices list returns ok envelope",
     async () => {
-      const { stdout, stderr, code } = await runElv(["voices", "list", "--limit", "5"]);
+      const { stdout, stderr, code } = await runElv(["voices", "list"]);
 
       expect(code).toBe(0);
       assertNoKeyLeak(stdout, stderr, apiKey);

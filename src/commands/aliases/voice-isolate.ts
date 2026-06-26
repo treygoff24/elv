@@ -27,9 +27,9 @@ export function registerVoiceIsolateCommand(program: Command, addCommonFlags: (c
     program
       .command("voice-isolate")
       .description("Audio isolation")
-      .option("--file <path>")
-      .option("--file-format <format>")
-      .option("--preview-b64 <value>")
+      .option("--file <path>", "input audio file to isolate")
+      .option("--file-format <format>", "input file format hint for the API")
+      .option("--preview-b64 <value>", "base64 preview snippet for the request body")
       .action(async (options: VoiceIsolateFlags, command: Command) => runBuilt(options, command)),
   );
 }

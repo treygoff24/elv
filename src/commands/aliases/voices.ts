@@ -52,7 +52,7 @@ export function findMatchingVoices(query: string, voices: VoiceRecord[]): VoiceR
 
 export function registerVoicesCommand(program: Command, addCommonFlags: (command: Command) => Command): void {
   const voices = program.command("voices").description("Voices");
-  addCommonFlags(voices.command("list").option("--limit <n>").action((options: VoicesFlags, command: Command) => runBuilt(buildVoicesListInput, options, command)));
+  addCommonFlags(voices.command("list").action((options: VoicesFlags, command: Command) => runBuilt(buildVoicesListInput, options, command)));
   addCommonFlags(
     voices
       .command("find <query>")
@@ -61,14 +61,14 @@ export function registerVoicesCommand(program: Command, addCommonFlags: (command
         await runFind(opts, command);
       }),
   );
-  addCommonFlags(voices.command("get").option("--voice-id <id>").action((options: VoicesFlags, command: Command) => runBuilt(buildVoicesGetInput, options, command)));
+  addCommonFlags(voices.command("get").option("--voice-id <id>", "ElevenLabs voice id").action((options: VoicesFlags, command: Command) => runBuilt(buildVoicesGetInput, options, command)));
   addCommonFlags(
     voices
       .command("clone-instant")
-      .option("--name <name>")
-      .option("--file <path>")
-      .option("--remove-background-noise")
-      .option("--description <text>")
+      .option("--name <name>", "name for the cloned voice")
+      .option("--file <path>", "sample audio file for instant cloning")
+      .option("--remove-background-noise", "remove background noise from the sample")
+      .option("--description <text>", "optional voice description")
       .action((options: VoicesFlags, command: Command) => runBuilt(buildVoicesCloneInstantInput, options, command)),
   );
 }

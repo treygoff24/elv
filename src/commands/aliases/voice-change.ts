@@ -33,12 +33,12 @@ export function registerVoiceChangeCommand(program: Command, addCommonFlags: (co
   const configure = (command: Command, stream: boolean) =>
     addCommonFlags(
       command
-        .option("--voice-id <id>")
-        .option("--voice <name>")
-        .option("--file <path>")
-        .option("--model <id>")
-        .option("--format <format>")
-        .option("--remove-background-noise")
+        .option("--voice-id <id>", "target ElevenLabs voice id")
+        .option("--voice <name>", "resolve target voice by exact name instead of id")
+        .option("--file <path>", "input audio file to convert")
+        .option("--model <id>", "speech-to-speech model id")
+        .option("--format <format>", "output audio format (output_format)")
+        .option("--remove-background-noise", "remove background noise before conversion")
         .action(async (options: VoiceChangeFlags, command: Command) => {
           const merged = mergedOptions(command) as VoiceChangeFlags;
           await runBuilt({ ...merged, stream }, command);

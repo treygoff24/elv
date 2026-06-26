@@ -78,8 +78,8 @@ function buildProgram(version: string): Command {
   addCommonFlags(
     ops
       .command("schema <operation_id>")
-      .option("--raw")
-      .option("--example")
+      .option("--raw", "return raw JSON Schema for operation input")
+      .option("--example", "return a runnable elv call example command")
       .action((id: string, options: Record<string, unknown>) =>
         handleOpsSchema(id, { raw: Boolean(options.raw), example: Boolean(options.example) }),
       ),
@@ -172,8 +172,8 @@ function buildProgram(version: string): Command {
   addCommonFlags(
     spec
       .command("update")
-      .option("--from <file_or_url>")
-      .option("--offline")
+      .option("--from <file_or_url>", "OpenAPI spec file path or URL to fetch")
+      .option("--offline", "recompile from the vendored spec snapshot")
       .action(async (options: Record<string, unknown>) => {
         const result = await updateSpecCache({
           from: optionString(options.from),
