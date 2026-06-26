@@ -5,7 +5,7 @@ import { estimateCredits } from "../core/budget";
 import { loadRegistry } from "../openapi/registry";
 import { classifyRisk } from "../openapi/risk";
 import { parseJson } from "../util/json";
-import type { AgentInput, Envelope, RunOpts } from "../core/types";
+import type { AgentInput, CommandResult, Envelope, RunOpts } from "../core/types";
 import type { HttpMethod, OperationCard } from "../openapi/types";
 import { ExitCode as Codes } from "../core/types";
 import { addFiles, addPairs } from "./input";
@@ -24,7 +24,7 @@ export async function handleHttp(
   method: string,
   path: string,
   options: HttpOptions,
-): Promise<{ env: Envelope; exitCode: Codes }> {
+): Promise<CommandResult> {
   const env = await runHttp(method, path, options);
   return {
     env,

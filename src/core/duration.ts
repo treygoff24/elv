@@ -39,7 +39,8 @@ async function metadataDurationSeconds(filePath: string): Promise<number | null>
   try {
     const { parseFile }: MusicMetadataModule = await import("music-metadata");
     const metadata = await parseFile(filePath, { duration: true, skipCovers: true });
-    return Number.isFinite(metadata.format.duration) ? (metadata.format.duration ?? null) : null;
+    const duration = metadata.format.duration;
+    return typeof duration === "number" && Number.isFinite(duration) ? duration : null;
   } catch {
     return null;
   }

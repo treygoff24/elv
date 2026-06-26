@@ -148,3 +148,8 @@ export interface ErrorEnvelope {
 }
 
 export type Envelope = SuccessEnvelope | ErrorEnvelope;
+
+export interface CommandResult {
+  env: Envelope;
+  exitCode: ExitCode;
+}

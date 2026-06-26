@@ -270,7 +270,6 @@ async function appendFile(
       field,
     );
   }
-  // openAsBlob is lazy/file-backed — it does not read the whole file into memory.
   const blob = await openAsBlob(path, { type: lookup(path) || "application/octet-stream" });
   form.append(field, blob, basename(path));
 }

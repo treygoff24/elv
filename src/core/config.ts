@@ -4,7 +4,7 @@ import { isAbsolute, join, resolve } from "node:path";
 import { success, failure } from "./envelope";
 import { ExitCode } from "./types";
 import { isRecord, parseJson } from "../util/json";
-import type { Envelope } from "./types";
+import type { CommandResult, Envelope } from "./types";
 
 interface ProfileConfig {
   base_url?: string;
@@ -45,9 +45,8 @@ interface DoctorCheck {
   detail: string;
 }
 
-interface DoctorResult {
+interface DoctorResult extends CommandResult {
   env: Envelope & { data?: unknown };
-  exitCode: ExitCode;
   checks: DoctorCheck[];
 }
 

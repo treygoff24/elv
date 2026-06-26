@@ -1,6 +1,7 @@
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { Command } from "commander";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   buildAgentsCreateInput,
@@ -8,27 +9,34 @@ import {
   buildAgentsListInput,
   buildAgentsSimulateInput,
   buildAgentsUpdateInput,
+} from "../../src/commands/aliases/agents";
+import {
   buildDubbingAudioInput,
   buildDubbingCreateInput,
   buildDubbingGetInput,
   buildDubbingListInput,
+} from "../../src/commands/aliases/dubbing";
+import {
   buildHistoryAudioInput,
   buildHistoryDeleteInput,
   buildHistoryListInput,
-  buildModelsListInput,
-  buildMusicInput,
-  buildSfxInput,
-  buildSttInput,
-  buildTtsInput,
-  buildUsageInput,
-  buildVoiceChangeInput,
-  buildVoiceIsolateInput,
+} from "../../src/commands/aliases/history";
+import { buildModelsListInput } from "../../src/commands/aliases/models";
+import { buildMusicInput } from "../../src/commands/aliases/music";
+import { buildSfxInput } from "../../src/commands/aliases/sfx";
+import { buildSttInput } from "../../src/commands/aliases/stt";
+import { buildTtsInput } from "../../src/commands/aliases/tts";
+import { buildUsageInput } from "../../src/commands/aliases/usage";
+import { buildVoiceChangeInput } from "../../src/commands/aliases/voice-change";
+import { buildVoiceIsolateInput } from "../../src/commands/aliases/voice-isolate";
+import {
   buildVoicesCloneInstantInput,
   buildVoicesFindInput,
   buildVoicesGetInput,
   buildVoicesListInput,
   findMatchingVoices,
-} from "../../src/commands/aliases";
+} from "../../src/commands/aliases/voices";
+import { registerAliases } from "../../src/commands/aliases/index";
 import { buildHttpRequest, normalizeInput } from "../../src/core/request-builder";
 import { loadRegistry } from "../../src/openapi/registry";
 import type { BuiltOperation } from "../../src/commands/aliases/shared";
@@ -323,6 +331,26 @@ writeFileSync(join(tmpdir(), "noop2"), "");
 
 describe("curated aliases", () => {
   beforeAll(() => writeFileSync(join(dir, "script.txt"), "From file"));
+
+  it("registers every alias command", () => {
+    const program = new Command();
+    registerAliases(program, (command) => command);
+
+    expect(program.commands.map((command) => command.name()).sort()).toEqual([
+      "agents",
+      "dubbing",
+      "history",
+      "models",
+      "music",
+      "sfx",
+      "stt",
+      "tts",
+      "usage",
+      "voice-change",
+      "voice-isolate",
+      "voices",
+    ]);
+  });
 
   it.each(cases)(
     "$name builds a request semantically equal to elv call",

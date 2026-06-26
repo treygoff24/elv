@@ -8,7 +8,7 @@ import {
 } from "../openapi/compact-schema";
 import { readRegistryCache, loadRegistry } from "../openapi/registry";
 import type { OperationCard, Risk } from "../openapi/types";
-import type { Envelope } from "../core/types";
+import type { CommandResult } from "../core/types";
 
 interface SearchResult {
   operation_id: string;
@@ -28,7 +28,7 @@ interface OpsSchemaOptions {
   example?: boolean;
 }
 
-type OpsResult = { env: Envelope; exitCode: ExitCode };
+type OpsResult = CommandResult;
 
 export async function handleOpsSearch(
   query: string,

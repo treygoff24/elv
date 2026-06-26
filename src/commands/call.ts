@@ -3,7 +3,7 @@ import { exitCodeForError, validationError } from "../core/errors";
 import { runOperation } from "../core/client";
 import { ExitCode } from "../core/types";
 import { parseJsonRecord } from "../util/json";
-import type { AgentInput, Envelope, RunOpts } from "../core/types";
+import type { AgentInput, CommandResult, RunOpts } from "../core/types";
 import type { PaginationOptions } from "../core/pagination";
 import { addFiles, addPairs } from "./input";
 import { paginationOptionsFromOptions, runOptsFromOptions } from "./options";
@@ -22,7 +22,7 @@ interface CallOptions
 export async function handleCall(
   operationId: string,
   options: CallOptions,
-): Promise<{ env: Envelope; exitCode: ExitCode }> {
+): Promise<CommandResult> {
   const cmd = `elv call ${operationId}`;
   const parsed = parseCallInput(operationId, options);
   if (!parsed.ok) return { env: parsed.env, exitCode: ExitCode.InputValidation };

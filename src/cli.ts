@@ -22,12 +22,12 @@ import { handleWait } from "./commands/wait";
 import { runWs } from "./commands/ws";
 import { handleOpsGet, handleOpsSchema, handleOpsSearch } from "./commands/ops";
 import { buildViewResult } from "./commands/view";
-import { registerAliases } from "./commands/aliases";
+import { registerAliases } from "./commands/aliases/index";
 import { handleSpecUpdate } from "./commands/spec";
 import { parseJson } from "./util/json";
 import type { ConfigOverrides } from "./core/config";
 import type { RunWsOptions, WsCommandInput } from "./commands/ws";
-import type { Envelope } from "./core/types";
+import type { CommandResult } from "./core/types";
 import type { CliOptionValues } from "./commands/options";
 
 export async function main(argv = process.argv): Promise<void> {
@@ -369,7 +369,7 @@ function envelopeForError(
   argv: string[],
   version: string,
   program: Command,
-): { env: Envelope; exitCode: ExitCode } {
+): CommandResult {
   const cmd = argvToCmd(argv);
   if (error instanceof CommanderError) {
     if (error.code === "commander.version") {

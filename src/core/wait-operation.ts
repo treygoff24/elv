@@ -5,7 +5,7 @@ import { runOperation } from "./client";
 import { ExitCode } from "./types";
 import { parseJson, parseJsonRecord } from "../util/json";
 import { readPath } from "../util/jsonpath";
-import type { AgentInput, Envelope } from "./types";
+import type { AgentInput, CommandResult, Envelope } from "./types";
 
 export interface WaitOptions {
   operation?: string;
@@ -18,10 +18,7 @@ export interface WaitOptions {
   cmd?: string;
 }
 
-interface WaitResult {
-  env: Envelope;
-  exitCode: ExitCode;
-}
+type WaitResult = CommandResult;
 
 interface WaitDeps {
   runOperation?: (

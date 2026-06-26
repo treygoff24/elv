@@ -13,13 +13,12 @@ export function buildUsageInput(flags: UsageFlags): BuiltOperation {
   return {
     operationId: "usage_characters",
     input: {
-      query:
-        compact({
-          start_unix: dateMs(required(flags.from, "--from")),
-          end_unix: dateMs(required(flags.to, "--to")),
-          breakdown_type: flags.breakdown,
-          metric: flags.metric,
-        }) ?? {},
+      query: compact({
+        start_unix: dateMs(required(flags.from, "--from")),
+        end_unix: dateMs(required(flags.to, "--to")),
+        breakdown_type: flags.breakdown,
+        metric: flags.metric,
+      }),
     },
   };
 }

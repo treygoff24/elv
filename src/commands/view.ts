@@ -4,7 +4,7 @@ import { failure, success } from "../core/envelope";
 import { validationError } from "../core/errors";
 import { SMALL_JSON_LIMIT, summarizeData } from "../core/response-normalizer";
 import { ExitCode } from "../core/types";
-import type { Envelope, Hint } from "../core/types";
+import type { CommandResult, Hint } from "../core/types";
 import { isRecord, parseJson } from "../util/json";
 import { readPath } from "../util/jsonpath";
 import { shellArg } from "../util/shell";
@@ -14,10 +14,7 @@ interface ViewOptions {
   limit?: string | number;
 }
 
-export function buildViewResult(
-  path: string,
-  options: ViewOptions = {},
-): { env: Envelope; exitCode: ExitCode } {
+export function buildViewResult(path: string, options: ViewOptions = {}): CommandResult {
   const cmd = `elv view ${path}`;
   const resolved = resolve(path);
 

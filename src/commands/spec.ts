@@ -1,16 +1,14 @@
 import { failure, success } from "../core/envelope";
 import { ExitCode } from "../core/types";
 import { SpecInputError, SpecProviderError, updateSpecCache } from "../openapi/fetch-spec";
-import type { Envelope } from "../core/types";
+import type { CommandResult } from "../core/types";
 import type { UpdateSpecOptions } from "../openapi/fetch-spec";
 
 interface SpecUpdateOptions extends UpdateSpecOptions {
   cmd?: string;
 }
 
-export async function handleSpecUpdate(
-  options: SpecUpdateOptions = {},
-): Promise<{ env: Envelope; exitCode: ExitCode }> {
+export async function handleSpecUpdate(options: SpecUpdateOptions = {}): Promise<CommandResult> {
   const cmd = options.cmd ?? "elv spec update";
   try {
     const result = await updateSpecCache(options);
@@ -32,15 +30,12 @@ export async function handleSpecUpdate(
   }
 }
 
-function specUpdateFailure(cmd: string, error: unknown): { env: Envelope; exitCode: ExitCode } {
+function specUpdateFailure(cmd: string, error: unknown): CommandResult {
   if (error instanceof SpecInputError) return specInputFailure(cmd, error);
   return specProviderFailure(cmd, error);
 }
 
-function specInputFailure(
-  cmd: string,
-  error: SpecInputError,
-): { env: Envelope; exitCode: ExitCode } {
+function specInputFailure(cmd: string, error: SpecInputError): CommandResult {
   return {
     env: failure({
       cmd,
@@ -56,7 +51,7 @@ function specInputFailure(
   };
 }
 
-function specProviderFailure(cmd: string, error: unknown): { env: Envelope; exitCode: ExitCode } {
+function specProviderFailure(cmd: string, error: unknown): CommandResult {
   return {
     env: failure({
       cmd,

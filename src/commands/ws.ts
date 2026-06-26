@@ -7,7 +7,7 @@ import { resolveOutTarget, OutTargetError } from "../core/files";
 import { buildCatalogUrl, getWsCatalogEntry, listWsCatalog, wsUrlFromPath } from "../ws/catalog";
 import { parseSendScript, scriptUsesModel } from "../ws/events";
 import { runWsSession } from "../ws/session";
-import type { Envelope, RunOpts } from "../core/types";
+import type { CommandResult, RunOpts } from "../core/types";
 import type { WsCatalogEntry } from "../ws/catalog";
 
 export interface RunWsOptions extends Pick<RunOpts, "apiKey" | "baseUrl" | "profile"> {
@@ -25,7 +25,7 @@ export interface WsCommandInput {
 export async function runWs(
   input: WsCommandInput,
   options: RunWsOptions = {},
-): Promise<{ env: Envelope; exitCode: ExitCode }> {
+): Promise<CommandResult> {
   if (input.list) return listCatalogResult();
   const validated = validateWsInput(input);
   if (!validated.ok) return validated.result;
@@ -39,7 +39,7 @@ export async function runWs(
 
 type ValidatedWsInput = WsCommandInput & Required<Pick<WsCommandInput, "target" | "send">>;
 
-function listCatalogResult(): { env: Envelope; exitCode: ExitCode } {
+function listCatalogResult(): CommandResult {
   return {
     env: success({ cmd: "elv ws --list", data: listWsCatalog() }),
     exitCode: ExitCode.Success,
@@ -48,9 +48,7 @@ function listCatalogResult(): { env: Envelope; exitCode: ExitCode } {
 
 function validateWsInput(
   input: WsCommandInput,
-):
-  | { ok: true; input: ValidatedWsInput }
-  | { ok: false; result: { env: Envelope; exitCode: ExitCode } } {
+): { ok: true; input: ValidatedWsInput } | { ok: false; result: CommandResult } {
   if (!input.target) return { ok: false, result: inputError("Missing WS target") };
   if (!input.send) return { ok: false, result: inputError("Missing --send script.ndjson") };
   return { ok: true, input: { ...input, target: input.target, send: input.send } };
@@ -59,7 +57,7 @@ function validateWsInput(
 async function runScriptedWs(
   input: ValidatedWsInput,
   options: RunWsOptions,
-): Promise<{ env: Envelope; exitCode: ExitCode }> {
+): Promise<CommandResult> {
   const config = loadConfig({
     profile: options.profile,
     baseUrl: options.baseUrl,
@@ -92,7 +90,7 @@ function validateScriptedTarget(
   query: Record<string, string>,
   script: ReturnType<typeof parseSendScript>,
   url: URL,
-): { env: Envelope; exitCode: ExitCode } | undefined {
+): CommandResult | undefined {
   if (entry && !entry.scriptable) {
     return inputError(
       `${entry.name} is interactive and is not supported by the scripted ws player`,
@@ -177,7 +175,7 @@ function authHeaders(apiKey: string | undefined): Record<string, string> | undef
   return { "xi-api-key": apiKey };
 }
 
-function inputError(message: string): { env: Envelope; exitCode: ExitCode } {
+function inputError(message: string): CommandResult {
   return { env: validationError("elv ws", message), exitCode: ExitCode.InputValidation };
 }
 
@@ -189,7 +187,7 @@ function parseScriptFile(path: string): ReturnType<typeof parseSendScript> {
   }
 }
 
-function errorEnvelope(error: unknown): { env: Envelope; exitCode: ExitCode } {
+function errorEnvelope(error: unknown): CommandResult {
   if (error instanceof ScriptValidationError) return inputError(error.message);
   if (error instanceof ConfigFileError) {
     return {

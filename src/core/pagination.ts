@@ -4,14 +4,12 @@ import { success } from "./envelope";
 import { isRecord } from "../util/json";
 import { shellArg } from "../util/shell";
 import type { HttpMethod, OperationCard } from "../openapi/types";
-import type { AgentInput, Envelope, FileRecord, SuccessEnvelope, Warning } from "./types";
+import type { AgentInput, Envelope, FileRecord, RunOpts, SuccessEnvelope, Warning } from "./types";
 
-export interface PaginationOptions {
+export interface PaginationOptions extends Pick<RunOpts, "out" | "hash"> {
   all?: boolean;
   limit?: number;
   saveJson?: string;
-  out?: string;
-  hash?: boolean;
 }
 
 export interface PaginationCommand {
@@ -27,16 +25,15 @@ interface CursorInfo {
   warnings: Warning[];
 }
 
-interface CollectAllPagesOptions {
+interface CollectAllPagesOptions extends Pick<
+  PaginationOptions,
+  "out" | "saveJson" | "hash" | "limit"
+> {
   op: OperationCard;
   input: AgentInput;
-  out?: string;
-  saveJson?: string;
-  hash?: boolean;
   command: PaginationCommand;
   fetchPage: (input: AgentInput) => Promise<Envelope>;
   maxPages?: number;
-  limit?: number;
 }
 
 type Family = "history" | "voices_v2" | "voices_v1" | "convai" | "fallback";

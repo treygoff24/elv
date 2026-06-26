@@ -11,6 +11,7 @@ import {
   resolveOutTarget,
   streamToFile,
   tempFileWriter,
+  toNodeReadable,
   writeBufferToFile,
 } from "./files";
 import { isRecord, parseJson as parseJsonValue } from "../util/json";
@@ -22,19 +23,20 @@ import type {
   Envelope,
   FileRecord,
   Hint,
+  RunOpts,
   SuccessEnvelope,
   Warning,
 } from "./types";
 
-export interface ResponseContext {
+export interface ResponseContext extends Pick<RunOpts, "out" | "hash"> {
   cmd: string;
-  out?: string;
-  hash?: boolean;
   creditsEstimated?: number | null;
   requestPath?: string;
   method?: HttpMethod;
   inline?: boolean;
 }
+
+type JsonSpillContext = Pick<ResponseContext, "cmd" | "out" | "hash"> & { saveJson?: string };
 
 export const SMALL_JSON_LIMIT = 32 * 1024;
 
@@ -255,7 +257,7 @@ function viewHint(filePath: string, data: unknown): Hint {
 export function spillIfLarge(
   op: OperationCard,
   env: Envelope,
-  ctx: { cmd: string; out?: string; saveJson?: string; hash?: boolean },
+  ctx: JsonSpillContext,
 ): Promise<Envelope> {
   if (!env.ok || env.data === undefined) return Promise.resolve(env);
   const text = JSON.stringify(env.data);
@@ -268,7 +270,7 @@ export function spillIfLarge(
 async function spillEnvelopeData(
   op: OperationCard,
   env: SuccessEnvelope,
-  ctx: { cmd: string; out?: string; saveJson?: string; hash?: boolean },
+  ctx: JsonSpillContext,
   text: string,
   tooLarge: boolean,
 ): Promise<Envelope> {
@@ -515,11 +517,6 @@ function chunkBuffer(chunk: Buffer | Uint8Array | string): Buffer {
   if (chunk instanceof Uint8Array) return Buffer.from(chunk);
   if (typeof chunk === "string") return Buffer.from(chunk);
   return Buffer.from(String(chunk));
-}
-
-function toNodeReadable(body: globalThis.ReadableStream | Readable): Readable {
-  if (body instanceof Readable) return body;
-  return Readable.fromWeb(body as Parameters<typeof Readable.fromWeb>[0]);
 }
 
 function audioExtensionFromRequestPath(path: string | undefined): string {

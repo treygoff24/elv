@@ -211,7 +211,7 @@ function absolute(path: string): string {
   return isAbsolute(path) ? path : resolve(process.cwd(), path);
 }
 
-function toNodeReadable(body: globalThis.ReadableStream | Readable): Readable {
+export function toNodeReadable(body: globalThis.ReadableStream | Readable): Readable {
   if (body instanceof Readable) return body;
   return Readable.fromWeb(body as Parameters<typeof Readable.fromWeb>[0]);
 }

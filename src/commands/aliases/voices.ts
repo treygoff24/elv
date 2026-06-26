@@ -200,11 +200,9 @@ async function runFind(flags: VoicesFlags, command: Command): Promise<never> {
     limit: RESOLVER_PAGE_SIZE,
   });
   if (!env.ok) emit(env);
-  const data = env.data as VoiceListData | undefined;
-  const voices = Array.isArray(data?.voices) ? data.voices : [];
   // Emit only the matched voices — drop the upstream pagination fields
   // (has_more, next_page_token, next), which are noise for a name lookup.
-  const matched = findMatchingVoices(query, voices);
+  const matched = findMatchingVoices(query, voicesFrom(env));
   const result: SuccessEnvelope = { ...env, data: { voices: matched, count: matched.length } };
   emit(result);
 }
