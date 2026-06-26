@@ -3,10 +3,12 @@ import { readFileSync, realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { basename, resolve } from "node:path";
 import { Command, CommanderError } from "commander";
+import { nearest } from "./util/suggest";
 import { ConfigFileError, configDoctor, loadConfig } from "./core/config";
 import { configFileError, emitAndExit, validationError } from "./core/errors";
 import { success } from "./core/envelope";
 import { ExitCode } from "./core/types";
+import type { Hint } from "./core/types";
 import { handleCall } from "./commands/call";
 import { handleHttp } from "./commands/http";
 import {
@@ -351,17 +353,43 @@ function commandHelpData(node: Command): Record<string, unknown> {
   };
 }
 
-function resolveCommandPath(program: Command, argv: string[]): Command {
+// Walk argv along the subcommand tree, returning the deepest matched command
+// and the first non-option token that didn't match a subcommand (the likely
+// typo, if any). Stops at the first option flag.
+function walkCommandPath(
+  program: Command,
+  argv: string[],
+): { command: Command; unmatched?: string } {
   let current = program;
   for (const token of argv.slice(2)) {
     if (token.startsWith("-")) break;
     const next = current.commands.find(
       (sub) => sub.name() === token || sub.aliases().includes(token),
     );
-    if (!next) break;
+    if (!next) return { command: current, unmatched: token };
     current = next;
   }
-  return current;
+  return { command: current };
+}
+
+function resolveCommandPath(program: Command, argv: string[]): Command {
+  return walkCommandPath(program, argv).command;
+}
+
+// Turn a mistyped token into a structured did-you-mean hint: find the nearest
+// known candidate and rebuild the command with the token corrected, so the
+// agent gets a runnable fix.
+function suggestionHint(bad: string, argv: string[], candidates: string[]): Hint[] | undefined {
+  const guess = nearest(bad, candidates);
+  if (!guess) return undefined;
+  const corrected = ["elv", ...argv.slice(2).map((t) => (t === bad ? guess : t))].join(" ");
+  return [{ cmd: corrected, why: `Did you mean '${guess}'?` }];
+}
+
+// As above, but recover the bad token from a commander "unknown X 'token'" message.
+function didYouMeanHint(message: string, argv: string[], candidates: string[]): Hint[] | undefined {
+  const bad = message.match(/'([^']+)'/u)?.[1];
+  return bad ? suggestionHint(bad, argv, candidates) : undefined;
 }
 
 function envelopeForError(
@@ -402,6 +430,9 @@ function envelopeForError(
       };
     }
     if (error.code === "commander.unknownCommand") {
+      const parent = resolveCommandPath(program, argv);
+      const candidates = parent.commands.flatMap((sub) => [sub.name(), ...sub.aliases()]);
+      const hints = didYouMeanHint(error.message, argv, candidates);
       return {
         env: {
           v: 1,
@@ -409,8 +440,33 @@ function envelopeForError(
           cmd,
           error: { type: "not_found_error", code: "unknown_command", message: error.message },
           retry: { recommended: false, after_ms: null },
+          ...(hints ? { hints } : {}),
         },
         exitCode: ExitCode.NotFound,
+      };
+    }
+    if (error.code === "commander.unknownOption") {
+      const owner = resolveCommandPath(program, argv);
+      const candidates = owner.options.map((o) => o.long).filter((l): l is string => Boolean(l));
+      const hints = didYouMeanHint(error.message, argv, candidates);
+      return {
+        env: validationError(cmd, error.message, hints ? { hints } : {}),
+        exitCode: ExitCode.InputValidation,
+      };
+    }
+    if (error.code === "commander.excessArguments") {
+      // A parent command (ops/config/spec) that takes no positional args reports
+      // a mistyped subcommand as excess arguments. Only suggest when the owner
+      // actually has subcommands — otherwise it's a genuine extra positional.
+      const { command: owner, unmatched } = walkCommandPath(program, argv);
+      const subcommands = owner.commands.flatMap((sub) => [sub.name(), ...sub.aliases()]);
+      const hints =
+        unmatched && subcommands.length > 0
+          ? suggestionHint(unmatched, argv, subcommands)
+          : undefined;
+      return {
+        env: validationError(cmd, error.message, hints ? { hints } : {}),
+        exitCode: ExitCode.InputValidation,
       };
     }
     return { env: validationError(cmd, error.message), exitCode: ExitCode.InputValidation };

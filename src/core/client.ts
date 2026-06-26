@@ -1,5 +1,6 @@
 import { loadRegistry, readRegistryCache } from "../openapi/registry";
 import { isRecord } from "../util/json";
+import { suggestIds } from "../util/suggest";
 import { estimateDetail, overBudget } from "./budget";
 import { ConfigFileError, loadConfig, getApiKey } from "./config";
 import { dryRun, failure } from "./envelope";
@@ -60,7 +61,8 @@ export async function runOperation(
     const registry = await loadRegistry();
     const cached = readRegistryCache();
     const baseOp = registry.get(operationId);
-    if (!baseOp) return unknownOperation(operationId);
+    if (!baseOp)
+      return unknownOperation(operationId, suggestIds(operationId, [...registry.keys()]));
     const op = hydrateBodySchema(baseOp, cached?.bundledSpec);
 
     if (opts.limit !== undefined && (!Number.isInteger(opts.limit) || opts.limit <= 0)) {
@@ -188,6 +190,12 @@ function preparedOperationPreflight({
   if (requiresYes(op) && !opts.yes) {
     return confirmationRequired(cmd, `${op.operationId} (${op.risk}) requires --yes`, {
       operationId: op.operationId,
+      hints: [
+        {
+          cmd: `${cmd} --dry-run`,
+          why: "Preview the request without calling the API or mutating anything.",
+        },
+      ],
     });
   }
   if (overBudget(creditsEstimated, opts)) {

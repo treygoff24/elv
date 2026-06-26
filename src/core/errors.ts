@@ -237,7 +237,11 @@ export function mergeErrorHints(
   return merged;
 }
 
-export function unknownOperation(id: string): ErrorEnvelope {
+export function unknownOperation(id: string, suggestions: string[] = []): ErrorEnvelope {
+  const suggestionHints: Hint[] = suggestions.map((s) => ({
+    cmd: `elv call ${s}`,
+    why: `Did you mean '${s}'?`,
+  }));
   return failure({
     cmd: `elv call ${id}`,
     operation_id: id,
@@ -247,7 +251,10 @@ export function unknownOperation(id: string): ErrorEnvelope {
       message: `Unknown operation: ${id}`,
     },
     retry: { recommended: false, after_ms: null },
-    hints: [{ cmd: "elv ops search <query>", why: "Find a valid operation_id." }],
+    hints: [
+      ...suggestionHints,
+      { cmd: "elv ops search <query>", why: "Find a valid operation_id." },
+    ],
   });
 }
 

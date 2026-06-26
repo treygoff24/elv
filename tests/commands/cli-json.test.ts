@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
-import { parseEnvelope, type CliResult } from "../helpers/cli-result";
+import { arrayValue, parseEnvelope, recordValue, type CliResult } from "../helpers/cli-result";
 
 function hasAnsiEscape(text: string): boolean {
   return text.includes("\u001b");
@@ -215,5 +215,58 @@ describe("CLI JSON output contract", () => {
     const viewData = viewEnvelope.data as Record<string, unknown>;
     expect(viewData.command).toBe("view");
     expect(viewData).not.toEqual(ttsData);
+  });
+});
+
+describe("did-you-mean suggestions", () => {
+  it("suggests the nearest command for a mistyped verb", () => {
+    const { stdout, code } = runCli(["tss"]);
+    expect(code).toBe(9);
+    const envelope = parseEnvelope(stdout);
+    expect(envelope.ok).toBe(false);
+    const hints = arrayValue(envelope.hints, "hints").map((h) => recordValue(h));
+    expect(hints[0]?.cmd).toBe("elv tts");
+    expect(String(hints[0]?.why)).toContain("Did you mean");
+  });
+
+  it("suggests the nearest flag and rebuilds the corrected command", () => {
+    const { stdout, code } = runCli(["tts", "--txt", "hello", "--voice-id", "x"]);
+    expect(code).toBe(2);
+    const hints = arrayValue(parseEnvelope(stdout).hints, "hints").map((h) => recordValue(h));
+    expect(hints[0]?.cmd).toBe("elv tts --text hello --voice-id x");
+  });
+
+  it("emits no suggestion when nothing is close", () => {
+    const { stdout, code } = runCli(["zzzzzzzz"]);
+    expect(code).toBe(9);
+    expect(parseEnvelope(stdout).hints).toBeUndefined();
+  });
+
+  it("suggests nearest operation ids for an unknown call id", () => {
+    const { stdout } = runCli(["call", "text_to_speech"]);
+    const hints = arrayValue(parseEnvelope(stdout).hints, "hints").map((h) => recordValue(h));
+    expect(hints.some((h) => h.cmd === "elv call text_to_speech_full")).toBe(true);
+  });
+
+  it("suggests the nearest subcommand for a mistyped parent subcommand", () => {
+    const { stdout, code } = runCli(["ops", "serch", "text to speech"]);
+    expect(code).toBe(2);
+    const hints = arrayValue(parseEnvelope(stdout).hints, "hints").map((h) => recordValue(h));
+    expect(hints[0]?.cmd).toBe("elv ops search text to speech");
+  });
+
+  it("does not suggest for a genuine excess argument on a leaf command", () => {
+    const { stdout, code } = runCli(["ops", "get", "some_op", "extra_arg"]);
+    expect(code).toBe(2);
+    expect(parseEnvelope(stdout).hints).toBeUndefined();
+  });
+
+  it("names --dry-run when a destructive op needs confirmation", () => {
+    const { stdout, code } = runCli(["call", "delete_voice", "--path", "voice_id=x"], {
+      ELEVENLABS_API_KEY: "test_key_CANARY",
+    });
+    expect(code).toBe(4);
+    const hints = arrayValue(parseEnvelope(stdout).hints, "hints").map((h) => recordValue(h));
+    expect(hints.some((h) => String(h.cmd).endsWith("--dry-run"))).toBe(true);
   });
 });
