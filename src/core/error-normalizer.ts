@@ -1,77 +1,110 @@
 import { classifyTypeFromStatus } from "./errors";
 import type { NormalizedError } from "./types";
 
+interface ProviderErrorContext {
+  httpStatus: number;
+  requestIdFromHeader: string | null;
+  raw: unknown;
+}
+
+const CODE_BY_STATUS: Record<number, string> = {
+  400: "invalid_parameters",
+  401: "invalid_api_key",
+  402: "insufficient_credits",
+  403: "forbidden",
+  404: "not_found",
+  409: "conflict",
+  422: "validation_error",
+  429: "rate_limit_exceeded",
+  500: "internal_error",
+};
+
+const TEXT_BY_STATUS: Record<number, string> = {
+  400: "Bad request",
+  401: "Unauthorized",
+  402: "Payment required",
+  403: "Forbidden",
+  404: "Not found",
+  409: "Conflict",
+  422: "Validation error",
+  429: "Rate limit exceeded",
+};
+
 export function normalizeProviderError(
   body: unknown,
   httpStatus: number,
   headers: Headers,
 ): NormalizedError {
-  const raw = body;
-  const detail = detailValue(body);
-  const requestIdFromHeader = header(headers, "request-id");
+  return normalizeDetail(detailValue(body), {
+    httpStatus,
+    requestIdFromHeader: header(headers, "request-id"),
+    raw: body,
+  });
+}
 
+function normalizeDetail(detail: unknown, context: ProviderErrorContext): NormalizedError {
   if (Array.isArray(detail)) {
-    const first = asRecord(detail[0]);
-    const loc = Array.isArray(first.loc) ? first.loc : [];
-    const msg = stringValue(first.msg) ?? statusText(httpStatus);
-    const prefix = typeof loc[0] === "string" ? `${loc[0]}: ` : "";
-    return {
-      type: classifyTypeFromStatus(httpStatus),
-      code: "validation_error",
-      message: `${prefix}${msg}`,
-      param: deriveFromLoc(loc),
-      request_id: requestIdFromHeader,
-      raw,
-    };
+    return normalizeArrayDetail(detail, context);
   }
-
   if (isRecord(detail)) {
-    const code =
-      stringValue(detail.code) ?? stringValue(detail.status) ?? genericCodeFromStatus(httpStatus);
-    return {
-      type: stringValue(detail.type) ?? classifyTypeFromStatus(httpStatus),
-      code,
-      message: stringValue(detail.message) ?? stringValue(detail.msg) ?? statusText(httpStatus),
-      param: stringValue(detail.param) ?? null,
-      request_id: stringValue(detail.request_id) ?? requestIdFromHeader,
-      raw,
-    };
+    return normalizeObjectDetail(detail, context);
   }
-
   if (typeof detail === "string") {
-    return {
-      type: classifyTypeFromStatus(httpStatus),
-      code: genericCodeFromStatus(httpStatus),
-      message: detail,
-      param: null,
-      request_id: requestIdFromHeader,
-      raw,
-    };
+    return normalizeStringDetail(detail, context);
   }
+  return normalizeObjectDetail(asRecord(context.raw), context);
+}
 
-  const object = asRecord(body);
+function normalizeArrayDetail(detail: unknown[], context: ProviderErrorContext): NormalizedError {
+  const first = asRecord(detail[0]);
+  const loc = Array.isArray(first.loc) ? first.loc : [];
+  const msg = stringValue(first.msg) ?? statusText(context.httpStatus);
+  const prefix = typeof loc[0] === "string" ? `${loc[0]}: ` : "";
   return {
-    type: classifyTypeFromStatus(httpStatus),
-    code: stringValue(object.code) ?? genericCodeFromStatus(httpStatus),
-    message: stringValue(object.message) ?? statusText(httpStatus),
+    type: classifyTypeFromStatus(context.httpStatus),
+    code: "validation_error",
+    message: `${prefix}${msg}`,
+    param: deriveFromLoc(loc),
+    request_id: context.requestIdFromHeader,
+    raw: context.raw,
+  };
+}
+
+function normalizeObjectDetail(
+  detail: Record<string, unknown>,
+  context: ProviderErrorContext,
+): NormalizedError {
+  return {
+    type: stringValue(detail.type) ?? classifyTypeFromStatus(context.httpStatus),
+    code:
+      stringValue(detail.code) ??
+      stringValue(detail.status) ??
+      genericCodeFromStatus(context.httpStatus),
+    message:
+      stringValue(detail.message) ?? stringValue(detail.msg) ?? statusText(context.httpStatus),
+    param: stringValue(detail.param) ?? null,
+    request_id: stringValue(detail.request_id) ?? context.requestIdFromHeader,
+    raw: context.raw,
+  };
+}
+
+function normalizeStringDetail(detail: string, context: ProviderErrorContext): NormalizedError {
+  return {
+    type: classifyTypeFromStatus(context.httpStatus),
+    code: genericCodeFromStatus(context.httpStatus),
+    message: detail,
     param: null,
-    request_id: stringValue(object.request_id) ?? requestIdFromHeader,
-    raw,
+    request_id: context.requestIdFromHeader,
+    raw: context.raw,
   };
 }
 
 function genericCodeFromStatus(status: number): string {
-  if (status === 400) return "invalid_parameters";
-  if (status === 401) return "invalid_api_key";
-  if (status === 402) return "insufficient_credits";
-  if (status === 403) return "forbidden";
-  if (status === 404) return "not_found";
-  if (status === 409) return "conflict";
-  if (status === 422) return "validation_error";
-  if (status === 429) return "rate_limit_exceeded";
-  if (status === 500) return "internal_error";
-  if (status === 502 || status === 503 || status === 504) return "service_unavailable";
-  return `http_${status}`;
+  return CODE_BY_STATUS[status] ?? serviceUnavailableCode(status) ?? `http_${status}`;
+}
+
+function serviceUnavailableCode(status: number): string | undefined {
+  return status === 502 || status === 503 || status === 504 ? "service_unavailable" : undefined;
 }
 
 function detailValue(body: unknown): unknown {
@@ -93,16 +126,7 @@ function header(headers: Headers, name: string): string | null {
 }
 
 function statusText(status: number): string {
-  if (status === 400) return "Bad request";
-  if (status === 401) return "Unauthorized";
-  if (status === 402) return "Payment required";
-  if (status === 403) return "Forbidden";
-  if (status === 404) return "Not found";
-  if (status === 409) return "Conflict";
-  if (status === 422) return "Validation error";
-  if (status === 429) return "Rate limit exceeded";
-  if (status >= 500) return "Provider server error";
-  return `HTTP ${status}`;
+  return TEXT_BY_STATUS[status] ?? (status >= 500 ? "Provider server error" : `HTTP ${status}`);
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
