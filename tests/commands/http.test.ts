@@ -89,6 +89,22 @@ describe("http command", () => {
     });
   });
 
+  it("normalizes async network failures", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("socket died")));
+
+    const env = await runHttp("DELETE", "/v1/beta/thing", {
+      yes: true,
+      baseUrl: "https://api.test",
+      apiKey: "sk_test_secret",
+    });
+
+    expect(env).toMatchObject({
+      ok: false,
+      operation_id: "http",
+      error: { type: "network_error", message: "socket died" },
+    });
+  });
+
   it("keeps large --all pages inline for collection", async () => {
     const out = mkdtempSync(join(tmpdir(), "elv-http-pages-"));
     try {

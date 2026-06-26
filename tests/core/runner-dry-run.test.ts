@@ -20,4 +20,24 @@ describe("runner dry-run", () => {
     expect(env).toMatchObject({ ok: true, operation_id: "text_to_speech_full" });
     expect((env.data as Record<string, unknown>).dry_run).toBe(true);
   });
+
+  it("normalizes async network failures", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("socket died")));
+
+    const env = await runOperation(
+      "delete_voice",
+      { path: { voice_id: "voice_1" } },
+      {
+        yes: true,
+        baseUrl: "https://api.test",
+        apiKey: "sk_test_secret",
+      },
+    );
+
+    expect(env).toMatchObject({
+      ok: false,
+      operation_id: "delete_voice",
+      error: { type: "network_error", message: "socket died" },
+    });
+  });
 });

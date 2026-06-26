@@ -90,7 +90,7 @@ export async function runOperation(
       normalized,
       opts,
     );
-    return runPreparedOperation({
+    return await runPreparedOperation({
       cmd,
       op,
       input: normalized,

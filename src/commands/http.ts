@@ -68,7 +68,7 @@ export async function runHttp(
     }
     const input = applyPaginationDefaults(op, parsed.input, opts.limit ?? 20);
 
-    return runPreparedOperation({
+    return await runPreparedOperation({
       cmd,
       op,
       input,
