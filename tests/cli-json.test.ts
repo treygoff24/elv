@@ -76,6 +76,19 @@ describe("CLI JSON output contract", () => {
     parseStdoutEnvelope(stdout);
   });
 
+  it("bare parent commands emit help envelopes with subcommands", () => {
+    for (const command of ["ops", "config", "spec"]) {
+      const { stdout, code } = runCli([command]);
+      expect(code).toBe(0);
+      const envelope = parseStdoutEnvelope(stdout);
+      expect(envelope.ok).toBe(true);
+      const data = envelope.data as Record<string, unknown>;
+      expect(data.command).toBe(command);
+      expect(Array.isArray(data.subcommands)).toBe(true);
+      expect((data.subcommands as string[]).length).toBeGreaterThan(0);
+    }
+  });
+
   it("subcommand --help emits per-command metadata instead of the global list", () => {
     const { stdout: ttsStdout, code: ttsCode } = runCli(["tts", "--help"]);
     expect(ttsCode).toBe(0);

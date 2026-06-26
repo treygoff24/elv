@@ -4,10 +4,12 @@ import { runOperation } from "../../core/client";
 import { emitAndExit, validationError } from "../../core/errors";
 import { ExitCode } from "../../core/types";
 import type { AgentInput, SuccessEnvelope } from "../../core/types";
-import { commandName, compact, compactInput, emit, message, required, runOpts } from "./shared";
+import { addPaginationFlags, commandName, compact, compactInput, emit, message, paginationOpts, required, runOpts } from "./shared";
 
 export interface VoicesFlags {
   query?: string;
+  search?: string;
+  sort?: string;
   voiceId?: string;
   name?: string;
   file?: string;
@@ -15,18 +17,26 @@ export interface VoicesFlags {
   description?: string;
 }
 
+export const RESOLVER_PAGE_SIZE = 100;
+
 export interface VoiceRecord {
   name?: unknown;
   voice_id?: unknown;
   [key: string]: unknown;
 }
 
-export function buildVoicesListInput(_flags: VoicesFlags): { operationId: string; input: AgentInput } {
-  return { operationId: "get_voices", input: {} };
+export function buildVoicesListInput(flags: VoicesFlags): { operationId: string; input: AgentInput } {
+  return {
+    operationId: "get_user_voices_v2",
+    input: compactInput({ query: compact({ search: flags.search, sort: flags.sort }) }),
+  };
 }
 
-export function buildVoicesFindInput(_flags: VoicesFlags): { operationId: string; input: AgentInput } {
-  return { operationId: "get_voices", input: {} };
+export function buildVoicesFindInput(flags: VoicesFlags): { operationId: string; input: AgentInput } {
+  return {
+    operationId: "get_user_voices_v2",
+    input: compactInput({ query: compact({ search: flags.query }) }),
+  };
 }
 
 export function buildVoicesGetInput(flags: VoicesFlags): { operationId: string; input: AgentInput } {
@@ -52,7 +62,12 @@ export function findMatchingVoices(query: string, voices: VoiceRecord[]): VoiceR
 
 export function registerVoicesCommand(program: Command, addCommonFlags: (command: Command) => Command): void {
   const voices = program.command("voices").description("Voices");
-  addCommonFlags(voices.command("list").action((options: VoicesFlags, command: Command) => runBuilt(buildVoicesListInput, options, command)));
+  addCommonFlags(
+    addPaginationFlags(voices.command("list"))
+      .option("--search <query>", "filter voices by name/labels")
+      .option("--sort <field>", "sort field, e.g. created_at_unix or name")
+      .action((options: VoicesFlags, command: Command) => runBuilt(buildVoicesListInput, options, command)),
+  );
   addCommonFlags(
     voices
       .command("find <query>")
@@ -76,12 +91,15 @@ export function registerVoicesCommand(program: Command, addCommonFlags: (command
 async function runFind(flags: VoicesFlags, command: Command): Promise<never> {
   try {
     const built = buildVoicesFindInput(flags);
-    const env = await runOperation(built.operationId, built.input, { ...runOpts(command), inline: true });
+    const env = await runOperation(built.operationId, built.input, { ...runOpts(command), inline: true, limit: RESOLVER_PAGE_SIZE });
     if (!env.ok) emit(env);
     const data = env.data as { voices?: unknown } | undefined;
     const voices = Array.isArray(data?.voices) ? (data.voices as VoiceRecord[]) : [];
-    const next: SuccessEnvelope = { ...env, data: { ...data, voices: findMatchingVoices(required(flags.query, "query"), voices) } };
-    emit(next);
+    // Emit only the matched voices — drop the upstream pagination fields
+    // (has_more, next_page_token, next), which are noise for a name lookup.
+    const matched = findMatchingVoices(required(flags.query, "query"), voices);
+    const result: SuccessEnvelope = { ...env, data: { voices: matched, count: matched.length } };
+    emit(result);
   } catch (error) {
     emitAndExit(validationError(commandName(command), message(error)), ExitCode.InputValidation);
   }
@@ -90,7 +108,7 @@ async function runFind(flags: VoicesFlags, command: Command): Promise<never> {
 async function runBuilt<T>(builder: (flags: T) => { operationId: string; input: AgentInput }, flags: T, command: Command): Promise<never> {
   try {
     const built = builder(flags);
-    const env = await runOperation(built.operationId, built.input, runOpts(command));
+    const env = await runOperation(built.operationId, built.input, { ...runOpts(command), ...paginationOpts(command) });
     emit(env);
   } catch (error) {
     emitAndExit(validationError(commandName(command), message(error)), ExitCode.InputValidation);

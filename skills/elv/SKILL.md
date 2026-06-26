@@ -40,7 +40,9 @@ Branch on the exit code first. Parse the envelope only when you need detail.
 
 A success envelope carries `operation_id`, `http`, `cost`, and either `data`
 inline or `files[]` plus a `data_summary`. An error envelope carries
-`error.type`, `error.code`, `error.message`, and `retry`.
+`error.type`, `error.code`, `error.message`, `retry`, and often a `hints[]`
+entry with a suggested next command (e.g. `elv config doctor` on an auth failure,
+`elv voices list` when a voice id is not found).
 
 ## Three ways to act
 
@@ -59,7 +61,8 @@ All three share the same auth, envelope, retries, redaction, budget guard, and
 file output.
 
 Parent alias commands need a subcommand. `elv voices` alone exits 2 and lists
-the valid subcommands; run `elv voices list`.
+the valid subcommands; run `elv voices list`. (`elv ops`, `elv config`, and
+`elv spec` print their subcommands and exit 0.)
 
 ## Discovery
 
@@ -121,12 +124,26 @@ or a profile `output_dir`). An extensionless `--out` is treated as a directory.
 The envelope's `files[]` gives each path, mime, byte size, and sha256.
 
 Large JSON (long lists, big responses) also spills to disk: the envelope returns
-`files[]` plus a `data_summary` (type, count, a short preview) instead of
-flooding stdout. Read the file path for the full content.
+`files[]` plus a `data_summary` (type, count, a short preview) and a `hints[]`
+entry instead of flooding stdout. Inspect a spilled file WITHOUT loading it into
+context with `elv view`:
 
-For paginated reads with `call` or `http`: `--limit N` inlines only N items,
-`--all` walks every page to disk, `--save-json <path>` writes the full JSON
-result to a path you choose.
+```bash
+elv view <path>                              # full content if small, else a summary
+elv view <path> --path data.voices.0.name    # drill into a dotted JSON path
+elv view <path> --path voices --limit 5       # first N items of an array
+```
+
+`elv view` reads the spilled JSON (or NDJSON), applies an optional dotted
+`--path` (numeric array indices allowed) and `--limit`, and returns the slice
+inline when small or a `data_summary` plus a narrow-further hint when still large.
+
+Pagination works on the list aliases (`voices list`, `history list`,
+`agents list`, `dubbing list`) and on `call`/`http`: `--limit N` sets the page
+size and caps inlined items, `--all` walks every page and writes the full set to
+the `--save-json`/`--out` target (one of which is required with `--all`),
+`--save-json <path>` chooses the output path. A large single page spills to disk
+but still returns the `next` page command inline so you can keep paging.
 
 ## Auth
 
@@ -143,7 +160,8 @@ dry-run previews, or files. Check setup with `elv config get` and
 | Character usage over a range | `elv usage --from 2026-06-01 --to 2026-06-25` |
 | List models | `elv models list` |
 | List voices | `elv voices list` |
-| Find a voice by name | `elv voices find "Rachel"` |
+| Search voices (name / labels) | `elv voices list --search "narration"` |
+| Find a voice by name | `elv voices find "Rachel"` (matches exact name, else unique substring) |
 | Get one voice | `elv voices get --voice-id VOICE_ID` |
 | Text to speech | `elv tts --voice-id VOICE_ID --text "Hello" --model eleven_flash_v2_5 --out out.mp3` |
 | TTS by voice name | `elv tts --voice "Rachel" --text "Hello" --out out.mp3` |
@@ -159,6 +177,7 @@ dry-run previews, or files. Check setup with `elv config get` and
 | List agents | `elv agents list` |
 | Speech history | `elv history list --limit 20` |
 | Any operation by id | `elv call <operation_id> --json '{"path":{...},"query":{...},"body":{...}}'` |
+| Inspect a spilled JSON result | `elv view <path> --path data.voices.0` |
 | Raw REST call | `elv http GET /v1/user` |
 | Scripted WebSocket session | `elv ws tts-realtime --query voice_id=VOICE --send script.ndjson --out ./session` |
 | Poll a long job | `elv wait --operation get_dubbed_metadata --json '{"path":{"dubbing_id":"abc"}}' --status-path '$.data.status' --success 'dubbed' --failure 'failed' --interval-ms 2000 --timeout-ms 600000` (`--failure` is optional; success-only polling works) |
@@ -180,6 +199,8 @@ elv call text_to_speech_full \
 ### Common flags
 
 Every command accepts `--dry-run`, `--yes`, `--max-credits <n>`, `--out <path>`,
-`--base-url <url>`, `--profile <name>`, `--debug`, and `--retry-post`. Aliases
-that page (`dubbing list`, `agents list`, `history list`) take `--limit` as a
-page size. `--all` and `--save-json` are `call` and `http` flags.
+`--base-url <url>`, `--profile <name>`, `--debug`, and `--retry-post`. The list
+aliases (`voices list`, `history list`, `agents list`, `dubbing list`) and
+`call`/`http` take `--limit <n>` (page size + inline cap), `--all` (walk every
+page to a file; requires `--save-json`/`--out`), and `--save-json <path>`. Every
+command's own flags are documented in `elv <command> --help`.

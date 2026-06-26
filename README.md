@@ -141,7 +141,7 @@ elv call text_to_speech_full \
 elv call delete_voice --path voice_id=VOICE_ID --yes
 ```
 
-Large or paginated results never flood stdout. Use `--all` to fetch every page to disk, `--limit` to cap what gets inlined in the envelope, and `--save-json <path>` to write the full result somewhere you choose.
+Large or paginated results never flood stdout. The list aliases (`voices list`, `history list`, `agents list`, `dubbing list`) and `call`/`http` take `--limit <n>` (sets the page size and caps what gets inlined), `--all` to fetch every page to disk (requires `--save-json`/`--out`), and `--save-json <path>` to write the full result somewhere you choose. A large single page spills to disk but still returns the `next` page command inline so you can keep paging. Inspect any spilled file without loading it into context with `elv view <path> [--path <dotted>] [--limit <n>]`.
 
 ### Escape hatches
 
@@ -199,7 +199,7 @@ elv tts --voice-id VOICE --text "Long script..." --max-credits 500 --out ./out
 
 ## The envelope contract
 
-Stdout is always a single JSON object: a `SuccessEnvelope` or an `ErrorEnvelope`, both carrying `v: 1` and `ok: true` or `ok: false`. A success envelope can include `data`, `data_summary`, `files[]`, `cost`, `http`, and `warnings`. An error envelope carries a normalized `error` (`type`, `code`, `message`) plus optional `retry` guidance. Binary and oversized payloads are written to disk and referenced as `files[]` entries with a path, MIME type, byte count, and sha256. The full type definitions live in `src/core/types.ts`.
+Stdout is always a single JSON object: a `SuccessEnvelope` or an `ErrorEnvelope`, both carrying `v: 1` and `ok: true` or `ok: false`. A success envelope can include `data`, `data_summary`, `files[]`, `cost`, `http`, `warnings`, and `hints[]`. An error envelope carries a normalized `error` (`type`, `code`, `message`) plus optional `retry` guidance and `hints[]` with a suggested next command. Binary and oversized payloads are written to disk and referenced as `files[]` entries with a path, MIME type, byte count, and sha256. The full type definitions live in `src/core/types.ts`.
 
 ### Exit codes
 
@@ -228,11 +228,17 @@ elv usage
 # {"v":1,"ok":true,"data":{"tier":"creator","character_count":...,"character_limit":...}}
 ```
 
-List voices (the payload is large, so it spills to disk instead of flooding stdout):
+List voices (the v2 payload is large, so it spills to disk; the `next` page command and an `elv view` hint come back inline):
 
 ```bash
 elv voices list
-# {"v":1,"ok":true,"files":[{"path":"~/.cache/elv/out/get_voices-response.json",...}],"data_summary":{...}}
+# {"v":1,"ok":true,"operation_id":"get_user_voices_v2",
+#  "data":{"next":{"cmd":"elv call get_user_voices_v2 --json '{...}'"}},
+#  "files":[{"path":"~/.cache/elv/out/get_user_voices_v2-response.json",...}],
+#  "data_summary":{...},"hints":[{"cmd":"elv view '<path>' --path 'voices'",...}]}
+
+# Then inspect it without loading the whole file into context:
+elv view ~/.cache/elv/out/get_user_voices_v2-response.json --path voices --limit 3
 ```
 
 Synthesize speech and get the file back with a real charge from the response header:

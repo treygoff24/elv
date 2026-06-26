@@ -2,15 +2,16 @@ import { loadRegistry, readRegistryCache } from "../openapi/registry";
 import { estimateDetail, overBudget } from "./budget";
 import { loadConfig, getApiKey } from "./config";
 import { dryRun, failure } from "./envelope";
-import { budgetExceeded, confirmationRequired, validationError, unknownOperation } from "./errors";
+import { budgetExceeded, confirmationRequired, hintsForError, mergeErrorHints, validationError, unknownOperation } from "./errors";
 import { NetworkRetryError, sendWithRetry } from "./retries";
 import { buildHttpRequest, InputNormalizationError, normalizeInput } from "./request-builder";
-import { normalizeResponse } from "./response-normalizer";
+import { normalizeResponse, spillIfLarge } from "./response-normalizer";
 import {
   addPaginationToEnvelope,
   allOutputTarget,
   applyPaginationDefaults,
   collectAllPages,
+  supportsPagination,
   type PaginationOptions,
 } from "./pagination";
 import { requiresYes } from "./safety";
@@ -36,6 +37,10 @@ export async function runOperation(
     const baseOp = registry.get(operationId);
     if (!baseOp) return unknownOperation(operationId);
     const op = hydrateBodySchema(baseOp, cached?.bundledSpec);
+
+    if (opts.limit !== undefined && (!Number.isInteger(opts.limit) || opts.limit <= 0)) {
+      return validationError(cmd, "--limit must be a positive integer", { operationId });
+    }
 
     const normalized = applyPaginationDefaults(
       op,
@@ -96,6 +101,8 @@ export async function runOperation(
     };
     const makeRequest = (nextInput: AgentInput) => buildHttpRequest(op, nextInput, requestContext);
 
+    const isPaginated = supportsPagination(op);
+
     if (opts.all) {
       return collectAllPages({
         op,
@@ -105,6 +112,8 @@ export async function runOperation(
         hash: opts.hash,
         limit: opts.limit,
         command: { kind: "call" },
+        // Force inline so each page's items and cursor are visible to the collector;
+        // collectAllPages writes the combined set to the --save-json/--out file itself.
         fetchPage: async (pageInput) =>
           sendAndNormalize(await makeRequest(pageInput), op, {
             cmd,
@@ -112,7 +121,7 @@ export async function runOperation(
             hash: opts.hash,
             creditsEstimated: estimate,
             retryPost: opts.retryPost,
-            inline: opts.inline,
+            inline: true,
           }),
       });
     }
@@ -126,13 +135,25 @@ export async function runOperation(
       retryPost: opts.retryPost,
       requestPath: req.path,
       method: req.method,
-      inline: opts.inline,
+      // Normalize inline when we need the data downstream: paginated ops so
+      // addPaginationToEnvelope can compute `next`/truncate, or --save-json so the full
+      // result can be written. spillIfLarge then spills/saves below as needed.
+      inline: opts.inline || isPaginated || opts.saveJson !== undefined,
     });
-    const paginated = addPaginationToEnvelope(env, op, normalized, {
+    const paginatedEnv = addPaginationToEnvelope(env, op, normalized, {
       command: { kind: "call" },
       limit: opts.limit,
     });
-    return withWarnings(paginated, estimateWarnings);
+    const finalEnv =
+      (isPaginated || opts.saveJson !== undefined) && !opts.inline
+        ? await spillIfLarge(op, paginatedEnv, {
+            cmd,
+            out: opts.out ?? config.outputDir,
+            saveJson: opts.saveJson,
+            hash: opts.hash,
+          })
+        : paginatedEnv;
+    return withWarnings(finalEnv, estimateWarnings);
   } catch (error) {
     return envelopeForThrown(cmd, operationId, error);
   }
@@ -279,6 +300,7 @@ export function envelopeForThrown(cmd: string, operationId: string, error: unkno
       operation_id: operationId,
       error: error.normalizedError,
       retry: error.retry,
+      hints: mergeErrorHints(undefined, error.normalizedError, operationId, cmd),
     });
   }
   if (error instanceof OutTargetError) {
@@ -305,6 +327,15 @@ export function envelopeForThrown(cmd: string, operationId: string, error: unkno
       raw: error,
     },
     retry: { recommended: false, after_ms: null },
+    hints: hintsForError(
+      {
+        type: "runtime_error",
+        code: "internal_error",
+        message: error instanceof Error ? error.message : String(error),
+      },
+      operationId,
+      cmd,
+    ),
   });
 }
 

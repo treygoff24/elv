@@ -44,11 +44,12 @@ function largeVoices(): Record<string, unknown> {
   };
 }
 
-describe("aliases resolve large get_voices responses", () => {
+describe("aliases resolve large get_user_voices_v2 responses", () => {
   let server: Server;
   let baseUrl: string;
   let cacheDir: string;
   let ttsVoiceId: string | null = null;
+  let lastVoicesSearch: string | null = null;
 
   function runElv(args: string[], env?: Record<string, string>): Promise<ElvResult> {
     return new Promise((resolve, reject) => {
@@ -81,7 +82,8 @@ describe("aliases resolve large get_voices responses", () => {
       const url = new URL(req.url ?? "/", "http://127.0.0.1");
       const method = req.method ?? "GET";
 
-      if (method === "GET" && url.pathname === "/v1/voices") {
+      if (method === "GET" && url.pathname === "/v2/voices") {
+        lastVoicesSearch = url.searchParams.get("search");
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(JSON.stringify(largeVoices()));
         return;
@@ -116,11 +118,13 @@ describe("aliases resolve large get_voices responses", () => {
   });
 
   it(
-    "voices find filters matches from a spilled-size get_voices response",
+    "voices find filters matches from a spilled-size get_user_voices_v2 response",
     async () => {
+      lastVoicesSearch = null;
       const { stdout, stderr, code } = await runElv(["voices", "find", "Roger"]);
 
       expect(code).toBe(0);
+      expect(lastVoicesSearch).toBe("Roger");
       expect(stdout).not.toContain(CANARY_KEY);
       expect(stderr).not.toContain(CANARY_KEY);
       const envelope = parseEnvelope(stdout);
@@ -132,8 +136,44 @@ describe("aliases resolve large get_voices responses", () => {
   );
 
   it(
-    "tts --voice resolves an exact name from a spilled-size get_voices response",
+    "tts --voice resolves a unique substring name from a spilled-size get_user_voices_v2 response",
     async () => {
+      lastVoicesSearch = null;
+      ttsVoiceId = null;
+      const outDir = mkdtempSync(join(tmpdir(), "elv-large-voices-tts-substring-"));
+      try {
+        const { stdout, stderr, code } = await runElv([
+          "tts",
+          "--voice",
+          "Roger",
+          "--text",
+          "Hi",
+          "--out",
+          outDir,
+        ]);
+
+        expect(code).toBe(0);
+        expect(lastVoicesSearch).toBe("Roger");
+        expect(stdout).not.toContain("No voice named");
+        expect(stdout).not.toContain("Ambiguous voice name");
+        expect(stderr).not.toContain(CANARY_KEY);
+        expect(ttsVoiceId).toBe("roger");
+        const envelope = parseEnvelope(stdout);
+        expect(envelope.ok).toBe(true);
+        const files = envelope.files as Array<{ path: string }>;
+        expect(existsSync(files[0]!.path)).toBe(true);
+        expect(readFileSync(files[0]!.path)).toEqual(FAKE_AUDIO);
+      } finally {
+        rmSync(outDir, { recursive: true, force: true });
+      }
+    },
+    CALL_TIMEOUT_MS,
+  );
+
+  it(
+    "tts --voice resolves an exact name from a spilled-size get_user_voices_v2 response",
+    async () => {
+      lastVoicesSearch = null;
       const outDir = mkdtempSync(join(tmpdir(), "elv-large-voices-tts-"));
       try {
         const { stdout, stderr, code } = await runElv([
@@ -147,6 +187,7 @@ describe("aliases resolve large get_voices responses", () => {
         ]);
 
         expect(code).toBe(0);
+        expect(lastVoicesSearch).toBe(ROGER);
         expect(stdout).not.toContain("No voice named");
         expect(stderr).not.toContain(CANARY_KEY);
         expect(ttsVoiceId).toBe("roger");

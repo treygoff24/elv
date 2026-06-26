@@ -5,7 +5,7 @@ import { emitAndExit, validationError } from "../../core/errors";
 import { waitForOperation } from "../wait";
 import { ExitCode } from "../../core/types";
 import type { AgentInput, Envelope, RunOpts } from "../../core/types";
-import { commandName, compact, compactInput, emit, message, numberValue, required, runOpts } from "./shared";
+import { addPaginationFlags, commandName, compact, compactInput, emit, message, paginationOpts, required, runOpts } from "./shared";
 
 export interface DubbingCreateFlags {
   file?: string;
@@ -18,7 +18,6 @@ export interface DubbingCreateFlags {
 export interface DubbingIdFlags {
   id?: string;
   language?: string;
-  limit?: string | number;
 }
 
 export function buildDubbingCreateInput(flags: DubbingCreateFlags): { operationId: string; input: AgentInput } {
@@ -42,8 +41,8 @@ export function buildDubbingAudioInput(flags: DubbingIdFlags): { operationId: st
   };
 }
 
-export function buildDubbingListInput(flags: DubbingIdFlags): { operationId: string; input: AgentInput } {
-  return { operationId: "list_dubs", input: compactInput({ query: compact({ page_size: numberValue(flags.limit) }) }) };
+export function buildDubbingListInput(_flags: DubbingIdFlags): { operationId: string; input: AgentInput } {
+  return { operationId: "list_dubs", input: {} };
 }
 
 export function registerDubbingCommand(program: Command, addCommonFlags: (command: Command) => Command): void {
@@ -70,7 +69,7 @@ export function registerDubbingCommand(program: Command, addCommonFlags: (comman
   );
   addCommonFlags(dubbing.command("get").option("--id <id>", "dubbing project id").action((options: DubbingIdFlags, command: Command) => runBuilt(buildDubbingGetInput, options, command)));
   addCommonFlags(dubbing.command("audio").option("--id <id>", "dubbing project id").option("--language <code>", "target language code for dubbed audio").action((options: DubbingIdFlags, command: Command) => runBuilt(buildDubbingAudioInput, options, command)));
-  addCommonFlags(dubbing.command("list").option("--limit <n>", "max dubs per page (page_size)").action((options: DubbingIdFlags, command: Command) => runBuilt(buildDubbingListInput, options, command)));
+  addCommonFlags(addPaginationFlags(dubbing.command("list")).action((options: DubbingIdFlags, command: Command) => runBuilt(buildDubbingListInput, options, command)));
 }
 
 async function waitForDubbing(env: Envelope, opts: RunOpts): Promise<never> {
@@ -92,7 +91,7 @@ async function waitForDubbing(env: Envelope, opts: RunOpts): Promise<never> {
 async function runBuilt<T>(builder: (flags: T) => { operationId: string; input: AgentInput }, flags: T, command: Command): Promise<never> {
   try {
     const built = builder(flags);
-    const env = await runOperation(built.operationId, built.input, runOpts(command));
+    const env = await runOperation(built.operationId, built.input, { ...runOpts(command), ...paginationOpts(command) });
     emit(env);
   } catch (error) {
     emitAndExit(validationError(commandName(command), message(error)), ExitCode.InputValidation);

@@ -3,6 +3,7 @@ import { Readable } from "node:stream";
 import { extension } from "mime-types";
 import { GUARDED_HINTS } from "./budget";
 import { failure, success } from "./envelope";
+import { mergeErrorHints } from "./errors";
 import { normalizeProviderError } from "./error-normalizer";
 import {
   deriveFilename,
@@ -12,11 +13,13 @@ import {
   tempFileWriter,
   writeBufferToFile,
 } from "./files";
+import { shellArg } from "../util/shell";
 import type {
   CostInfo,
   DataSummary,
   Envelope,
   FileRecord,
+  Hint,
   HttpMethod,
   OperationCard,
   Warning,
@@ -32,7 +35,7 @@ export interface ResponseContext {
   inline?: boolean;
 }
 
-const SMALL_JSON_LIMIT = 32 * 1024;
+export const SMALL_JSON_LIMIT = 32 * 1024;
 
 export async function normalizeResponse(
   op: OperationCard,
@@ -58,10 +61,14 @@ export async function normalizeResponse(
         recommended: res.status === 429 || res.status >= 500,
         after_ms: retryAfterMs(res.headers),
       },
-      hints:
+      hints: mergeErrorHints(
         error.type === "validation_error"
           ? [{ cmd: `elv ops schema ${op.operationId}`, why: "Inspect required params." }]
           : [],
+        error,
+        op.operationId,
+        ctx.cmd,
+      ),
     });
   }
 
@@ -120,19 +127,13 @@ export async function normalizeResponse(
     }
     if (!ctx.inline && Buffer.byteLength(text) >= SMALL_JSON_LIMIT) {
       const file = await spillJsonFile(op, text, ctx);
-      const jq = summaryJqHint(data);
       return success({
         ...base,
         data_summary: summarizeData(data),
         files: [file],
         truncated: true,
         warnings: optional(warnings),
-        hints: [
-          {
-            cmd: jq ? `jq ${JSON.stringify(jq)} ${JSON.stringify(file.path)}` : `cat ${JSON.stringify(file.path)}`,
-            why: "Inspect spilled JSON file.",
-          },
-        ],
+        hints: [viewHint(file.path, data)],
       });
     }
     return success({
@@ -159,9 +160,74 @@ async function spillJsonFile(
   return { ...(await fileRecord(path, { hash: ctx.hash })), mime: "application/json" };
 }
 
-function summarizeData(data: unknown): DataSummary {
+/** Agent-facing hint pointing at a spilled file via the real `elv view` command. */
+export function viewHint(filePath: string, data: unknown): Hint {
+  const pathHint = viewPathHint(data);
+  return {
+    cmd: `elv view ${shellArg(filePath)}${pathHint ? ` --path ${shellArg(pathHint)}` : ""}`,
+    why: "Inspect spilled JSON without loading it into context.",
+  };
+}
+
+/**
+ * Spill an already-built success envelope's data when it is too large to inline, keeping only
+ * the small pagination cursor (`next`) inline. Runs after pagination processing so the `next`
+ * command and item truncation survive even when the page itself exceeds the inline limit.
+ */
+export async function spillIfLarge(
+  op: OperationCard,
+  env: Envelope,
+  ctx: { cmd: string; out?: string; saveJson?: string; hash?: boolean },
+): Promise<Envelope> {
+  if (!env.ok || env.data === undefined) return env;
+  const text = JSON.stringify(env.data);
+  const tooLarge = Buffer.byteLength(text) >= SMALL_JSON_LIMIT;
+  // Nothing to do when it fits inline and the caller did not ask to save it.
+  if (!tooLarge && ctx.saveJson === undefined) return env;
+
+  const file = await spillJsonFile(op, text, {
+    cmd: ctx.cmd,
+    out: ctx.saveJson ?? ctx.out,
+    hash: ctx.hash,
+  });
+  // Small but --save-json was requested: write the file, keep the data inline.
+  if (!tooLarge) return { ...env, files: [...(env.files ?? []), file] };
+
+  return {
+    ...env,
+    data: paginationNext(env.data),
+    data_summary: summarizeData(env.data),
+    files: [...(env.files ?? []), file],
+    truncated: true,
+    hints: [viewHint(file.path, env.data)],
+  };
+}
+
+function paginationNext(data: unknown): Record<string, unknown> | undefined {
+  if (isRecord(data) && data.next !== undefined) return { next: data.next };
+  return undefined;
+}
+
+// Cap the array preview by serialized size so a summary of large objects stays small —
+// the whole point of spilling is to avoid loading the bulky payload into context.
+const PREVIEW_MAX_ITEMS = 20;
+const PREVIEW_MAX_BYTES = 4 * 1024;
+
+function boundedPreview(items: unknown[]): unknown[] {
+  const preview: unknown[] = [];
+  let bytes = 0;
+  for (const item of items.slice(0, PREVIEW_MAX_ITEMS)) {
+    const size = JSON.stringify(item)?.length ?? 0;
+    if (preview.length > 0 && bytes + size > PREVIEW_MAX_BYTES) break;
+    preview.push(item);
+    bytes += size;
+  }
+  return preview;
+}
+
+export function summarizeData(data: unknown): DataSummary {
   if (Array.isArray(data)) {
-    const preview = data.slice(0, 20);
+    const preview = boundedPreview(data);
     return { type: "array", count: data.length, preview_count: preview.length, preview };
   }
   if (isRecord(data)) {
@@ -176,12 +242,9 @@ function summarizeData(data: unknown): DataSummary {
   return { type: data === null ? "null" : typeof data };
 }
 
-function summaryJqHint(data: unknown): string {
-  if (Array.isArray(data)) return ".[0]";
-  if (isRecord(data)) {
-    const key = Object.keys(data)[0];
-    return key ? `.${key}` : "";
-  }
+function viewPathHint(data: unknown): string {
+  if (Array.isArray(data)) return "";
+  if (isRecord(data)) return Object.keys(data)[0] ?? "";
   return "";
 }
 

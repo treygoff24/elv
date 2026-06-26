@@ -93,10 +93,12 @@ describe.skipIf(!HAS_API_KEY)("integration (live API, read-only)", () => {
 
       const envelope = parseEnvelope(stdout);
       expect(envelope.ok).toBe(true);
-      expect(envelope.operation_id).toBe("get_voices");
-      const files = envelope.files;
-      expect(Array.isArray(files)).toBe(true);
-      expect((files as unknown[]).length).toBeGreaterThan(0);
+      expect(envelope.operation_id).toBe("get_user_voices_v2");
+      // v2 voice objects are rich, so a default page may spill to disk instead of
+      // inlining: accept either inline data or a spilled file + summary.
+      const hasInline = envelope.data !== undefined && envelope.data !== null;
+      const hasFiles = Array.isArray(envelope.files) && envelope.files.length > 0;
+      expect(hasInline || hasFiles).toBe(true);
     },
     CALL_TIMEOUT_MS,
   );

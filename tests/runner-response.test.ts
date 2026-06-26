@@ -178,4 +178,41 @@ describe("response normalization", () => {
       ]),
     );
   });
+
+  it("adds actionable hints for provider auth errors", async () => {
+    const env = await normalizeResponse(
+      op(),
+      new Response(JSON.stringify({ detail: { status: "invalid_api_key", message: "Invalid API key" } }), {
+        status: 401,
+        headers: { "content-type": "application/json" },
+      }),
+      { cmd: "elv call response_demo" },
+    );
+
+    expect(env.ok).toBe(false);
+    if (env.ok) throw new Error("expected failure");
+    expect(env.hints).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ cmd: "elv config doctor", why: expect.stringContaining("ELEVENLABS_API_KEY") }),
+      ]),
+    );
+  });
+
+  it("points spilled JSON hints at elv view", async () => {
+    const out = mkdtempSync(join(tmpdir(), "elv-spill-hint-"));
+    const items = Array.from({ length: 30 }, (_, index) => ({ index, value: "x".repeat(1200) }));
+    const body = JSON.stringify(items);
+    expect(Buffer.byteLength(body)).toBeGreaterThanOrEqual(32 * 1024);
+
+    const env = await normalizeResponse(
+      op(),
+      new Response(body, { headers: { "content-type": "application/json" } }),
+      { cmd: "elv call big_json", out },
+    );
+
+    expect(env.ok).toBe(true);
+    if (!env.ok) throw new Error("expected success");
+    expect(env.hints?.[0]?.cmd).toMatch(/^elv view /);
+    expect(env.hints?.[0]?.why).toContain("without loading it into context");
+  });
 });

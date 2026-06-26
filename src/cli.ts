@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
 import { Command, CommanderError } from "commander";
 import { configDoctor, loadConfig } from "./core/config";
-import { emitAndExit, notImplemented, validationError } from "./core/errors";
+import { emitAndExit, validationError } from "./core/errors";
 import { success } from "./core/envelope";
 import { ExitCode } from "./core/types";
 import { handleCall } from "./commands/call";
@@ -12,6 +12,7 @@ import { handleHttp } from "./commands/http";
 import { handleWait } from "./commands/wait";
 import { runWs } from "./commands/ws";
 import { handleOpsGet, handleOpsSchema, handleOpsSearch } from "./commands/ops";
+import { handleView } from "./commands/view";
 import { registerAliases } from "./commands/aliases";
 import { updateSpecCache } from "./openapi/fetch-spec";
 import type { ConfigOverrides } from "./core/config";
@@ -65,7 +66,9 @@ function buildProgram(version: string): Command {
   const ops = program
     .command("ops")
     .description("OpenAPI operation discovery")
-    .action(() => notImplExit("elv ops"));
+    .action((_options: Record<string, unknown>, command: Command) =>
+      emitAndExit(success({ cmd: `elv ${command.name()}`, data: commandHelpData(command) }), ExitCode.Success),
+    );
   addCommonFlags(
     ops
       .command("search <query>")
@@ -143,13 +146,22 @@ function buildProgram(version: string): Command {
       ),
   );
   addCommonFlags(
-    program.command("view <path>").action((path: string) => notImplExit(`elv view ${path}`)),
+    program
+      .command("view <path>")
+      .description("Inspect a spilled JSON/NDJSON result file without loading it into context")
+      .option("--path <dotted>", "drill into a dotted JSON path, e.g. data.voices.0.name")
+      .option("--limit <n>", "max array items to show")
+      .action((path: string, options: Record<string, unknown>) =>
+        handleView(path, { path: optionString(options.path), limit: optionString(options.limit) }),
+      ),
   );
 
   const config = program
     .command("config")
     .description("Configuration")
-    .action(() => notImplExit("elv config"));
+    .action((_options: Record<string, unknown>, command: Command) =>
+      emitAndExit(success({ cmd: `elv ${command.name()}`, data: commandHelpData(command) }), ExitCode.Success),
+    );
   addCommonFlags(
     config.command("get").action((...args: unknown[]) => {
       const command = lastCommand(args);
@@ -168,7 +180,9 @@ function buildProgram(version: string): Command {
   const spec = program
     .command("spec")
     .description("OpenAPI spec cache")
-    .action(() => notImplExit("elv spec"));
+    .action((_options: Record<string, unknown>, command: Command) =>
+      emitAndExit(success({ cmd: `elv ${command.name()}`, data: commandHelpData(command) }), ExitCode.Success),
+    );
   addCommonFlags(
     spec
       .command("update")
@@ -287,8 +301,23 @@ function mergedOptions(command: Command): Record<string, unknown> {
   return Object.assign({}, ...chain.map((current) => current.opts()));
 }
 
-function notImplExit(cmd: string): never {
-  emitAndExit(notImplemented(cmd), ExitCode.ProviderError);
+function commandHelpData(node: Command): Record<string, unknown> {
+  return {
+    command: node.name(),
+    description: node.description(),
+    usage: node.usage(),
+    arguments: node.registeredArguments.map((a) => ({
+      name: a.name(),
+      required: a.required,
+      description: a.description,
+    })),
+    options: node.options.map((o) => ({
+      flags: o.flags,
+      description: o.description,
+      default: o.defaultValue,
+    })),
+    subcommands: node.commands.map((c) => c.name()).filter((n) => n !== "help"),
+  };
 }
 
 function resolveCommandPath(program: Command, argv: string[]): Command {
@@ -326,22 +355,7 @@ function envelopeForError(
       return {
         env: success({
           cmd,
-          data: {
-            command: cmdNode.name(),
-            description: cmdNode.description(),
-            usage: cmdNode.usage(),
-            arguments: cmdNode.registeredArguments.map((a) => ({
-              name: a.name(),
-              required: a.required,
-              description: a.description,
-            })),
-            options: cmdNode.options.map((o) => ({
-              flags: o.flags,
-              description: o.description,
-              default: o.defaultValue,
-            })),
-            subcommands: cmdNode.commands.map((c) => c.name()).filter((n) => n !== "help"),
-          },
+          data: commandHelpData(cmdNode),
         }),
         exitCode: ExitCode.Success,
       };

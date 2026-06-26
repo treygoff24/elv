@@ -131,6 +131,55 @@ export function budgetExceeded(
   });
 }
 
+export function hintsForError(err: NormalizedError, operationId?: string, cmd?: string): Hint[] {
+  const code = err.code.toLowerCase();
+
+  if (code === "voice_not_found") {
+    return [{ cmd: "elv voices list", why: "List available voice ids." }];
+  }
+  if ((code === "not_found" || code === "not-found") && operationId) {
+    return [{ cmd: `elv ops get ${operationId}`, why: "Confirm the operation and required ids." }];
+  }
+  if (code === "invalid_api_key" || code === "missing_api_key") {
+    return [{ cmd: "elv config doctor", why: "Verify ELEVENLABS_API_KEY is set and valid." }];
+  }
+  if (code === "forbidden" || code === "insufficient_permissions" || code === "feature_not_available") {
+    return [
+      {
+        cmd: "elv config doctor",
+        why: "Your key lacks permission or the feature isn't on your plan.",
+      },
+    ];
+  }
+  if (code === "insufficient_credits" || code === "quota_exceeded") {
+    return [{ cmd: "elv usage", why: "Check remaining credits/quota." }];
+  }
+  if (
+    code === "rate_limit_exceeded" ||
+    code === "system_busy" ||
+    code === "concurrent_limit_exceeded" ||
+    code === "too_many_concurrent_requests"
+  ) {
+    return cmd ? [{ cmd, why: "Transient; retry after the suggested delay." }] : [];
+  }
+  return [];
+}
+
+export function mergeErrorHints(
+  base: Hint[] | undefined,
+  err: NormalizedError,
+  operationId?: string,
+  cmd?: string,
+): Hint[] {
+  const merged = [...(base ?? [])];
+  for (const hint of hintsForError(err, operationId, cmd)) {
+    if (!merged.some((existing) => existing.cmd === hint.cmd && existing.why === hint.why)) {
+      merged.push(hint);
+    }
+  }
+  return merged;
+}
+
 export function unknownOperation(id: string): ErrorEnvelope {
   return failure({
     cmd: `elv call ${id}`,
@@ -142,18 +191,6 @@ export function unknownOperation(id: string): ErrorEnvelope {
     },
     retry: { recommended: false, after_ms: null },
     hints: [{ cmd: "elv ops search <query>", why: "Find a valid operation_id." }],
-  });
-}
-
-export function notImplemented(cmd: string): ErrorEnvelope {
-  return failure({
-    cmd,
-    error: {
-      type: "not_implemented",
-      code: "not_implemented",
-      message: `${cmd} is not implemented`,
-    },
-    retry: { recommended: false, after_ms: null },
   });
 }
 

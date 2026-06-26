@@ -23,6 +23,22 @@ export function runOpts(command: Command): RunOpts {
   };
 }
 
+export function paginationOpts(command: Command): { all?: boolean; limit?: number; saveJson?: string } {
+  const opts = mergedOptions(command);
+  return {
+    all: opts.all ? true : undefined,
+    limit: numberValue(optionString(opts.limit)),
+    saveJson: optionString(opts.saveJson),
+  };
+}
+
+export function addPaginationFlags(command: Command): Command {
+  return command
+    .option("--limit <n>", "max items returned (also sets page size)")
+    .option("--all", "fetch every page and save the full set to a file (requires --save-json or --out)")
+    .option("--save-json <path>", "write the full JSON result to this path");
+}
+
 export function optionString(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
 }

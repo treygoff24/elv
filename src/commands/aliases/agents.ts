@@ -4,19 +4,18 @@ import { runOperation } from "../../core/client";
 import { emitAndExit, validationError } from "../../core/errors";
 import { ExitCode } from "../../core/types";
 import type { AgentInput } from "../../core/types";
-import { commandName, compact, compactInput, emit, mergedOptions, message, numberValue, required, runOpts } from "./shared";
+import { addPaginationFlags, commandName, compact, compactInput, emit, mergedOptions, message, paginationOpts, required, runOpts } from "./shared";
 
 export interface AgentsFlags {
   agentId?: string;
   json?: string;
   jsonFile?: string;
   text?: string;
-  limit?: string | number;
   search?: string;
 }
 
 export function buildAgentsListInput(flags: AgentsFlags): { operationId: string; input: AgentInput } {
-  return { operationId: "get_agents_route", input: compactInput({ query: compact({ page_size: numberValue(flags.limit), search: flags.search }) }) };
+  return { operationId: "get_agents_route", input: compactInput({ query: compact({ search: flags.search }) }) };
 }
 
 export function buildAgentsGetInput(flags: AgentsFlags): { operationId: string; input: AgentInput } {
@@ -40,7 +39,11 @@ export function buildAgentsSimulateInput(flags: AgentsFlags): { operationId: str
 
 export function registerAgentsCommand(program: Command, addCommonFlags: (command: Command) => Command): void {
   const agents = program.command("agents").description("Conversational AI agents");
-  addCommonFlags(agents.command("list").option("--limit <n>", "max agents per page (page_size)").option("--search <query>", "filter agents by search query").action((options: AgentsFlags, command: Command) => runBuilt(buildAgentsListInput, options, command)));
+  addCommonFlags(
+    addPaginationFlags(agents.command("list"))
+      .option("--search <query>", "filter agents by search query")
+      .action((options: AgentsFlags, command: Command) => runBuilt(buildAgentsListInput, options, command)),
+  );
   addCommonFlags(agents.command("get").option("--agent-id <id>", "conversational agent id").action((options: AgentsFlags, command: Command) => runBuilt(buildAgentsGetInput, options, command)));
   addCommonFlags(agents.command("create").option("--json-file <path>", "agent configuration JSON file").action((options: AgentsFlags, command: Command) => runBuilt(buildAgentsCreateInput, options, command)));
   addCommonFlags(agents.command("update").option("--agent-id <id>", "conversational agent id").option("--json-file <path>", "partial agent settings JSON file").action((options: AgentsFlags, command: Command) => runBuilt(buildAgentsUpdateInput, options, command)));
@@ -50,7 +53,7 @@ export function registerAgentsCommand(program: Command, addCommonFlags: (command
 async function runBuilt<T>(builder: (flags: T) => { operationId: string; input: AgentInput }, flags: T, command: Command): Promise<never> {
   try {
     const built = builder({ ...(mergedOptions(command) as T), ...flags });
-    const env = await runOperation(built.operationId, built.input, runOpts(command));
+    const env = await runOperation(built.operationId, built.input, { ...runOpts(command), ...paginationOpts(command) });
     emit(env);
   } catch (error) {
     emitAndExit(validationError(commandName(command), message(error)), ExitCode.InputValidation);

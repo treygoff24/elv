@@ -116,18 +116,18 @@ const cases: Array<{ name: string; alias: () => BuiltAlias; call: () => BuiltAli
   },
   { name: "dubbing get", alias: () => buildDubbingGetInput({ id: "dub_1" }), call: () => ({ operationId: "get_dubbed_metadata", input: { path: { dubbing_id: "dub_1" } } }) },
   { name: "dubbing audio", alias: () => buildDubbingAudioInput({ id: "dub_1", language: "es" }), call: () => ({ operationId: "get_dubbed_file", input: { path: { dubbing_id: "dub_1", language_code: "es" } } }) },
-  { name: "dubbing list", alias: () => buildDubbingListInput({ limit: "10" }), call: () => ({ operationId: "list_dubs", input: { query: { page_size: 10 } } }) },
-  { name: "voices list", alias: () => buildVoicesListInput({}), call: () => ({ operationId: "get_voices", input: {} }) },
-  { name: "voices find", alias: () => buildVoicesFindInput({ query: "juniper" }), call: () => ({ operationId: "get_voices", input: {} }) },
+  { name: "dubbing list", alias: () => buildDubbingListInput({}), call: () => ({ operationId: "list_dubs", input: {} }) },
+  { name: "voices list", alias: () => buildVoicesListInput({}), call: () => ({ operationId: "get_user_voices_v2", input: {} }) },
+  { name: "voices find", alias: () => buildVoicesFindInput({ query: "juniper" }), call: () => ({ operationId: "get_user_voices_v2", input: { query: { search: "juniper" } } }) },
   { name: "voices get", alias: () => buildVoicesGetInput({ voiceId: "voice_1" }), call: () => ({ operationId: "get_voice_by_id", input: { path: { voice_id: "voice_1" } } }) },
   { name: "voices clone-instant", alias: () => buildVoicesCloneInstantInput({ name: "Clone", file: audio }), call: () => ({ operationId: "add_voice", input: { files: { files: [resolve(audio)] }, body: { name: "Clone" } } }) },
-  { name: "agents list", alias: () => buildAgentsListInput({ limit: "5" }), call: () => ({ operationId: "get_agents_route", input: { query: { page_size: 5 } } }) },
+  { name: "agents list", alias: () => buildAgentsListInput({ search: "demo" }), call: () => ({ operationId: "get_agents_route", input: { query: { search: "demo" } } }) },
   { name: "agents get", alias: () => buildAgentsGetInput({ agentId: "agent_1" }), call: () => ({ operationId: "get_agent_route", input: { path: { agent_id: "agent_1" } } }) },
   { name: "agents create", alias: () => buildAgentsCreateInput({ jsonFile: agentJson }), call: () => ({ operationId: "create_agent_route", input: { body: { conversation_config: {}, name: "Agent" } } }) },
   { name: "agents update", alias: () => buildAgentsUpdateInput({ agentId: "agent_1", jsonFile: agentJson }), call: () => ({ operationId: "patch_agent_settings_route", input: { path: { agent_id: "agent_1" }, body: { conversation_config: {}, name: "Agent" } } }) },
   { name: "agents simulate", alias: () => buildAgentsSimulateInput({ agentId: "agent_1", text: "Hi" }), call: () => ({ operationId: "run_conversation_simulation_route", input: { path: { agent_id: "agent_1" }, body: { simulation_specification: { first_message: "Hi" } } } }) },
   { name: "models list", alias: () => buildModelsListInput({}), call: () => ({ operationId: "get_models", input: {} }) },
-  { name: "history list", alias: () => buildHistoryListInput({ limit: "20" }), call: () => ({ operationId: "get_speech_history", input: { query: { page_size: 20 } } }) },
+  { name: "history list", alias: () => buildHistoryListInput({}), call: () => ({ operationId: "get_speech_history", input: {} }) },
   { name: "history audio", alias: () => buildHistoryAudioInput({ id: "hist_1" }), call: () => ({ operationId: "get_audio_full_from_speech_history_item", input: { path: { history_item_id: "hist_1" } } }) },
   { name: "history delete", alias: () => buildHistoryDeleteInput({ id: "hist_1" }), call: () => ({ operationId: "delete_speech_history_item", input: { path: { history_item_id: "hist_1" } } }) },
   { name: "usage", alias: () => buildUsageInput({}), call: () => ({ operationId: "get_user_subscription_info", input: {} }) },
@@ -174,6 +174,13 @@ describe("curated aliases", () => {
     ];
     expect(findMatchingVoices("juniper", voices)).toEqual([voices[0]]);
     expect(findMatchingVoices("pro", voices)).toEqual([voices[1]]);
+  });
+
+  it("buildVoicesListInput passes search/sort in query without page_size", () => {
+    expect(buildVoicesListInput({ search: "x", sort: "name" })).toEqual({
+      operationId: "get_user_voices_v2",
+      input: { query: { search: "x", sort: "name" } },
+    });
   });
 });
 

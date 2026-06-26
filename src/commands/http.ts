@@ -3,11 +3,13 @@ import { emitAndExit, exitCodeForError, validationError } from "../core/errors";
 import { dryRun } from "../core/envelope";
 import { getApiKey, loadConfig } from "../core/config";
 import { envelopeForThrown, sendAndNormalize } from "../core/client";
+import { spillIfLarge } from "../core/response-normalizer";
 import {
   addPaginationToEnvelope,
   allOutputTarget,
   applyPaginationDefaults,
   collectAllPages,
+  supportsPagination,
 } from "../core/pagination";
 import { buildHttpRequest } from "../core/request-builder";
 import { estimateCredits } from "../core/budget";
@@ -53,6 +55,9 @@ export async function runHttp(
   try {
     const op = httpOperation(parsed.method, path, parsed.input);
     const opts = runOpts(options);
+    if (opts.limit !== undefined && (!Number.isInteger(opts.limit) || opts.limit <= 0)) {
+      return validationError(cmd, "--limit must be a positive integer", { operationId: op.operationId });
+    }
     const input = applyPaginationDefaults(op, parsed.input, opts.limit ?? 20);
 
     if (opts.all && !allOutputTarget(opts)) {
@@ -100,6 +105,7 @@ export async function runHttp(
       });
     }
 
+    const isPaginated = supportsPagination(op);
     const env = await sendAndNormalize(await makeRequest(input), op, {
       cmd,
       out: opts.out ?? config.outputDir,
@@ -107,11 +113,22 @@ export async function runHttp(
       retryPost: opts.retryPost,
       requestPath: path,
       method: op.method,
+      // Normalize inline so pagination sees the data (computes `next`) or so --save-json
+      // can write the full result; spillIfLarge spills/saves afterward.
+      inline: isPaginated || opts.saveJson !== undefined,
     });
-    return addPaginationToEnvelope(env, op, input, {
+    const paginatedEnv = addPaginationToEnvelope(env, op, input, {
       command: { kind: "http", method: op.method, path },
       limit: opts.limit,
     });
+    return isPaginated || opts.saveJson !== undefined
+      ? await spillIfLarge(op, paginatedEnv, {
+          cmd,
+          out: opts.out ?? config.outputDir,
+          saveJson: opts.saveJson,
+          hash: opts.hash,
+        })
+      : paginatedEnv;
   } catch (error) {
     return envelopeForThrown(cmd, "http", error);
   }
@@ -186,12 +203,10 @@ function runOpts(options: HttpOptions): HttpRunOpts {
     profile: options.profile,
     saveJson: options.saveJson,
     all: options.all,
-    limit: finitePositiveInt(limit),
+    // Raw parsed number; runOperation/runHttp validate it (positive integer) so all
+    // call/http/alias paths reject an invalid --limit identically.
+    limit,
   };
-}
-
-function finitePositiveInt(value: number | undefined): number | undefined {
-  return value !== undefined && Number.isFinite(value) ? Math.max(1, Math.trunc(value)) : undefined;
 }
 
 function addPairs(input: AgentInput, bucket: "query", pairs: string[] | undefined): void {

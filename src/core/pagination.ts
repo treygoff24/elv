@@ -6,6 +6,7 @@ import {
   writeBufferToFile,
 } from "./files";
 import { success } from "./envelope";
+import { shellArg } from "../util/shell";
 import type {
   AgentInput,
   Envelope,
@@ -296,6 +297,11 @@ function pageSizeParam(op: OperationCard): string | undefined {
   return undefined;
 }
 
+/** True when this operation is a paginated list (drives inline-before-spill handling). */
+export function supportsPagination(op: OperationCard): boolean {
+  return pageSizeParam(op) !== undefined;
+}
+
 function resourceFamily(op: OperationCard): Family {
   const id = op.operationId;
   const path = op.pathTemplate;
@@ -311,8 +317,4 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
   return value !== null && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : undefined;
-}
-
-function shellArg(value: string): string {
-  return `'${value.replaceAll("'", "'\\''")}'`;
 }

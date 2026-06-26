@@ -5,6 +5,7 @@ import { emitAndExit, validationError } from "../../core/errors";
 import { ExitCode } from "../../core/types";
 import type { AgentInput, Envelope, RunOpts } from "../../core/types";
 import { commandName, compact, compactInput, emit, mergedOptions, message, required, runOpts } from "./shared";
+import { findMatchingVoices, RESOLVER_PAGE_SIZE, type VoiceRecord } from "./voices";
 
 export interface VoiceChangeFlags {
   voiceId?: string;
@@ -34,7 +35,7 @@ export function registerVoiceChangeCommand(program: Command, addCommonFlags: (co
     addCommonFlags(
       command
         .option("--voice-id <id>", "target ElevenLabs voice id")
-        .option("--voice <name>", "resolve target voice by exact name instead of id")
+        .option("--voice <name>", "resolve target voice by name (exact, else unique substring) instead of id")
         .option("--file <path>", "input audio file to convert")
         .option("--model <id>", "speech-to-speech model id")
         .option("--format <format>", "output audio format (output_format)")
@@ -63,10 +64,10 @@ async function runBuilt(flags: VoiceChangeFlags, command: Command): Promise<neve
 async function resolveVoiceId(flags: VoiceChangeFlags, opts: RunOpts, cmd: string): Promise<string> {
   if (flags.voiceId) return flags.voiceId;
   if (!flags.voice) return required(undefined, "--voice-id or --voice");
-  const env = await runOperation("get_voices", {}, { ...opts, inline: true });
+  const env = await runOperation("get_user_voices_v2", { query: { search: flags.voice } }, { ...opts, inline: true, limit: RESOLVER_PAGE_SIZE });
   if (!env.ok) emit(env);
   const voices = voicesFrom(env);
-  const matches = exactVoiceMatches(flags.voice, voices);
+  const matches = findMatchingVoices(flags.voice, voices);
   if (matches.length === 1) return String(matches[0]?.voice_id);
   emitAndExit(
     validationError(
@@ -79,17 +80,7 @@ async function resolveVoiceId(flags: VoiceChangeFlags, opts: RunOpts, cmd: strin
   );
 }
 
-interface Voice {
-  name?: unknown;
-  voice_id?: unknown;
-}
-
-function exactVoiceMatches(name: string, voices: Voice[]): Voice[] {
-  const needle = name.toLowerCase();
-  return voices.filter((voice) => String(voice.name ?? "").toLowerCase() === needle);
-}
-
-function candidateNames(name: string, voices: Voice[]): string {
+function candidateNames(name: string, voices: VoiceRecord[]): string {
   const needle = name.toLowerCase();
   const names = voices
     .filter((voice) => String(voice.name ?? "").toLowerCase().includes(needle))
@@ -98,8 +89,8 @@ function candidateNames(name: string, voices: Voice[]): string {
   return names.length ? `; candidates: ${names.join(", ")}` : "";
 }
 
-function voicesFrom(env: Envelope): Voice[] {
+function voicesFrom(env: Envelope): VoiceRecord[] {
   if (!env.ok) return [];
   const data = env.data as { voices?: unknown } | undefined;
-  return Array.isArray(data?.voices) ? (data.voices as Voice[]) : [];
+  return Array.isArray(data?.voices) ? (data.voices as VoiceRecord[]) : [];
 }

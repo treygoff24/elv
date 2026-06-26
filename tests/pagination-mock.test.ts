@@ -44,6 +44,7 @@ describe("pagination mock server (black-box, integration gate)", () => {
   let cacheDir: string;
   let historyRequestCount = 0;
   let voicesRequestCount = 0;
+  let v2VoicesRequestCount = 0;
 
   // Async spawn (NOT spawnSync): the mock server runs in THIS process, so the event
   // loop must stay free to service the spawned CLI's request — spawnSync would deadlock.
@@ -102,6 +103,29 @@ describe("pagination mock server (black-box, integration gate)", () => {
           JSON.stringify({
             voices: [{ voice_id: "v1", name: "Rachel" }],
           }),
+        );
+        return;
+      }
+
+      // Paginated v2 voices with deliberately large objects so a single page exceeds the
+      // 32 KB inline limit — exercises the spill-after-pagination path.
+      if (method === "GET" && path === "/v2/voices") {
+        v2VoicesRequestCount += 1;
+        const cursor = url.searchParams.get("next_page_token");
+        const bulk = "x".repeat(2000);
+        const page = (start: number, count: number, hasMore: boolean) => ({
+          voices: Array.from({ length: count }, (_, i) => ({
+            voice_id: `vv_${start + i}`,
+            name: `voice ${start + i} ${bulk}`,
+          })),
+          has_more: hasMore,
+          ...(hasMore ? { next_page_token: "page2" } : {}),
+        });
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(
+          JSON.stringify(
+            cursor ? page(PAGE_ONE_SIZE, PAGE_TWO_SIZE, false) : page(0, PAGE_ONE_SIZE, true),
+          ),
         );
         return;
       }
@@ -226,6 +250,133 @@ describe("pagination mock server (black-box, integration gate)", () => {
       } finally {
         rmSync(outDir, { recursive: true, force: true });
       }
+    },
+    CALL_TIMEOUT_MS,
+  );
+
+  it(
+    "voices list spills a large page but keeps the next command inline",
+    async () => {
+      v2VoicesRequestCount = 0;
+
+      const { stdout, code } = await runElv(["voices", "list"]);
+
+      expect(code).toBe(0);
+      expect(v2VoicesRequestCount).toBe(1);
+
+      const envelope = parseEnvelope(stdout);
+      expect(envelope.ok).toBe(true);
+      expect(envelope.operation_id).toBe("get_user_voices_v2");
+
+      // Large page → spilled to disk, not inlined.
+      expect(Array.isArray(envelope.files)).toBe(true);
+      expect((envelope.files as unknown[]).length).toBeGreaterThan(0);
+      expect(envelope.data_summary).toBeDefined();
+      expect(envelope.truncated).toBe(true);
+
+      // The bulky voices array must NOT be inline...
+      const data = envelope.data as Record<string, unknown> | undefined;
+      expect(data?.voices).toBeUndefined();
+
+      // ...but the next-page command must survive the spill.
+      const next = (data?.next ?? envelope.next) as Record<string, unknown> | undefined;
+      expect(next).toBeDefined();
+      expect(String(next?.cmd ?? "")).toMatch(/get_user_voices_v2/);
+    },
+    CALL_TIMEOUT_MS,
+  );
+
+  it(
+    "get_user_voices_v2 --all collects every item across large spilling pages",
+    async () => {
+      v2VoicesRequestCount = 0;
+      const outDir = mkdtempSync(join(tmpdir(), "elv-pagination-out-"));
+
+      try {
+        const { stdout, code } = await runElv([
+          "call",
+          "get_user_voices_v2",
+          "--all",
+          "--out",
+          outDir,
+        ]);
+
+        expect(code).toBe(0);
+        expect(v2VoicesRequestCount).toBeGreaterThanOrEqual(2);
+
+        const envelope = parseEnvelope(stdout);
+        expect(envelope.ok).toBe(true);
+
+        const jsonFiles = readdirSync(outDir).filter((name) => name.endsWith(".json"));
+        expect(jsonFiles.length).toBeGreaterThan(0);
+        const saved: unknown = JSON.parse(readFileSync(join(outDir, jsonFiles[0]!), "utf8"));
+        const items = Array.isArray(saved)
+          ? saved
+          : ((saved as Record<string, unknown>).voices as unknown[]);
+        expect(Array.isArray(items)).toBe(true);
+        expect((items as unknown[]).length).toBe(PAGE_ONE_SIZE + PAGE_TWO_SIZE);
+      } finally {
+        rmSync(outDir, { recursive: true, force: true });
+      }
+    },
+    CALL_TIMEOUT_MS,
+  );
+
+  it(
+    "rejects a non-positive --limit before making a request",
+    async () => {
+      v2VoicesRequestCount = 0;
+
+      const { stdout, code } = await runElv(["voices", "list", "--limit", "0"]);
+
+      expect(code).toBe(2);
+      expect(v2VoicesRequestCount).toBe(0);
+
+      const envelope = parseEnvelope(stdout);
+      expect(envelope.ok).toBe(false);
+      const error = envelope.error as Record<string, unknown>;
+      expect(String(error.message)).toMatch(/positive integer/);
+    },
+    CALL_TIMEOUT_MS,
+  );
+
+  it(
+    "--save-json writes the full result without --all (even when small)",
+    async () => {
+      const outDir = mkdtempSync(join(tmpdir(), "elv-pagination-save-"));
+      const savePath = join(outDir, "voices.json");
+
+      try {
+        const { stdout, code } = await runElv(["call", "get_voices", "--save-json", savePath]);
+
+        expect(code).toBe(0);
+        expect(existsSync(savePath)).toBe(true);
+
+        const saved = JSON.parse(readFileSync(savePath, "utf8")) as Record<string, unknown>;
+        const voices = saved.voices as Array<Record<string, unknown>>;
+        expect(voices[0]?.voice_id).toBe("v1");
+
+        // Small result still comes back inline; the file is the saved copy.
+        const envelope = parseEnvelope(stdout);
+        expect(envelope.ok).toBe(true);
+        expect(envelope.data).toBeDefined();
+      } finally {
+        rmSync(outDir, { recursive: true, force: true });
+      }
+    },
+    CALL_TIMEOUT_MS,
+  );
+
+  it(
+    "call rejects a non-positive --limit (single validation source)",
+    async () => {
+      const { stdout, code } = await runElv(["call", "get_speech_history", "--limit", "-1"]);
+
+      expect(code).toBe(2);
+      const envelope = parseEnvelope(stdout);
+      expect(envelope.ok).toBe(false);
+      const error = envelope.error as Record<string, unknown>;
+      expect(String(error.message)).toMatch(/positive integer/);
     },
     CALL_TIMEOUT_MS,
   );

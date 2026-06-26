@@ -5,7 +5,6 @@ import {
   classifyTypeFromStatus,
   confirmationRequired,
   exitCodeForError,
-  notImplemented,
   unknownOperation,
   validationError,
 } from "../src/core/errors";
@@ -41,6 +40,5 @@ describe("errors", () => {
     expect(confirmationRequired("elv delete").error.code).toBe("confirmation");
     expect(budgetExceeded("elv tts", 10, 5).error.code).toBe("budget");
     expect(unknownOperation("missing_op")).toMatchObject({ ok: false, operation_id: "missing_op" });
-    expect(notImplemented("elv tts").error.code).toBe("not_implemented");
   });
 });

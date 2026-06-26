@@ -66,12 +66,16 @@ describe("large JSON spill", () => {
     expect(env.ok).toBe(true);
     if (!env.ok) throw new Error("expected success");
     expect(env.data).toBeUndefined();
-    expect(env.data_summary).toMatchObject({ type: "array", count: 30, preview_count: 20 });
+    // Array preview is size-bounded so a summary of large objects stays small.
+    expect(env.data_summary).toMatchObject({ type: "array", count: 30 });
+    expect(env.data_summary?.preview_count).toBeGreaterThan(0);
+    expect(env.data_summary?.preview_count).toBeLessThanOrEqual(20);
+    expect(Buffer.byteLength(JSON.stringify(env.data_summary?.preview))).toBeLessThanOrEqual(8 * 1024);
     expect(env.truncated).toBe(true);
     expect(env.files).toHaveLength(1);
-    expect(env.hints?.[0]?.cmd).not.toContain("elv view");
-    expect(env.hints?.[0]?.cmd).not.toContain("--jq");
+    expect(env.hints?.[0]?.cmd).toContain("elv view");
     expect(env.hints?.[0]?.cmd).toContain(env.files![0]!.path);
+    expect(env.hints?.[0]?.why).toContain("without loading it into context");
     expect(env.files![0]!.mime).toBe("application/json");
     expect(existsSync(env.files![0]!.path)).toBe(true);
     expect(JSON.parse(readFileSync(env.files![0]!.path, "utf8"))).toEqual(items);

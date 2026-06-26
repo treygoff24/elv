@@ -104,12 +104,10 @@ function runOpts(options: CallOptions): RunOpts & PaginationOptions {
     maxCredits: Number.isFinite(maxCredits) ? maxCredits : undefined,
     all: options.all,
     saveJson: options.saveJson,
-    limit: finitePositiveInt(limit),
+    // Pass the raw parsed number through; runOperation validates it (positive integer)
+    // so call/http/aliases reject invalid --limit identically instead of silently coercing.
+    limit,
   };
-}
-
-function finitePositiveInt(value: number | undefined): number | undefined {
-  return value !== undefined && Number.isFinite(value) ? Math.max(1, Math.trunc(value)) : undefined;
 }
 
 function parseJsonObject(raw: string): Record<string, unknown> {

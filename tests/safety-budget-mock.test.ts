@@ -144,7 +144,7 @@ describe("safety and budget mock server (black-box, integration gate)", () => {
       const method = req.method ?? "GET";
       const path = url.pathname;
 
-      if (method === "GET" && path === "/v1/voices") {
+      if (method === "GET" && path === "/v2/voices") {
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(
           JSON.stringify({
