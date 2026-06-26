@@ -5,7 +5,7 @@ import { emitAndExit, validationError } from "../../core/errors";
 import { waitForOperation } from "../wait";
 import { ExitCode } from "../../core/types";
 import type { AgentInput, Envelope, RunOpts } from "../../core/types";
-import { addPaginationFlags, commandName, compact, compactInput, emit, message, paginationOpts, required, runOpts } from "./shared";
+import { addPaginationFlags, commandName, compact, compactInput, emit, message, projectFields, required, resolveListOpts, runOpts } from "./shared";
 
 export interface DubbingCreateFlags {
   file?: string;
@@ -50,6 +50,7 @@ export function registerDubbingCommand(program: Command, addCommonFlags: (comman
   addCommonFlags(
     dubbing
       .command("create")
+      .description("Create a dubbing project")
       .option("--file <path>", "source video or audio file to dub")
       .option("--source <code>", "source language code")
       .option("--target <code>", "target language code")
@@ -67,9 +68,9 @@ export function registerDubbingCommand(program: Command, addCommonFlags: (comman
         }
       }),
   );
-  addCommonFlags(dubbing.command("get").option("--id <id>", "dubbing project id").action((options: DubbingIdFlags, command: Command) => runBuilt(buildDubbingGetInput, options, command)));
-  addCommonFlags(dubbing.command("audio").option("--id <id>", "dubbing project id").option("--language <code>", "target language code for dubbed audio").action((options: DubbingIdFlags, command: Command) => runBuilt(buildDubbingAudioInput, options, command)));
-  addCommonFlags(addPaginationFlags(dubbing.command("list")).action((options: DubbingIdFlags, command: Command) => runBuilt(buildDubbingListInput, options, command)));
+  addCommonFlags(dubbing.command("get").description("Get dubbing project metadata").option("--id <id>", "dubbing project id").action((options: DubbingIdFlags, command: Command) => runBuilt(buildDubbingGetInput, options, command)));
+  addCommonFlags(dubbing.command("audio").description("Download dubbed audio").option("--id <id>", "dubbing project id").option("--language <code>", "target language code for dubbed audio").action((options: DubbingIdFlags, command: Command) => runBuilt(buildDubbingAudioInput, options, command)));
+  addCommonFlags(addPaginationFlags(dubbing.command("list")).description("List dubbing projects").action((options: DubbingIdFlags, command: Command) => runBuilt(buildDubbingListInput, options, command)));
 }
 
 async function waitForDubbing(env: Envelope, opts: RunOpts): Promise<never> {
@@ -91,8 +92,9 @@ async function waitForDubbing(env: Envelope, opts: RunOpts): Promise<never> {
 async function runBuilt<T>(builder: (flags: T) => { operationId: string; input: AgentInput }, flags: T, command: Command): Promise<never> {
   try {
     const built = builder(flags);
-    const env = await runOperation(built.operationId, built.input, { ...runOpts(command), ...paginationOpts(command) });
-    emit(env);
+    const { fields, fetch } = resolveListOpts(command);
+    const env = await runOperation(built.operationId, built.input, { ...runOpts(command), ...fetch });
+    emit(fields && env.ok ? projectFields(env, fields) : env);
   } catch (error) {
     emitAndExit(validationError(commandName(command), message(error)), ExitCode.InputValidation);
   }

@@ -143,6 +143,8 @@ elv call delete_voice --path voice_id=VOICE_ID --yes
 
 Large or paginated results never flood stdout. The list aliases (`voices list`, `history list`, `agents list`, `dubbing list`) and `call`/`http` take `--limit <n>` (sets the page size and caps what gets inlined), `--all` to fetch every page to disk (requires `--save-json`/`--out`), and `--save-json <path>` to write the full result somewhere you choose. A large single page spills to disk but still returns the `next` page command inline so you can keep paging. Inspect any spilled file without loading it into context with `elv view <path> [--path <dotted>] [--limit <n>]`.
 
+To skip the spill entirely when you only need a couple of fields per row, the list aliases take `--fields <csv>`: `elv voices list --fields voice_id,name` projects each voice down to those keys and returns the whole list inline (sub-KB instead of ~100 KB). For arbitrary spilled files, `elv view <path> --path 'voices[].name'` does the same projection with a `[]` array wildcard.
+
 ### Escape hatches
 
 When an endpoint is missing from the registry, still in beta, or needs a raw path, drop down to the primitives.
@@ -239,6 +241,10 @@ elv voices list
 
 # Then inspect it without loading the whole file into context:
 elv view ~/.cache/elv/out/get_user_voices_v2-response.json --path voices --limit 3
+
+# Or skip the spill: project just the fields you need, inline.
+elv voices list --fields voice_id,name
+# {"v":1,"ok":true,"data":{"voices":[{"voice_id":"...","name":"Bella ..."}, ...]}}
 ```
 
 Synthesize speech and get the file back with a real charge from the response header:

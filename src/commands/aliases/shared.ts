@@ -1,7 +1,7 @@
 import type { Command } from "commander";
 import { emitAndExit, exitCodeForError } from "../../core/errors";
 import { ExitCode } from "../../core/types";
-import type { AgentInput, Envelope, RunOpts } from "../../core/types";
+import type { AgentInput, Envelope, RunOpts, SuccessEnvelope } from "../../core/types";
 
 export function mergedOptions(command: Command): Record<string, unknown> {
   const chain: Command[] = [];
@@ -36,7 +36,78 @@ export function addPaginationFlags(command: Command): Command {
   return command
     .option("--limit <n>", "max items returned (also sets page size)")
     .option("--all", "fetch every page and save the full set to a file (requires --save-json or --out)")
-    .option("--save-json <path>", "write the full JSON result to this path");
+    .option("--save-json <path>", "write the full JSON result to this path")
+    .option("--fields <csv>", "project list items to a comma-separated set of fields (compact inline output)");
+}
+
+export function fieldsOpt(command: Command): string[] | undefined {
+  const raw = optionString(mergedOptions(command).fields);
+  if (!raw) return undefined;
+  const fields = raw.split(",").map((field) => field.trim()).filter(Boolean);
+  return fields.length ? fields : undefined;
+}
+
+// Resolve the fetch options for a list command. --fields returns a projected
+// inline result, so it is mutually exclusive with the bulk-to-disk flags
+// (--all / --save-json) — combining them would silently ignore the persistence
+// request. Throwing here surfaces as a validation_error (exit 2) via runBuilt.
+export function resolveListOpts(command: Command): {
+  fields?: string[];
+  fetch: { all?: boolean; limit?: number; saveJson?: string; inline?: boolean };
+} {
+  const fields = fieldsOpt(command);
+  const pagination = paginationOpts(command);
+  if (fields && (pagination.all || pagination.saveJson !== undefined)) {
+    throw new Error(
+      "--fields cannot be combined with --all or --save-json; --fields returns a projected inline result (redirect stdout to save it)",
+    );
+  }
+  return { fields, fetch: fields ? { inline: true, limit: pagination.limit } : pagination };
+}
+
+// Keep just the requested fields on the dominant collection of a list response,
+// turning a fat result (every voice's full object) into a compact id/name table.
+export function projectFields(env: SuccessEnvelope, fields: string[]): SuccessEnvelope {
+  return { ...env, data: projectData(env.data, fields) };
+}
+
+function projectData(data: unknown, fields: string[]): unknown {
+  if (Array.isArray(data)) return data.map((item) => pickFields(item, fields));
+  if (isRecord(data)) {
+    const key = longestArrayKey(data);
+    if (key === undefined) return data;
+    return { ...data, [key]: (data[key] as unknown[]).map((item) => pickFields(item, fields)) };
+  }
+  return data;
+}
+
+// Pick the collection to project. Prefer the longest array whose elements are
+// objects (the only kind a field projection applies to); fall back to the
+// longest array of any kind so an empty collection still resolves.
+function longestArrayKey(data: Record<string, unknown>): string | undefined {
+  const longestOf = (predicate: (value: unknown[]) => boolean): string | undefined => {
+    let bestKey: string | undefined;
+    let bestLength = -1;
+    for (const [key, value] of Object.entries(data)) {
+      if (Array.isArray(value) && predicate(value) && value.length > bestLength) {
+        bestKey = key;
+        bestLength = value.length;
+      }
+    }
+    return bestKey;
+  };
+  return longestOf((value) => value.some(isRecord)) ?? longestOf(() => true);
+}
+
+function pickFields(item: unknown, fields: string[]): unknown {
+  if (!isRecord(item)) return item;
+  const out: Record<string, unknown> = {};
+  for (const field of fields) if (field in item) out[field] = item[field];
+  return out;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
 export function optionString(value: unknown): string | undefined {

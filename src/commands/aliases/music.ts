@@ -38,7 +38,7 @@ export function registerMusicCommand(program: Command, addCommonFlags: (command:
         .action(async (options: MusicFlags, command: Command) => runBuilt({ ...options, stream }, command)),
     );
   configure(music, false);
-  configure(music.command("stream"), true);
+  configure(music.command("stream").description("Music generation (streaming)"), true);
 }
 
 async function runBuilt(flags: MusicFlags, command: Command): Promise<never> {

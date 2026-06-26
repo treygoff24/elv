@@ -19,28 +19,13 @@ import type { ConfigOverrides } from "./core/config";
 import type { RunWsOptions } from "./commands/ws";
 import type { Envelope } from "./core/types";
 
-const ALIASES = [
-  "tts",
-  "stt",
-  "music",
-  "sfx",
-  "voice-change",
-  "voice-isolate",
-  "dubbing",
-  "voices",
-  "models",
-  "agents",
-  "history",
-  "usage",
-] as const;
-
 export async function main(argv = process.argv): Promise<void> {
   const version = packageVersion();
   const program = buildProgram(version);
 
   try {
     if (argv.length <= 2)
-      emitAndExit(validationError("elv", "Missing command"), ExitCode.InputValidation);
+      emitAndExit(success({ cmd: "elv", data: topLevelHelpData(program) }), ExitCode.Success);
     await program.parseAsync(argv);
   } catch (error) {
     const { env, exitCode } = envelopeForError(error, argv, version, program);
@@ -52,6 +37,7 @@ function buildProgram(version: string): Command {
   const program = new Command();
   program
     .name("elv")
+    .description("Agent-first CLI for the ElevenLabs API")
     .version(version)
     .exitOverride()
     .showSuggestionAfterError(false)
@@ -72,15 +58,17 @@ function buildProgram(version: string): Command {
   addCommonFlags(
     ops
       .command("search <query>")
+      .description("Search operations by keyword")
       .option("--limit <n>", "maximum results", "10")
       .action((query: string, options: Record<string, unknown>) =>
         handleOpsSearch(query, { limit: optionString(options.limit) }),
       ),
   );
-  addCommonFlags(ops.command("get <operation_id>").action((id: string) => handleOpsGet(id)));
+  addCommonFlags(ops.command("get <operation_id>").description("Show an operation card: params, risk, examples").action((id: string) => handleOpsGet(id)));
   addCommonFlags(
     ops
       .command("schema <operation_id>")
+      .description("Show the input schema or a runnable example")
       .option("--raw", "return raw JSON Schema for operation input")
       .option("--example", "return a runnable elv call example command")
       .action((id: string, options: Record<string, unknown>) =>
@@ -90,6 +78,7 @@ function buildProgram(version: string): Command {
 
   const call = program
     .command("call <operation_id>")
+    .description("Call an OpenAPI operation by id")
     .option("--json-file <path>", "read JSON input from a file")
     .option("--stdin-json", "read JSON input from stdin")
     .option("--query <key=value>", "add query parameter", collect, [])
@@ -108,6 +97,7 @@ function buildProgram(version: string): Command {
   addCommonFlags(
     program
       .command("http <method> <path>")
+      .description("Make a raw HTTP request to the API")
       .option("--query <key=value>", "add query parameter", collect, [])
       .option("--body-json <json>", "JSON request body")
       .option("--file <field=path>", "add file upload field", collect, [])
@@ -121,6 +111,7 @@ function buildProgram(version: string): Command {
   addCommonFlags(
     program
       .command("ws [target]")
+      .description("Open a WebSocket session or list the catalog")
       .option("--list", "list the WebSocket catalog")
       .option("--query <key=value>", "add query parameter", collect, [])
       .option("--send <path>", "NDJSON send-script")
@@ -134,6 +125,7 @@ function buildProgram(version: string): Command {
   addCommonFlags(
     program
       .command("wait")
+      .description("Poll an operation until a status condition is met")
       .option("--operation <id>", "operation to poll")
       .option("--status-path <path>", "dotted status path, e.g. $.data.status")
       .option("--success <csv>", "success status values (comma-separated)")
@@ -149,7 +141,7 @@ function buildProgram(version: string): Command {
     program
       .command("view <path>")
       .description("Inspect a spilled JSON/NDJSON result file without loading it into context")
-      .option("--path <dotted>", "drill into a dotted JSON path, e.g. data.voices.0.name")
+      .option("--path <dotted>", "drill into a JSON path, e.g. data.voices.0.name or voices[].name")
       .option("--limit <n>", "max array items to show")
       .action((path: string, options: Record<string, unknown>) =>
         handleView(path, { path: optionString(options.path), limit: optionString(options.limit) }),
@@ -163,14 +155,14 @@ function buildProgram(version: string): Command {
       emitAndExit(success({ cmd: `elv ${command.name()}`, data: commandHelpData(command) }), ExitCode.Success),
     );
   addCommonFlags(
-    config.command("get").action((...args: unknown[]) => {
+    config.command("get").description("Print resolved configuration").action((...args: unknown[]) => {
       const command = lastCommand(args);
       const configData = loadConfig(configOverrides(command));
       emitAndExit(success({ cmd: "elv config get", data: configData }), ExitCode.Success);
     }),
   );
   addCommonFlags(
-    config.command("doctor").action(async (...args: unknown[]) => {
+    config.command("doctor").description("Check auth, connectivity, and credits").action(async (...args: unknown[]) => {
       const command = lastCommand(args);
       const result = await configDoctor(configOverrides(command));
       emitAndExit(result.env, result.exitCode);
@@ -186,6 +178,7 @@ function buildProgram(version: string): Command {
   addCommonFlags(
     spec
       .command("update")
+      .description("Refresh the cached OpenAPI spec")
       .option("--from <file_or_url>", "OpenAPI spec file path or URL to fetch")
       .option("--offline", "recompile from the vendored spec snapshot")
       .action(async (options: Record<string, unknown>) => {
@@ -348,7 +341,7 @@ function envelopeForError(
       const cmdNode = resolveCommandPath(program, argv);
       if (cmdNode === program) {
         return {
-          env: success({ cmd, data: { commands: commandNames() } }),
+          env: success({ cmd, data: topLevelHelpData(program) }),
           exitCode: ExitCode.Success,
         };
       }
@@ -406,8 +399,14 @@ function argvToCmd(argv: string[]): string {
   return ["elv", ...argv.slice(2)].join(" ").trim();
 }
 
-function commandNames(): string[] {
-  return ["ops", "call", "http", "ws", "wait", "config", "spec", "view", ...ALIASES];
+function topLevelHelpData(program: Command): Record<string, unknown> {
+  return {
+    command: "elv",
+    description: program.description(),
+    commands: program.commands
+      .filter((command) => command.name() !== "help")
+      .map((command) => ({ name: command.name(), description: command.description() })),
+  };
 }
 
 function packageVersion(): string {

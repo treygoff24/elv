@@ -4,7 +4,7 @@ import { runOperation } from "../../core/client";
 import { emitAndExit, validationError } from "../../core/errors";
 import { ExitCode } from "../../core/types";
 import type { AgentInput, SuccessEnvelope } from "../../core/types";
-import { addPaginationFlags, commandName, compact, compactInput, emit, message, paginationOpts, required, runOpts } from "./shared";
+import { addPaginationFlags, commandName, compact, compactInput, emit, message, projectFields, required, resolveListOpts, runOpts } from "./shared";
 
 export interface VoicesFlags {
   query?: string;
@@ -40,7 +40,7 @@ export function buildVoicesFindInput(flags: VoicesFlags): { operationId: string;
 }
 
 export function buildVoicesGetInput(flags: VoicesFlags): { operationId: string; input: AgentInput } {
-  return { operationId: "get_voice_by_id", input: { path: { voice_id: required(flags.voiceId, "--voice-id") } } };
+  return { operationId: "get_voice_by_id", input: { path: { voice_id: required(flags.voiceId, "a voice id (positional or --voice-id)") } } };
 }
 
 export function buildVoicesCloneInstantInput(flags: VoicesFlags): { operationId: string; input: AgentInput } {
@@ -64,6 +64,7 @@ export function registerVoicesCommand(program: Command, addCommonFlags: (command
   const voices = program.command("voices").description("Voices");
   addCommonFlags(
     addPaginationFlags(voices.command("list"))
+      .description("List your voices")
       .option("--search <query>", "filter voices by name/labels")
       .option("--sort <field>", "sort field, e.g. created_at_unix or name")
       .action((options: VoicesFlags, command: Command) => runBuilt(buildVoicesListInput, options, command)),
@@ -71,15 +72,25 @@ export function registerVoicesCommand(program: Command, addCommonFlags: (command
   addCommonFlags(
     voices
       .command("find <query>")
+      .description("Find voices by name (exact, else substring)")
       .action(async (query: string, options: VoicesFlags, command: Command) => {
         const opts = { ...options, query };
         await runFind(opts, command);
       }),
   );
-  addCommonFlags(voices.command("get").option("--voice-id <id>", "ElevenLabs voice id").action((options: VoicesFlags, command: Command) => runBuilt(buildVoicesGetInput, options, command)));
+  addCommonFlags(
+    voices
+      .command("get [voice_id]")
+      .description("Get a voice by id (positional or --voice-id)")
+      .option("--voice-id <id>", "ElevenLabs voice id (alternative to the positional argument)")
+      .action((voiceId: string | undefined, options: VoicesFlags, command: Command) =>
+        runBuilt(buildVoicesGetInput, { ...options, voiceId: voiceId ?? options.voiceId }, command),
+      ),
+  );
   addCommonFlags(
     voices
       .command("clone-instant")
+      .description("Instant-clone a voice from an audio sample")
       .option("--name <name>", "name for the cloned voice")
       .option("--file <path>", "sample audio file for instant cloning")
       .option("--remove-background-noise", "remove background noise from the sample")
@@ -108,8 +119,9 @@ async function runFind(flags: VoicesFlags, command: Command): Promise<never> {
 async function runBuilt<T>(builder: (flags: T) => { operationId: string; input: AgentInput }, flags: T, command: Command): Promise<never> {
   try {
     const built = builder(flags);
-    const env = await runOperation(built.operationId, built.input, { ...runOpts(command), ...paginationOpts(command) });
-    emit(env);
+    const { fields, fetch } = resolveListOpts(command);
+    const env = await runOperation(built.operationId, built.input, { ...runOpts(command), ...fetch });
+    emit(fields && env.ok ? projectFields(env, fields) : env);
   } catch (error) {
     emitAndExit(validationError(commandName(command), message(error)), ExitCode.InputValidation);
   }

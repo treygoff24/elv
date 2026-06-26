@@ -46,13 +46,13 @@ export function registerVoiceChangeCommand(program: Command, addCommonFlags: (co
         }),
     );
   configure(root, false);
-  configure(root.command("stream"), true);
+  configure(root.command("stream").description("Speech to speech (streaming)"), true);
 }
 
 async function runBuilt(flags: VoiceChangeFlags, command: Command): Promise<never> {
   const opts = runOpts(command);
-  const voiceId = await resolveVoiceId(flags, opts, commandName(command));
   try {
+    const voiceId = await resolveVoiceId(flags, opts, commandName(command));
     const built = buildVoiceChangeInput({ ...flags, voiceId });
     const env = await runOperation(built.operationId, built.input, opts);
     emit(env);

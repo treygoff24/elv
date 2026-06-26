@@ -98,6 +98,17 @@ describe("view command", () => {
     expect(Buffer.byteLength(JSON.stringify(env.data_summary))).toBeLessThanOrEqual(8 * 1024);
   });
 
+  it("projects a field across an array with a [] path", () => {
+    const file = join(dir, "voices.json");
+    writeFileSync(file, JSON.stringify({ voices: [{ name: "Bella" }, { name: "Bill" }] }), "utf8");
+
+    const { env, exitCode } = buildViewResult(file, { path: "voices[].name" });
+    expect(exitCode).toBe(ExitCode.Success);
+    expect(env.ok).toBe(true);
+    if (!env.ok) throw new Error("expected success");
+    expect(env.data).toEqual(["Bella", "Bill"]);
+  });
+
   it("parses NDJSON into an array", () => {
     const file = join(dir, "events.ndjson");
     writeFileSync(file, '{"id":1}\n\n{"id":2}\n', "utf8");

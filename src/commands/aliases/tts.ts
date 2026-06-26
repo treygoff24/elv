@@ -56,13 +56,13 @@ export function registerTtsCommand(program: Command, addCommonFlags: (command: C
         }),
     );
   configure(tts, false);
-  configure(tts.command("stream"), true);
+  configure(tts.command("stream").description("Text to speech (streaming)"), true);
 }
 
 async function runTts(flags: TtsFlags, command: Command): Promise<never> {
   const opts = runOpts(command);
-  const voiceId = await resolveVoiceId(flags, opts, commandName(command));
   try {
+    const voiceId = await resolveVoiceId(flags, opts, commandName(command));
     const built = buildTtsInput({ ...flags, voiceId });
     const env = await runOperation(built.operationId, built.input, opts);
     emit(env);

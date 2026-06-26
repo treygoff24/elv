@@ -76,6 +76,56 @@ describe("CLI JSON output contract", () => {
     parseStdoutEnvelope(stdout);
   });
 
+  it("bare elv emits a success help envelope listing commands with descriptions", () => {
+    const { stdout, code } = runCli([]);
+    expect(code).toBe(0);
+    const envelope = parseStdoutEnvelope(stdout);
+    expect(envelope.ok).toBe(true);
+    const data = envelope.data as Record<string, unknown>;
+    expect(data.command).toBe("elv");
+    expect((data.description as string).length).toBeGreaterThan(0);
+    const commands = data.commands as Array<{ name: string; description: string }>;
+    expect(commands.length).toBeGreaterThan(0);
+    expect(commands.every((c) => typeof c.name === "string" && c.description.length > 0)).toBe(true);
+    expect(commands.some((c) => c.name === "tts")).toBe(true);
+  });
+
+  it("classifies a missing required flag as validation_error (exit 2), not internal_error", () => {
+    const { stdout, code } = runCli(["tts"]);
+    expect(code).toBe(2);
+    const envelope = parseStdoutEnvelope(stdout);
+    expect(envelope.ok).toBe(false);
+    const error = envelope.error as Record<string, unknown>;
+    expect(error.code).toBe("validation_error");
+    expect(String(error.message)).toMatch(/--voice/);
+  });
+
+  it("voice-change with no voice also classifies as validation_error (exit 2)", () => {
+    const { stdout, code } = runCli(["voice-change", "--file", "/tmp/nope.mp3"]);
+    expect(code).toBe(2);
+    const envelope = parseStdoutEnvelope(stdout);
+    expect(envelope.ok).toBe(false);
+    expect((envelope.error as Record<string, unknown>).code).toBe("validation_error");
+  });
+
+  it("voices get accepts the voice id as a positional argument", () => {
+    const { stdout, code } = runCli(["voices", "get", "POSITIONAL_ID", "--dry-run"]);
+    expect(code).toBe(0);
+    const envelope = parseStdoutEnvelope(stdout);
+    expect(envelope.ok).toBe(true);
+    const request = (envelope.data as Record<string, unknown>).request as Record<string, unknown>;
+    const input = request.input as { path?: { voice_id?: string } };
+    expect(input.path?.voice_id).toBe("POSITIONAL_ID");
+  });
+
+  it("voices get with no id reports a validation error mentioning the positional form", () => {
+    const { stdout, code } = runCli(["voices", "get"]);
+    expect(code).toBe(2);
+    const envelope = parseStdoutEnvelope(stdout);
+    expect(envelope.ok).toBe(false);
+    expect(String((envelope.error as Record<string, unknown>).message)).toMatch(/positional/);
+  });
+
   it("bare parent commands emit help envelopes with subcommands", () => {
     for (const command of ["ops", "config", "spec"]) {
       const { stdout, code } = runCli([command]);

@@ -10,7 +10,7 @@ export function buildModelsListInput(_flags: Record<string, never>): { operation
 }
 
 export function registerModelsCommand(program: Command, addCommonFlags: (command: Command) => Command): void {
-  addCommonFlags(program.command("models").description("Models").command("list").action((options: Record<string, never>, command: Command) => runBuilt(options, command)));
+  addCommonFlags(program.command("models").description("Models").command("list").description("List available models").action((options: Record<string, never>, command: Command) => runBuilt(options, command)));
 }
 
 async function runBuilt(flags: Record<string, never>, command: Command): Promise<never> {

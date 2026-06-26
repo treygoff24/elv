@@ -10,6 +10,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - `elv view <path>` — inspect a spilled JSON/NDJSON result file without loading it into context, with an optional dotted `--path` (numeric array indices supported) and `--limit`. Small slices return inline; large ones return a `data_summary` plus a narrow-further hint. Spilled-result hints now point at this command.
 
+- `--fields <csv>` on the list aliases (`voices list`, `history list`, `agents list`, `dubbing list`) — project each item in the result down to a comma-separated set of fields and return it inline. Turns the common "id + name for each voice" lookup from a 97 KB spill (or one call per row) into a single sub-KB envelope.
+
+- `[]` array projection in the JSONPath reader, so `elv view <file> --path 'voices[].name'` returns a flat array of every item's field (and `voices[]` returns the array itself). Composes with nested paths, e.g. `voices[].fine_tuning.state`.
+
 ### Fixed
 
 - CLI produced no output when run through its `bin` symlink (`npm link`, `npm install -g`, `npx`); the entrypoint guard now resolves symlinks on both sides so `main()` runs.
@@ -24,6 +28,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Paginated list responses large enough to spill to disk silently dropped the `next` page command and inline truncation, and `--all` could collect zero items because each spilled page hid its data and cursor; paginated fetches now normalize inline so pagination runs first, then a still-large page spills while keeping the small `next` cursor inline.
 - `--limit` accepted `0`, negative, and fractional values, producing empty or malformed output; it is now validated as a positive integer before any request (exit 2).
 - Spilled-result hint commands now shell-quote the file path and `--path` value so they are safe to copy-paste when a key or path contains shell metacharacters.
+- `elv tts` and `elv voice-change` reported a missing `--voice`/`--voice-id` as a generic `internal_error` (exit 8) because the voice resolver threw before the command's `try`; missing required input is now a `validation_error` (exit 2), matching every other command.
 
 ### Changed
 
@@ -35,6 +40,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - The list aliases (`voices list`, `history list`, `agents list`, `dubbing list`) now support real pagination — `--limit` (page size and inline cap), `--all`, and `--save-json` — sharing the same framework as `call`/`http`.
 - Voice-name resolution (`voices find`, `tts --voice`, `voice-change --voice`) now queries `get_user_voices_v2` with a server-side `search` (works past 500 voices) and resolves an exact name, or a unique substring match, instead of requiring an exact name.
 - Bare `elv ops`, `elv config`, and `elv spec` now print their subcommands and exit 0 instead of returning a `not_implemented` provider error (exit 8).
+- Bare `elv` (no command) now prints the command list and exits 0 instead of a `Missing command` validation error, and both it and the top-level `--help` now carry a tagline plus a one-line description per command. Every subcommand (including discovery leaves like `ops search` and `voices list`) now has its own `--help` description.
+- `elv voices get` accepts the voice id as a positional argument (`elv voices get <id>`), matching `voices find <query>`; `--voice-id` still works as an alternative.
 - Provider and runtime error envelopes now include actionable `hints[]` (for example `elv config doctor` on an auth failure, `elv voices list` on an unknown voice id, `elv usage` when out of credits).
 
 ### Security

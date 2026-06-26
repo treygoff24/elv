@@ -380,4 +380,48 @@ describe("pagination mock server (black-box, integration gate)", () => {
     },
     CALL_TIMEOUT_MS,
   );
+
+  it(
+    "voices list --fields projects rows inline and drops fat fields (no spill)",
+    async () => {
+      v2VoicesRequestCount = 0;
+      const { stdout, code } = await runElv(["voices", "list", "--fields", "voice_id"]);
+
+      expect(code).toBe(0);
+      expect(v2VoicesRequestCount).toBe(1);
+      const envelope = parseEnvelope(stdout);
+      expect(envelope.ok).toBe(true);
+      // Dropping the fat `name` (2 KB each) keeps the whole list inline, no file spill.
+      expect(envelope.files).toBeUndefined();
+      const data = envelope.data as Record<string, unknown>;
+      const voices = data.voices as Array<Record<string, unknown>>;
+      expect(voices.length).toBe(PAGE_ONE_SIZE);
+      expect(voices[0]).toHaveProperty("voice_id");
+      expect(voices[0]).not.toHaveProperty("name");
+    },
+    CALL_TIMEOUT_MS,
+  );
+
+  it(
+    "voices list --fields rejects combination with --all (no silent drop)",
+    async () => {
+      v2VoicesRequestCount = 0;
+      const { stdout, code } = await runElv([
+        "voices",
+        "list",
+        "--fields",
+        "voice_id",
+        "--all",
+      ]);
+
+      expect(code).toBe(2);
+      expect(v2VoicesRequestCount).toBe(0);
+      const envelope = parseEnvelope(stdout);
+      expect(envelope.ok).toBe(false);
+      const error = envelope.error as Record<string, unknown>;
+      expect(error.code).toBe("validation_error");
+      expect(String(error.message)).toMatch(/--fields cannot be combined with --all/);
+    },
+    CALL_TIMEOUT_MS,
+  );
 });

@@ -132,11 +132,14 @@ context with `elv view`:
 elv view <path>                              # full content if small, else a summary
 elv view <path> --path data.voices.0.name    # drill into a dotted JSON path
 elv view <path> --path voices --limit 5       # first N items of an array
+elv view <path> --path 'voices[].name'        # project one field across every item
 ```
 
-`elv view` reads the spilled JSON (or NDJSON), applies an optional dotted
-`--path` (numeric array indices allowed) and `--limit`, and returns the slice
-inline when small or a `data_summary` plus a narrow-further hint when still large.
+`elv view` reads the spilled JSON (or NDJSON), applies an optional `--path`
+(dotted, with numeric array indices and a `[]` array wildcard) and `--limit`, and
+returns the slice inline when small or a `data_summary` plus a narrow-further hint
+when still large. `voices[].name` flattens to `["Bella ...", "Bill ...", ...]`;
+`voices[]` returns the array itself.
 
 Pagination works on the list aliases (`voices list`, `history list`,
 `agents list`, `dubbing list`) and on `call`/`http`: `--limit N` sets the page
@@ -144,6 +147,11 @@ size and caps inlined items, `--all` walks every page and writes the full set to
 the `--save-json`/`--out` target (one of which is required with `--all`),
 `--save-json <path>` chooses the output path. A large single page spills to disk
 but still returns the `next` page command inline so you can keep paging.
+
+When you only need a couple of fields per row, skip the spill: the list aliases
+take `--fields <csv>` and return the whole list projected and inline.
+`elv voices list --fields voice_id,name` is a sub-KB envelope instead of a ~100 KB
+spill — the fastest way to get an id/name table to pick from.
 
 ## Auth
 
@@ -160,9 +168,10 @@ dry-run previews, or files. Check setup with `elv config get` and
 | Character usage over a range | `elv usage --from 2026-06-01 --to 2026-06-25` |
 | List models | `elv models list` |
 | List voices | `elv voices list` |
+| List voices (compact id/name) | `elv voices list --fields voice_id,name` |
 | Search voices (name / labels) | `elv voices list --search "narration"` |
 | Find a voice by name | `elv voices find "Rachel"` (matches exact name, else unique substring) |
-| Get one voice | `elv voices get --voice-id VOICE_ID` |
+| Get one voice | `elv voices get VOICE_ID` (or `--voice-id VOICE_ID`) |
 | Text to speech | `elv tts --voice-id VOICE_ID --text "Hello" --model eleven_flash_v2_5 --out out.mp3` |
 | TTS by voice name | `elv tts --voice "Rachel" --text "Hello" --out out.mp3` |
 | TTS with timestamps | `elv tts --voice-id VOICE_ID --text "Hello" --timestamps --out out.mp3` (writes `out.mp3` plus a sidecar `out.timestamps.json` with the alignment data) |
@@ -202,5 +211,6 @@ Every command accepts `--dry-run`, `--yes`, `--max-credits <n>`, `--out <path>`,
 `--base-url <url>`, `--profile <name>`, `--debug`, and `--retry-post`. The list
 aliases (`voices list`, `history list`, `agents list`, `dubbing list`) and
 `call`/`http` take `--limit <n>` (page size + inline cap), `--all` (walk every
-page to a file; requires `--save-json`/`--out`), and `--save-json <path>`. Every
-command's own flags are documented in `elv <command> --help`.
+page to a file; requires `--save-json`/`--out`), and `--save-json <path>`; the
+list aliases also take `--fields <csv>` to project rows to a chosen set of fields
+inline. Every command's own flags are documented in `elv <command> --help`.
