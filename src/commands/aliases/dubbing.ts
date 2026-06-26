@@ -1,10 +1,7 @@
 import { resolve } from "node:path";
 import type { Command } from "commander";
 import { runOperation } from "../../core/client";
-import { emitAndExit, validationError } from "../../core/errors";
-import { waitForOperation } from "../../core/wait-operation";
-import { ExitCode } from "../../core/types";
-import type { AgentInput, Envelope, RunOpts } from "../../core/types";
+import type { AgentInput } from "../../core/types";
 import {
   addPaginationFlags,
   compact,
@@ -14,6 +11,7 @@ import {
   runListAlias,
   aliasRunOpts,
   validationOrExit,
+  waitAfterCreate,
 } from "./shared";
 
 export interface DubbingCreateFlags {
@@ -93,7 +91,16 @@ export function registerDubbingCommand(
         const built = validationOrExit(command, () => buildDubbingCreateInput(options));
         const env = await runOperation(built.operationId, built.input, opts);
         if (!options.wait || !env.ok) emit(env);
-        await waitForDubbing(env, opts);
+        await waitAfterCreate(env, opts, {
+          commandName: "elv dubbing create",
+          idKeys: ["dubbing_id", "id"],
+          missingIdMessage: "--wait could not find a dubbing id in the response",
+          operation: "get_dubbed_metadata",
+          pathKey: "dubbing_id",
+          statusPath: "$.data.status",
+          success: "dubbed",
+          failure: "failed",
+        });
       }),
   );
   addCommonFlags(
@@ -122,35 +129,4 @@ export function registerDubbingCommand(
         runListAlias(buildDubbingListInput, options, command),
       ),
   );
-}
-
-async function waitForDubbing(env: Envelope, opts: RunOpts): Promise<never> {
-  const id = stringAt(env, ["dubbing_id", "id"]);
-  if (!id)
-    emitAndExit(
-      validationError("elv dubbing create", "--wait could not find a dubbing id in the response"),
-      ExitCode.InputValidation,
-    );
-  const result = await waitForOperation(
-    {
-      operation: "get_dubbed_metadata",
-      json: JSON.stringify({ path: { dubbing_id: id } }),
-      statusPath: "$.data.status",
-      success: "dubbed",
-      failure: "failed",
-    },
-    { runOperation: (operationId, input) => runOperation(operationId, input, opts) },
-  );
-  emitAndExit(result.env, result.exitCode);
-}
-
-function stringAt(env: Envelope, keys: string[]): string | null {
-  if (!env.ok || !isRecord(env.data)) return null;
-  const data = env.data;
-  for (const key of keys) if (typeof data[key] === "string") return data[key];
-  return null;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
 }

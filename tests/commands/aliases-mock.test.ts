@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -186,6 +186,26 @@ describe("aliases mock server (black-box, integration gate)", () => {
         await readBody(req);
         res.writeHead(200, { "Content-Type": "audio/mpeg" });
         res.end(FAKE_AUDIO);
+        return;
+      }
+
+      if (method === "POST" && path === "/v1/speech-to-text") {
+        await readBody(req);
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ transcription_id: "tr_1" }));
+        return;
+      }
+
+      if (method === "GET" && path === "/v1/speech-to-text/transcripts/tr_1") {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ transcription_id: "tr_1", status: "completed" }));
+        return;
+      }
+
+      if (method === "POST" && path === "/v1/dubbing") {
+        await readBody(req);
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ dubbing_id: "dub_1" }));
         return;
       }
 
@@ -382,6 +402,30 @@ describe("aliases mock server (black-box, integration gate)", () => {
   );
 
   it(
+    "stt --wait emits the completed transcript envelope",
+    async () => {
+      const audio = join(cacheDir, "stt-wait.wav");
+      writeFileSync(audio, FAKE_AUDIO);
+      const { stdout, stderr, code } = await runElv([
+        "stt",
+        "--file",
+        audio,
+        "--model",
+        "scribe_v2",
+        "--wait",
+        "--max-credits",
+        "1000",
+      ]);
+
+      expect(code).toBe(0);
+      const envelope = assertOkEnvelope(stdout, stderr);
+      expect(envelope.operation_id).toBe("get_transcript_by_id");
+      expect(envelope.data).toMatchObject({ transcription_id: "tr_1", status: "completed" });
+    },
+    CALL_TIMEOUT_MS,
+  );
+
+  it(
     "dubbing get returns ok envelope with dubbing metadata",
     async () => {
       const { stdout, stderr, code } = await runElv(["dubbing", "get", "--id", "abc"]);
@@ -390,6 +434,29 @@ describe("aliases mock server (black-box, integration gate)", () => {
       const envelope = assertOkEnvelope(stdout, stderr);
       const data = envelope.data as Record<string, unknown>;
       expect(data.dubbing_id).toBe("abc");
+    },
+    CALL_TIMEOUT_MS,
+  );
+
+  it(
+    "dubbing create --wait emits the completed dubbing envelope",
+    async () => {
+      const { stdout, stderr, code } = await runElv([
+        "dubbing",
+        "create",
+        "--source",
+        "en",
+        "--target",
+        "es",
+        "--wait",
+        "--max-credits",
+        "1000",
+      ]);
+
+      expect(code).toBe(0);
+      const envelope = assertOkEnvelope(stdout, stderr);
+      expect(envelope.operation_id).toBe("get_dubbed_metadata");
+      expect(envelope.data).toMatchObject({ dubbing_id: "dub_1", status: "dubbed" });
     },
     CALL_TIMEOUT_MS,
   );

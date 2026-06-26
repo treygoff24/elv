@@ -53,8 +53,12 @@ describe("risk classifier", () => {
       "update_secret_route",
       "share_resource_endpoint",
       "unshare_resource_endpoint",
+      "create_mcp_server_route",
+      "update_mcp_server_config_route",
       "update_mcp_server_approval_policy_route",
       "add_mcp_server_tool_approval_route",
+      "add_mcp_tool_config_override_route",
+      "update_mcp_tool_config_override_route",
       "update_whatsapp_account",
     ]) {
       expect(classifyRisk(op(operationId, "POST")), operationId).toBe("external_side_effect");

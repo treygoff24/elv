@@ -2,6 +2,7 @@ import type { Command } from "commander";
 import { runOperation } from "../../core/client";
 import { emitAndExit, exitCodeForError, validationError } from "../../core/errors";
 import { ExitCode } from "../../core/types";
+import { waitForOperation } from "../../core/wait-operation";
 import {
   mergedOptions,
   optionString,
@@ -11,6 +12,17 @@ import {
 import type { AgentInput, Envelope, RunOpts, SuccessEnvelope } from "../../core/types";
 
 export type OperationBuilder<T> = (flags: T) => { operationId: string; input: AgentInput };
+
+interface WaitAfterCreateConfig {
+  commandName: string;
+  idKeys: string[];
+  missingIdMessage: string;
+  operation: string;
+  pathKey: string;
+  statusPath: string;
+  success: string;
+  failure?: string;
+}
 
 export function aliasRunOpts(command: Command): RunOpts {
   return runOptsFromCommand(command);
@@ -173,6 +185,38 @@ export function validationOrExit<T>(command: Command, fn: () => T): T {
   } catch (error) {
     validationExit(command, error);
   }
+}
+
+export async function waitAfterCreate(
+  env: Envelope,
+  opts: RunOpts,
+  config: WaitAfterCreateConfig,
+): Promise<never> {
+  const id = stringAt(env, config.idKeys);
+  if (!id) {
+    emitAndExit(
+      validationError(config.commandName, config.missingIdMessage),
+      ExitCode.InputValidation,
+    );
+  }
+  const result = await waitForOperation(
+    {
+      operation: config.operation,
+      json: JSON.stringify({ path: { [config.pathKey]: id } }),
+      statusPath: config.statusPath,
+      success: config.success,
+      failure: config.failure,
+    },
+    { runOperation: (operationId, input) => runOperation(operationId, input, opts) },
+  );
+  emitAndExit(result.env, result.exitCode);
+}
+
+function stringAt(env: Envelope, keys: string[]): string | null {
+  if (!env.ok || !isRecord(env.data)) return null;
+  const data = env.data;
+  for (const key of keys) if (typeof data[key] === "string") return data[key];
+  return null;
 }
 
 export function message(error: unknown): string {
