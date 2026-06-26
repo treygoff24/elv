@@ -23,7 +23,7 @@ import { handleView } from "./commands/view";
 import { registerAliases } from "./commands/aliases";
 import { updateSpecCache } from "./openapi/fetch-spec";
 import type { ConfigOverrides } from "./core/config";
-import type { RunWsOptions } from "./commands/ws";
+import type { RunWsOptions, WsCommandInput } from "./commands/ws";
 import type { Envelope } from "./core/types";
 
 export async function main(argv = process.argv): Promise<void> {
@@ -100,7 +100,10 @@ function buildProgram(version: string): Command {
       .option("--send <path>", "NDJSON send-script")
       .action(
         async (target: string | undefined, _options: Record<string, unknown>, command: Command) => {
-          const result = await runWs(wsArgs(target, command), wsRunOptions(command));
+          const input = wsInput(target, command);
+          if (!input.ok)
+            emitAndExit(validationError("elv ws", input.error), ExitCode.InputValidation);
+          const result = await runWs(input.value, wsRunOptions(command));
           emitAndExit(result.env, result.exitCode);
         },
       ),
@@ -244,15 +247,36 @@ function httpOptions(command: Command): Parameters<typeof handleHttp>[2] {
   };
 }
 
-function wsArgs(target: string | undefined, command: Command): string[] {
+function wsInput(
+  target: string | undefined,
+  command: Command,
+): { ok: true; value: WsCommandInput } | { ok: false; error: string } {
   const opts = mergedOptions(command);
-  const args: string[] = [];
-  if (target) args.push(target);
-  if (opts.list) args.push("--list");
-  for (const pair of optionStrings(opts.query) ?? []) args.push("--query", pair);
-  if (typeof opts.send === "string") args.push("--send", opts.send);
-  if (typeof opts.out === "string") args.push("--out", opts.out);
-  return args;
+  const query = wsQuery(optionStrings(opts.query));
+  if (!query.ok) return query;
+  const send = optionString(opts.send);
+  return {
+    ok: true,
+    value: {
+      target,
+      list: Boolean(opts.list),
+      query: query.value,
+      send: send === undefined ? undefined : resolve(send),
+      out: optionString(opts.out),
+    },
+  };
+}
+
+function wsQuery(
+  pairs: string[] | undefined,
+): { ok: true; value: Record<string, string> } | { ok: false; error: string } {
+  const query: Record<string, string> = {};
+  for (const pair of pairs ?? []) {
+    const index = pair.indexOf("=");
+    if (index <= 0) return { ok: false, error: `Expected key=value, got "${pair}"` };
+    query[pair.slice(0, index)] = pair.slice(index + 1);
+  }
+  return { ok: true, value: query };
 }
 
 function wsRunOptions(command: Command): RunWsOptions {

@@ -49,17 +49,15 @@ describe("ws session", () => {
     );
 
     const result = await runWs(
-      [
-        server.url,
-        "--send",
-        script,
-        "--out",
-        dir,
-        "--query",
-        "single_use_token=tok_secret",
-        "--query",
-        "output_format=mp3_44100_128",
-      ],
+      {
+        target: server.url,
+        send: script,
+        out: dir,
+        query: {
+          single_use_token: "tok_secret",
+          output_format: "mp3_44100_128",
+        },
+      },
       {
         apiKey: "sk_test_LEAK_CANARY",
         timeoutMs: 500,
@@ -90,7 +88,10 @@ describe("ws session", () => {
     const script = join(dir, "bad.ndjson");
     writeFileSync(script, JSON.stringify({ type: "send", data: { text: "Hello" } }));
 
-    const result = await runWs([server.url, "--send", script, "--out", dir], { timeoutMs: 100 });
+    const result = await runWs(
+      { target: server.url, send: script, out: dir, query: {} },
+      { timeoutMs: 100 },
+    );
 
     expect(result.env.ok).toBe(false);
     expect(result.exitCode).toBe(2);
@@ -103,17 +104,12 @@ describe("ws session", () => {
     writeFileSync(script, JSON.stringify({ type: "send", data: { text: " " } }));
 
     const result = await runWs(
-      [
-        "tts-realtime",
-        "--query",
-        "voice_id=v1",
-        "--query",
-        "model_id=eleven_v3",
-        "--send",
-        script,
-        "--out",
-        dir,
-      ],
+      {
+        target: "tts-realtime",
+        send: script,
+        out: dir,
+        query: { voice_id: "v1", model_id: "eleven_v3" },
+      },
       {
         baseUrl: "http://127.0.0.1:1",
         timeoutMs: 100,

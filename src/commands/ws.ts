@@ -1,5 +1,4 @@
 import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
 import { success, failure } from "../core/envelope";
 import { getApiKey, loadConfig } from "../core/config";
 import { validationError } from "../core/errors";
@@ -18,25 +17,18 @@ export interface RunWsOptions {
   timeoutMs?: number;
 }
 
-interface ParsedWsArgs {
+export interface WsCommandInput {
   target?: string;
-  list: boolean;
+  list?: boolean;
   query: Record<string, string>;
   send?: string;
   out?: string;
-  baseUrl?: string;
-  profile?: string;
 }
 
 export async function runWs(
-  args: string[] = process.argv.slice(2),
+  input: WsCommandInput,
   options: RunWsOptions = {},
 ): Promise<{ env: Envelope; exitCode: ExitCode }> {
-  const parsed = parseArgs(args);
-  if (!parsed.ok)
-    return { env: validationError("elv ws", parsed.error), exitCode: ExitCode.InputValidation };
-
-  const input = parsed.value;
   if (input.list) {
     return {
       env: success({ cmd: "elv ws --list", data: listWsCatalog() }),
@@ -49,8 +41,8 @@ export async function runWs(
 
   try {
     const config = loadConfig({
-      profile: options.profile ?? input.profile,
-      baseUrl: options.baseUrl ?? input.baseUrl,
+      profile: options.profile,
+      baseUrl: options.baseUrl,
     });
     const entry = getWsCatalogEntry(target);
     if (entry && !entry.scriptable) {
@@ -72,7 +64,7 @@ export async function runWs(
       );
     }
     const outDir = resolveOutTarget(input.out ?? config.outputDir, true).dir;
-    const apiKey = options.apiKey ?? getApiKey({ profile: options.profile ?? input.profile });
+    const apiKey = options.apiKey ?? getApiKey({ profile: options.profile });
     const headers = authHeaders(apiKey);
     const result = await runWsSession({
       url: resolved.url,
@@ -92,48 +84,6 @@ export async function runWs(
   } catch (error) {
     return errorEnvelope(error);
   }
-}
-
-function parseArgs(
-  args: string[],
-): { ok: true; value: ParsedWsArgs } | { ok: false; error: string } {
-  const parsed: ParsedWsArgs = { list: false, query: {} };
-  for (let index = 0; index < args.length; index += 1) {
-    const arg = args[index];
-    if (!arg) continue;
-    if (arg === "--list") parsed.list = true;
-    else if (arg === "--query") {
-      const pair = args[index + 1];
-      if (!pair) return { ok: false, error: "--query requires key=value" };
-      const parsedPair = parsePair(pair);
-      if (!parsedPair) return { ok: false, error: `Expected key=value, got "${pair}"` };
-      parsed.query[parsedPair.key] = parsedPair.value;
-      index += 1;
-    } else if (arg === "--send") {
-      const value = args[index + 1];
-      if (!value) return { ok: false, error: "--send requires a path" };
-      parsed.send = resolve(value);
-      index += 1;
-    } else if (arg === "--out") {
-      const value = args[index + 1];
-      if (!value) return { ok: false, error: "--out requires a directory" };
-      parsed.out = value;
-      index += 1;
-    } else if (arg === "--base-url") {
-      const value = args[index + 1];
-      if (!value) return { ok: false, error: "--base-url requires a URL" };
-      parsed.baseUrl = value;
-      index += 1;
-    } else if (arg === "--profile") {
-      const value = args[index + 1];
-      if (!value) return { ok: false, error: "--profile requires a name" };
-      parsed.profile = value;
-      index += 1;
-    } else if (arg.startsWith("--")) return { ok: false, error: `Unknown option ${arg}` };
-    else if (!parsed.target) parsed.target = arg;
-    else return { ok: false, error: `Unexpected argument ${arg}` };
-  }
-  return { ok: true, value: parsed };
 }
 
 function resolveTarget(
@@ -186,12 +136,6 @@ function rejectsRawElevenV3(url: URL, script: ReturnType<typeof parseSendScript>
 function authHeaders(apiKey: string | undefined): Record<string, string> | undefined {
   if (!apiKey) return undefined;
   return { "xi-api-key": apiKey };
-}
-
-function parsePair(pair: string): { key: string; value: string } | null {
-  const index = pair.indexOf("=");
-  if (index <= 0) return null;
-  return { key: pair.slice(0, index), value: pair.slice(index + 1) };
 }
 
 function inputError(message: string): { env: Envelope; exitCode: ExitCode } {
