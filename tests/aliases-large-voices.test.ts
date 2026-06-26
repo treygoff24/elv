@@ -130,7 +130,9 @@ describe("aliases resolve large get_user_voices_v2 responses", () => {
       const envelope = parseEnvelope(stdout);
       expect(envelope.ok).toBe(true);
       const data = envelope.data as { voices?: Array<{ voice_id?: string; name?: string }> };
-      expect(data.voices).toEqual([{ voice_id: "roger", name: ROGER, description: expect.any(String) }]);
+      expect(data.voices).toEqual([
+        { voice_id: "roger", name: ROGER, description: expect.any(String) },
+      ]);
     },
     CALL_TIMEOUT_MS,
   );

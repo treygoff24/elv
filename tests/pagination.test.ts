@@ -40,11 +40,13 @@ describe("pagination cursor derivation", () => {
   it("derives history next cursor and default page_size", () => {
     const operation = op({ operationId: "get_speech_history", pathTemplate: "/v1/history" });
     expect(applyPaginationDefaults(operation, {})).toEqual({ query: { page_size: 20 } });
-    expect(nextCursor(operation, { has_more: true, last_history_item_id: "hist_2" })).toMatchObject({
-      hasMore: true,
-      cursorParam: "start_after_history_item_id",
-      cursor: "hist_2",
-    });
+    expect(nextCursor(operation, { has_more: true, last_history_item_id: "hist_2" })).toMatchObject(
+      {
+        hasMore: true,
+        cursorParam: "start_after_history_item_id",
+        cursor: "hist_2",
+      },
+    );
   });
 
   it("derives v2 voices next_page_token", () => {
@@ -71,11 +73,16 @@ describe("pagination cursor derivation", () => {
 
   it("warns instead of inventing a next command when has_more has no cursor", () => {
     const operation = op({ operationId: "unknown_page", pathTemplate: "/v1/unknown" });
-    const env = addPaginationToEnvelope(ok({ items: [1], has_more: true }), operation, {}, { command: { kind: "call" } });
+    const env = addPaginationToEnvelope(
+      ok({ items: [1], has_more: true }),
+      operation,
+      {},
+      { command: { kind: "call" } },
+    );
     expect(env.ok).toBe(true);
     if (!env.ok) throw new Error("expected success");
     expect(env.warnings?.[0]?.code).toBe("pagination_cursor_missing");
-    expect(JSON.stringify(env.data)).not.toContain("\"next\"");
+    expect(JSON.stringify(env.data)).not.toContain('"next"');
   });
 
   it("--all terminates on repeated cursor and emits the 1000-page cap warning", async () => {
@@ -90,7 +97,11 @@ describe("pagination cursor derivation", () => {
         command: { kind: "call" },
         fetchPage: async () => {
           calls += 1;
-          return ok({ voices: [{ voice_id: `v${calls}` }], has_more: true, next_page_token: String(calls) });
+          return ok({
+            voices: [{ voice_id: `v${calls}` }],
+            has_more: true,
+            next_page_token: String(calls),
+          });
         },
         maxPages: 3,
       });
@@ -98,7 +109,9 @@ describe("pagination cursor derivation", () => {
       expect(env.ok).toBe(true);
       if (!env.ok) throw new Error("expected success");
       expect(calls).toBe(3);
-      expect(env.warnings?.some((warning) => warning.code === "pagination_page_cap_hit")).toBe(true);
+      expect(env.warnings?.some((warning) => warning.code === "pagination_page_cap_hit")).toBe(
+        true,
+      );
       expect(env.files).toHaveLength(1);
       expect(JSON.parse(readFileSync(env.files![0]!.path, "utf8"))).toHaveLength(3);
     } finally {

@@ -2,7 +2,14 @@ import { loadRegistry, readRegistryCache } from "../openapi/registry";
 import { estimateDetail, overBudget } from "./budget";
 import { loadConfig, getApiKey } from "./config";
 import { dryRun, failure } from "./envelope";
-import { budgetExceeded, confirmationRequired, hintsForError, mergeErrorHints, validationError, unknownOperation } from "./errors";
+import {
+  budgetExceeded,
+  confirmationRequired,
+  hintsForError,
+  mergeErrorHints,
+  validationError,
+  unknownOperation,
+} from "./errors";
 import { NetworkRetryError, sendWithRetry } from "./retries";
 import { buildHttpRequest, InputNormalizationError, normalizeInput } from "./request-builder";
 import { normalizeResponse, spillIfLarge } from "./response-normalizer";
@@ -17,7 +24,14 @@ import {
 import { requiresYes } from "./safety";
 import { OutTargetError } from "./files";
 import type { AnySchema, ValidateFunction } from "ajv";
-import type { AgentInput, Envelope, NormalizedError, OperationCard, RunOpts, Warning } from "./types";
+import type {
+  AgentInput,
+  Envelope,
+  NormalizedError,
+  OperationCard,
+  RunOpts,
+  Warning,
+} from "./types";
 import type { HttpRequest } from "./request-builder";
 import type { ResponseContext } from "./response-normalizer";
 
@@ -80,7 +94,9 @@ export async function runOperation(
     }
 
     if (requiresYes(op) && !opts.yes) {
-      return confirmationRequired(cmd, `${operationId} (${op.risk}) requires --yes`, { operationId });
+      return confirmationRequired(cmd, `${operationId} (${op.risk}) requires --yes`, {
+        operationId,
+      });
     }
     if (overBudget(estimate, opts)) {
       return budgetExceeded(cmd, estimate, opts.maxCredits as number, { operationId });

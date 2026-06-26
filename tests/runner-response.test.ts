@@ -30,8 +30,15 @@ describe("response normalization", () => {
   it("streams binary to files and never puts bytes in data", async () => {
     const out = mkdtempSync(join(tmpdir(), "elv-out-"));
     const env = await normalizeResponse(
-      op({ returnsBinary: true, responses: [{ status: "200", contentType: "audio/mpeg", binary: true }], streamKind: "audio_bytes" }),
-      new Response(Buffer.from("mp3-bytes"), { status: 200, headers: { "content-type": "audio/mpeg" } }),
+      op({
+        returnsBinary: true,
+        responses: [{ status: "200", contentType: "audio/mpeg", binary: true }],
+        streamKind: "audio_bytes",
+      }),
+      new Response(Buffer.from("mp3-bytes"), {
+        status: 200,
+        headers: { "content-type": "audio/mpeg" },
+      }),
       { cmd: "elv call response_demo", out },
     );
 
@@ -47,7 +54,11 @@ describe("response normalization", () => {
       op(),
       new Response(JSON.stringify({ known: true, provider_added: "ignored by schema" }), {
         status: 200,
-        headers: { "content-type": "application/json", "request-id": "req_1", "character-cost": "12" },
+        headers: {
+          "content-type": "application/json",
+          "request-id": "req_1",
+          "character-cost": "12",
+        },
       }),
       { cmd: "elv call response_demo" },
     );
@@ -162,7 +173,12 @@ describe("response normalization", () => {
 
   it("warns about absent cost headers when credits were estimated", async () => {
     const env = await normalizeResponse(
-      op({ operationId: "text_to_speech_full", method: "POST", risk: "generate", costHint: "characters" }),
+      op({
+        operationId: "text_to_speech_full",
+        method: "POST",
+        risk: "generate",
+        costHint: "characters",
+      }),
       new Response(JSON.stringify({ ok: true }), {
         status: 200,
         headers: { "content-type": "application/json" },
@@ -173,19 +189,20 @@ describe("response normalization", () => {
     expect(env.ok).toBe(true);
     if (!env.ok) throw new Error("expected success");
     expect(env.warnings).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ code: "cost_header_absent" }),
-      ]),
+      expect.arrayContaining([expect.objectContaining({ code: "cost_header_absent" })]),
     );
   });
 
   it("adds actionable hints for provider auth errors", async () => {
     const env = await normalizeResponse(
       op(),
-      new Response(JSON.stringify({ detail: { status: "invalid_api_key", message: "Invalid API key" } }), {
-        status: 401,
-        headers: { "content-type": "application/json" },
-      }),
+      new Response(
+        JSON.stringify({ detail: { status: "invalid_api_key", message: "Invalid API key" } }),
+        {
+          status: 401,
+          headers: { "content-type": "application/json" },
+        },
+      ),
       { cmd: "elv call response_demo" },
     );
 
@@ -193,7 +210,10 @@ describe("response normalization", () => {
     if (env.ok) throw new Error("expected failure");
     expect(env.hints).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ cmd: "elv config doctor", why: expect.stringContaining("ELEVENLABS_API_KEY") }),
+        expect.objectContaining({
+          cmd: "elv config doctor",
+          why: expect.stringContaining("ELEVENLABS_API_KEY"),
+        }),
       ]),
     );
   });

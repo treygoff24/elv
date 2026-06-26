@@ -70,7 +70,9 @@ describe("large JSON spill", () => {
     expect(env.data_summary).toMatchObject({ type: "array", count: 30 });
     expect(env.data_summary?.preview_count).toBeGreaterThan(0);
     expect(env.data_summary?.preview_count).toBeLessThanOrEqual(20);
-    expect(Buffer.byteLength(JSON.stringify(env.data_summary?.preview))).toBeLessThanOrEqual(8 * 1024);
+    expect(Buffer.byteLength(JSON.stringify(env.data_summary?.preview))).toBeLessThanOrEqual(
+      8 * 1024,
+    );
     expect(env.truncated).toBe(true);
     expect(env.files).toHaveLength(1);
     expect(env.hints?.[0]?.cmd).toContain("elv view");

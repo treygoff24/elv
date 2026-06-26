@@ -12,7 +12,10 @@ export interface VoiceIsolateFlags {
   previewB64?: string;
 }
 
-export function buildVoiceIsolateInput(flags: VoiceIsolateFlags): { operationId: string; input: AgentInput } {
+export function buildVoiceIsolateInput(flags: VoiceIsolateFlags): {
+  operationId: string;
+  input: AgentInput;
+} {
   return {
     operationId: "audio_isolation",
     input: compactInput({
@@ -22,7 +25,10 @@ export function buildVoiceIsolateInput(flags: VoiceIsolateFlags): { operationId:
   };
 }
 
-export function registerVoiceIsolateCommand(program: Command, addCommonFlags: (command: Command) => Command): void {
+export function registerVoiceIsolateCommand(
+  program: Command,
+  addCommonFlags: (command: Command) => Command,
+): void {
   addCommonFlags(
     program
       .command("voice-isolate")

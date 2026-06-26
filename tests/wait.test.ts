@@ -41,7 +41,15 @@ describe("wait command", () => {
 
   it("returns nonzero on failure status and timeout", async () => {
     const failed = await waitForOperation(
-      { operation: "op", json: "{}", statusPath: "data.status", success: "done", failure: "failed", intervalMs: 1, timeoutMs: 10 },
+      {
+        operation: "op",
+        json: "{}",
+        statusPath: "data.status",
+        success: "done",
+        failure: "failed",
+        intervalMs: 1,
+        timeoutMs: 10,
+      },
       { sleep: async () => undefined, now: () => 1, runOperation: async () => env("failed") },
     );
     expect(failed.exitCode).not.toBe(ExitCode.Success);
@@ -49,8 +57,20 @@ describe("wait command", () => {
 
     let t = 0;
     const timedOut = await waitForOperation(
-      { operation: "op", json: "{}", statusPath: "data.status", success: "done", failure: "failed", intervalMs: 1, timeoutMs: 2 },
-      { sleep: async () => undefined, now: () => (t += 2), runOperation: async () => env("queued") },
+      {
+        operation: "op",
+        json: "{}",
+        statusPath: "data.status",
+        success: "done",
+        failure: "failed",
+        intervalMs: 1,
+        timeoutMs: 2,
+      },
+      {
+        sleep: async () => undefined,
+        now: () => (t += 2),
+        runOperation: async () => env("queued"),
+      },
     );
     expect(timedOut.exitCode).not.toBe(ExitCode.Success);
     expect(timedOut.env.ok).toBe(false);
@@ -59,7 +79,13 @@ describe("wait command", () => {
 
   it("rejects wildcard status paths", async () => {
     const result = await waitForOperation(
-      { operation: "op", json: "{}", statusPath: "data.items[*].status", success: "done", failure: "failed" },
+      {
+        operation: "op",
+        json: "{}",
+        statusPath: "data.items[*].status",
+        success: "done",
+        failure: "failed",
+      },
       { sleep: async () => undefined, now: () => 0, runOperation: async () => env("done") },
     );
     expect(result.exitCode).toBe(ExitCode.InputValidation);
@@ -68,7 +94,14 @@ describe("wait command", () => {
 
   it("polls without --failure until success or timeout", async () => {
     const succeeded = await waitForOperation(
-      { operation: "op", json: "{}", statusPath: "data.status", success: "done", intervalMs: 1, timeoutMs: 100 },
+      {
+        operation: "op",
+        json: "{}",
+        statusPath: "data.status",
+        success: "done",
+        intervalMs: 1,
+        timeoutMs: 100,
+      },
       { sleep: async () => undefined, now: () => 1, runOperation: async () => env("done") },
     );
     expect(succeeded.exitCode).toBe(ExitCode.Success);
@@ -76,8 +109,19 @@ describe("wait command", () => {
 
     let t = 0;
     const timedOut = await waitForOperation(
-      { operation: "op", json: "{}", statusPath: "data.status", success: "done", intervalMs: 1, timeoutMs: 2 },
-      { sleep: async () => undefined, now: () => (t += 2), runOperation: async () => env("queued") },
+      {
+        operation: "op",
+        json: "{}",
+        statusPath: "data.status",
+        success: "done",
+        intervalMs: 1,
+        timeoutMs: 2,
+      },
+      {
+        sleep: async () => undefined,
+        now: () => (t += 2),
+        runOperation: async () => env("queued"),
+      },
     );
     expect(timedOut.exitCode).not.toBe(ExitCode.Success);
     expect(timedOut.env.ok).toBe(false);

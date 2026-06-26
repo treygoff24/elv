@@ -37,10 +37,17 @@ describe("retry runner", () => {
 
   it("backs off 429 rate_limit_exceeded then succeeds", async () => {
     const sleeps: number[] = [];
-    const fetch = vi.fn().mockResolvedValueOnce(json(429, "rate_limit_exceeded")).mockResolvedValueOnce(json(200, "ok"));
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(json(429, "rate_limit_exceeded"))
+      .mockResolvedValueOnce(json(200, "ok"));
     vi.stubGlobal("fetch", fetch);
 
-    const res = await sendWithRetry(req(), op, { sleep: async (ms) => void sleeps.push(ms), jitter: () => 0, maxAttempts: 3 });
+    const res = await sendWithRetry(req(), op, {
+      sleep: async (ms) => void sleeps.push(ms),
+      jitter: () => 0,
+      maxAttempts: 3,
+    });
 
     expect(res.status).toBe(200);
     expect(fetch).toHaveBeenCalledTimes(2);
@@ -56,7 +63,11 @@ describe("retry runner", () => {
       .mockResolvedValueOnce(json(200, "ok"));
     vi.stubGlobal("fetch", fetch);
 
-    const res = await sendWithRetry(req(), op, { sleep: async (ms) => void sleeps.push(ms), jitter: () => 0, maxAttempts: 3 });
+    const res = await sendWithRetry(req(), op, {
+      sleep: async (ms) => void sleeps.push(ms),
+      jitter: () => 0,
+      maxAttempts: 3,
+    });
 
     expect(res.status).toBe(200);
     expect(sleeps).toEqual([250, 250]);
@@ -66,15 +77,26 @@ describe("retry runner", () => {
     const fetch = vi.fn().mockResolvedValue(json(500, "internal_error"));
     vi.stubGlobal("fetch", fetch);
 
-    await sendWithRetry(req("POST"), { ...op, method: "POST" }, { sleep: async () => undefined, maxAttempts: 3 });
+    await sendWithRetry(
+      req("POST"),
+      { ...op, method: "POST" },
+      { sleep: async () => undefined, maxAttempts: 3 },
+    );
     expect(fetch).toHaveBeenCalledTimes(1);
   });
 
   it("retries POST when retryPost is set", async () => {
-    const fetch = vi.fn().mockResolvedValueOnce(json(500, "internal_error")).mockResolvedValueOnce(json(200, "ok"));
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(json(500, "internal_error"))
+      .mockResolvedValueOnce(json(200, "ok"));
     vi.stubGlobal("fetch", fetch);
 
-    const res = await sendWithRetry(req("POST"), { ...op, method: "POST" }, { retryPost: true, sleep: async () => undefined, maxAttempts: 3 });
+    const res = await sendWithRetry(
+      req("POST"),
+      { ...op, method: "POST" },
+      { retryPost: true, sleep: async () => undefined, maxAttempts: 3 },
+    );
 
     expect(res.status).toBe(200);
     expect(fetch).toHaveBeenCalledTimes(2);

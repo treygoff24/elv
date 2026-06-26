@@ -60,12 +60,16 @@ export async function compileSpec(options: CompileSpecOptions = {}): Promise<Com
       }
 
       const operationId = stringValue(operation.operationId);
-      if (!operationId) throw new Error(`Missing operationId for ${methodLower.toUpperCase()} ${pathTemplate}`);
+      if (!operationId)
+        throw new Error(`Missing operationId for ${methodLower.toUpperCase()} ${pathTemplate}`);
       if (seen.has(operationId)) throw new Error(`Duplicate operationId: ${operationId}`);
       seen.add(operationId);
 
       const method = methodLower.toUpperCase() as HttpMethod;
-      const allParams = [...pathParams, ...extractParameters(asArray(operation.parameters), bundledSpec)];
+      const allParams = [
+        ...pathParams,
+        ...extractParameters(asArray(operation.parameters), bundledSpec),
+      ];
       const responses = extractResponses(asObject(operation.responses), bundledSpec);
       const cardBase = {
         operationId,
@@ -173,7 +177,10 @@ function preferredContentEntry(content: JsonObject): [string, JsonObject] | unde
 }
 
 function streamKindForOperation(operation: JsonObject, responses: ResponseCard[]): StreamKind {
-  if (operation["x-fern-streaming"] === undefined && operation["x-fern-sdk-streaming"] === undefined)
+  if (
+    operation["x-fern-streaming"] === undefined &&
+    operation["x-fern-sdk-streaming"] === undefined
+  )
     return "none";
   const okResponse = responses.find((response) => response.status === "200") ?? responses[0];
   const contentType = okResponse?.contentType?.toLowerCase() ?? "";
@@ -189,7 +196,10 @@ function groupForOperation(operation: JsonObject, pathTemplate: string): string[
   if (typeof fernGroup === "string" && fernGroup) return [fernGroup];
   const tags = stringArray(operation.tags);
   if (tags.length > 0) return [tags[0] as string];
-  const pathSegment = pathTemplate.split("/").filter(Boolean).find((part) => !/^v\d+$/iu.test(part));
+  const pathSegment = pathTemplate
+    .split("/")
+    .filter(Boolean)
+    .find((part) => !/^v\d+$/iu.test(part));
   return [pathSegment ?? "root"];
 }
 
@@ -284,7 +294,9 @@ function asArray(value: unknown): unknown[] {
 }
 
 function stringArray(value: unknown): string[] {
-  return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string") : [];
+  return Array.isArray(value)
+    ? value.filter((entry): entry is string => typeof entry === "string")
+    : [];
 }
 
 function stringValue(value: unknown): string | undefined {

@@ -1,11 +1,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { compileSpec } from "./compile-spec";
-import {
-  rawSpecCachePath,
-  vendoredSpecPath,
-  writeRegistryCache,
-} from "./registry";
+import { rawSpecCachePath, vendoredSpecPath, writeRegistryCache } from "./registry";
 import { failure, success } from "../core/envelope";
 import { ExitCode } from "../core/types";
 import type { RegistryOptions } from "./registry";

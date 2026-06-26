@@ -2,7 +2,11 @@ import { mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { InputNormalizationError, buildHttpRequest, normalizeInput } from "../src/core/request-builder";
+import {
+  InputNormalizationError,
+  buildHttpRequest,
+  normalizeInput,
+} from "../src/core/request-builder";
 import type { OperationCard } from "../src/core/types";
 
 let dir: string;

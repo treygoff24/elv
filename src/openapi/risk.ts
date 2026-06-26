@@ -1,10 +1,7 @@
 import type { CostHint, OperationCard, Risk } from "../core/types";
 
 // P7: curated lists reviewed against full 320-op set.
-export const DESTRUCTIVE_OP_IDS = new Set([
-  "disable",
-  "set_third_party_disabling_policy",
-]);
+export const DESTRUCTIVE_OP_IDS = new Set(["disable", "set_third_party_disabling_policy"]);
 
 // P7: curated lists reviewed against full 320-op set.
 export const EXTERNAL_SIDE_EFFECT_OP_IDS = new Set([

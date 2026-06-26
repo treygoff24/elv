@@ -143,7 +143,11 @@ export function hintsForError(err: NormalizedError, operationId?: string, cmd?: 
   if (code === "invalid_api_key" || code === "missing_api_key") {
     return [{ cmd: "elv config doctor", why: "Verify ELEVENLABS_API_KEY is set and valid." }];
   }
-  if (code === "forbidden" || code === "insufficient_permissions" || code === "feature_not_available") {
+  if (
+    code === "forbidden" ||
+    code === "insufficient_permissions" ||
+    code === "feature_not_available"
+  ) {
     return [
       {
         cmd: "elv config doctor",

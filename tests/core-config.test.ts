@@ -100,7 +100,12 @@ describe("config", () => {
     vi.stubEnv("ELV_CACHE_DIR", join(home, ".cache", "elv"));
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () => new Response(JSON.stringify({ voices }), { headers: { "content-type": "application/json" } })),
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ voices }), {
+            headers: { "content-type": "application/json" },
+          }),
+      ),
     );
 
     const env = await runOperation("get_voices", {}, { baseUrl: "https://api.test" });

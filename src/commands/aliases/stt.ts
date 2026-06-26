@@ -33,7 +33,10 @@ export function buildSttInput(flags: SttFlags): { operationId: string; input: Ag
   };
 }
 
-export function registerSttCommand(program: Command, addCommonFlags: (command: Command) => Command): void {
+export function registerSttCommand(
+  program: Command,
+  addCommonFlags: (command: Command) => Command,
+): void {
   addCommonFlags(
     program
       .command("stt")
@@ -53,7 +56,10 @@ export function registerSttCommand(program: Command, addCommonFlags: (command: C
           if (!options.wait || !env.ok) emit(env);
           await waitForTranscript(env, opts);
         } catch (error) {
-          emitAndExit(validationError(commandName(command), message(error)), ExitCode.InputValidation);
+          emitAndExit(
+            validationError(commandName(command), message(error)),
+            ExitCode.InputValidation,
+          );
         }
       }),
   );
@@ -61,7 +67,11 @@ export function registerSttCommand(program: Command, addCommonFlags: (command: C
 
 async function waitForTranscript(env: Envelope, opts: RunOpts): Promise<never> {
   const id = stringAt(env, ["transcription_id", "transcript_id", "id"]);
-  if (!id) emitAndExit(validationError("elv stt", "--wait could not find a transcription id in the response"), ExitCode.InputValidation);
+  if (!id)
+    emitAndExit(
+      validationError("elv stt", "--wait could not find a transcription id in the response"),
+      ExitCode.InputValidation,
+    );
   const result = await waitForOperation(
     {
       operation: "get_transcript_by_id",

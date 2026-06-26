@@ -59,9 +59,7 @@ describe("OpenAPI compiler", () => {
     expect(byId.get("add_voice")?.requestBody?.fileFields).toEqual(["files"]);
     expect(byId.get("add_pvc_voice_samples")?.requestBody?.fileFields).toEqual(["files"]);
     expect(byId.get("edit_voice")?.requestBody?.fileFields).toEqual(["files"]);
-    expect(byId.get("request_pvc_manual_verification")?.requestBody?.fileFields).toEqual([
-      "files",
-    ]);
+    expect(byId.get("request_pvc_manual_verification")?.requestBody?.fileFields).toEqual(["files"]);
     expect(byId.get("video_to_music")?.requestBody?.fileFields).toEqual(["videos"]);
   });
 

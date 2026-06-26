@@ -15,12 +15,22 @@ describe("provider error normalization", () => {
       param: "model_id",
       request_id: "req_1",
     });
-    expect(err.raw).toEqual({ detail: [{ loc: ["body", "model_id"], msg: "bad model", type: "value_error" }] });
+    expect(err.raw).toEqual({
+      detail: [{ loc: ["body", "model_id"], msg: "bad model", type: "value_error" }],
+    });
   });
 
   it("normalizes rich object detail", () => {
     const err = normalizeProviderError(
-      { detail: { type: "validation_error", code: "invalid_parameters", message: "bad", request_id: "req_2", param: "keyterms" } },
+      {
+        detail: {
+          type: "validation_error",
+          code: "invalid_parameters",
+          message: "bad",
+          request_id: "req_2",
+          param: "keyterms",
+        },
+      },
       400,
       new Headers(),
     );
@@ -48,7 +58,11 @@ describe("provider error normalization", () => {
   });
 
   it("normalizes bare string detail", () => {
-    const err = normalizeProviderError({ detail: "try later" }, 429, new Headers({ "request-id": "req_3" }));
+    const err = normalizeProviderError(
+      { detail: "try later" },
+      429,
+      new Headers({ "request-id": "req_3" }),
+    );
     expect(err).toMatchObject({
       type: "rate_limit_error",
       code: "rate_limit_exceeded",

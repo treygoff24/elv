@@ -406,13 +406,7 @@ describe("pagination mock server (black-box, integration gate)", () => {
     "voices list --fields rejects combination with --all (no silent drop)",
     async () => {
       v2VoicesRequestCount = 0;
-      const { stdout, code } = await runElv([
-        "voices",
-        "list",
-        "--fields",
-        "voice_id",
-        "--all",
-      ]);
+      const { stdout, code } = await runElv(["voices", "list", "--fields", "voice_id", "--all"]);
 
       expect(code).toBe(2);
       expect(v2VoicesRequestCount).toBe(0);

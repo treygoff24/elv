@@ -3,7 +3,12 @@ import { readPath } from "../src/util/jsonpath";
 
 describe("dotted JSONPath reader", () => {
   it("reads dotted keys, numeric array indices, and leading $.", () => {
-    expect(readPath({ data: { items: [{ state: "queued" }, { state: "done" }] } }, "$.data.items.1.state")).toBe("done");
+    expect(
+      readPath(
+        { data: { items: [{ state: "queued" }, { state: "done" }] } },
+        "$.data.items.1.state",
+      ),
+    ).toBe("done");
   });
 
   it("returns undefined for missing segments", () => {
@@ -11,9 +16,13 @@ describe("dotted JSONPath reader", () => {
   });
 
   it("rejects unsupported JSONPath syntax clearly", () => {
-    expect(() => readPath({ data: { items: [] } }, "data.items[*].state")).toThrow(/\* is not supported/i);
+    expect(() => readPath({ data: { items: [] } }, "data.items[*].state")).toThrow(
+      /\* is not supported/i,
+    );
     expect(() => readPath({ data: { items: [] } }, "voices[*]")).toThrow(/\* is not supported/i);
-    expect(() => readPath({ data: { items: [] } }, "data.items[0].state")).toThrow(/\[\] array projection/i);
+    expect(() => readPath({ data: { items: [] } }, "data.items[0].state")).toThrow(
+      /\[\] array projection/i,
+    );
     expect(() => readPath({ data: { items: [] } }, "foo[]bar.x")).toThrow(/\[\] array projection/i);
     expect(() => readPath({ data: { items: [] } }, "foo[")).toThrow(/\[\] array projection/i);
     expect(() => readPath({ data: { items: [] } }, "foo]")).toThrow(/\[\] array projection/i);
@@ -22,10 +31,7 @@ describe("dotted JSONPath reader", () => {
 
   it("groups per level for nested [] wildcards (array-of-arrays, not flattened)", () => {
     const obj = {
-      voices: [
-        { samples: [{ id: "a" }, { id: "b" }] },
-        { samples: [{ id: "c" }] },
-      ],
+      voices: [{ samples: [{ id: "a" }, { id: "b" }] }, { samples: [{ id: "c" }] }],
     };
     expect(readPath(obj, "voices[].samples[].id")).toEqual([["a", "b"], ["c"]]);
   });

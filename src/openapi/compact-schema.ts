@@ -54,7 +54,9 @@ function emptyCompactSchema(): CompactSchema {
 
 function addParams(compact: CompactSchema, params: ParamCard[]): void {
   for (const param of params) {
-    const bucket = param.required ? compact.required[param.location] : compact.optional[param.location];
+    const bucket = param.required
+      ? compact.required[param.location]
+      : compact.optional[param.location];
     bucket[param.name] = compactValue(param.schema);
   }
 }
@@ -73,11 +75,19 @@ function addBody(compact: CompactSchema, op: OperationCard, spec: OpenApiDocumen
 
   for (const [name, property] of Object.entries(properties)) {
     const target = required.has(name) ? compact.required.body : compact.optional.body;
-    target[name] = compactValue(property, spec, new Set(op.requestBody.schemaRef ? [op.requestBody.schemaRef] : []));
+    target[name] = compactValue(
+      property,
+      spec,
+      new Set(op.requestBody.schemaRef ? [op.requestBody.schemaRef] : []),
+    );
   }
 }
 
-function compactValue(schema: unknown, spec?: OpenApiDocument, visited = new Set<string>()): CompactValue {
+function compactValue(
+  schema: unknown,
+  spec?: OpenApiDocument,
+  visited = new Set<string>(),
+): CompactValue {
   const ref = refValue(schema);
   if (ref) {
     if (visited.has(ref)) return { $recursive: schemaNameFromRef(ref) };
@@ -90,10 +100,12 @@ function compactValue(schema: unknown, spec?: OpenApiDocument, visited = new Set
   if (variant) return compactValue(variant, spec, visited);
 
   if (Array.isArray(object.enum)) return { type: typeName(object) ?? "string", enum: object.enum };
-  if (object.const !== undefined) return { type: typeName(object) ?? typeof object.const, const: object.const };
+  if (object.const !== undefined)
+    return { type: typeName(object) ?? typeof object.const, const: object.const };
 
   const type = typeName(object);
-  if (type === "array") return { type: "array", items: compactValue(object.items ?? {}, spec, visited) };
+  if (type === "array")
+    return { type: "array", items: compactValue(object.items ?? {}, spec, visited) };
   if (type === "object" || Object.keys(asObject(object.properties)).length > 0) {
     const nested = Object.fromEntries(
       Object.entries(asObject(object.properties)).map(([name, property]) => [
@@ -138,13 +150,18 @@ function placeholderFor(name: string, shape: CompactValue): unknown {
   return `<${name}>`;
 }
 
-function cleanEmptyBuckets(input: Record<string, Record<string, unknown>>): Record<string, unknown> {
-  return Object.fromEntries(Object.entries(input).filter(([, value]) => Object.keys(value).length > 0));
+function cleanEmptyBuckets(
+  input: Record<string, Record<string, unknown>>,
+): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(input).filter(([, value]) => Object.keys(value).length > 0),
+  );
 }
 
 function typeName(object: JsonObject): string | undefined {
   if (typeof object.type === "string") return object.type;
-  if (Array.isArray(object.type)) return object.type.find((entry): entry is string => entry !== "null");
+  if (Array.isArray(object.type))
+    return object.type.find((entry): entry is string => entry !== "null");
   return undefined;
 }
 
@@ -154,7 +171,9 @@ function refValue(value: unknown): string | undefined {
 }
 
 function asStringArray(value: unknown): string[] {
-  return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string") : [];
+  return Array.isArray(value)
+    ? value.filter((entry): entry is string => typeof entry === "string")
+    : [];
 }
 
 function asObject(value: unknown): JsonObject {

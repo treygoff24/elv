@@ -40,7 +40,10 @@ export async function handleHttp(
   options: HttpOptions,
 ): Promise<never> {
   const env = await runHttp(method, path, options);
-  emitAndExit(env, env.ok ? Codes.Success : exitCodeForError(env.error, env.http?.status ?? undefined));
+  emitAndExit(
+    env,
+    env.ok ? Codes.Success : exitCodeForError(env.error, env.http?.status ?? undefined),
+  );
 }
 
 export async function runHttp(
@@ -56,12 +59,16 @@ export async function runHttp(
     const op = httpOperation(parsed.method, path, parsed.input);
     const opts = runOpts(options);
     if (opts.limit !== undefined && (!Number.isInteger(opts.limit) || opts.limit <= 0)) {
-      return validationError(cmd, "--limit must be a positive integer", { operationId: op.operationId });
+      return validationError(cmd, "--limit must be a positive integer", {
+        operationId: op.operationId,
+      });
     }
     const input = applyPaginationDefaults(op, parsed.input, opts.limit ?? 20);
 
     if (opts.all && !allOutputTarget(opts)) {
-      return validationError(cmd, "--all requires --save-json or --out", { operationId: op.operationId });
+      return validationError(cmd, "--all requires --save-json or --out", {
+        operationId: op.operationId,
+      });
     }
 
     const config = loadConfig({
@@ -143,8 +150,10 @@ function parseHttpInput(
   | { ok: false; env: ReturnType<typeof validationError> } {
   const cmd = `elv http ${methodRaw} ${path}`;
   const method = methodRaw.toUpperCase();
-  if (!isHttpMethod(method)) return { ok: false, env: validationError(cmd, `Unsupported HTTP method: ${methodRaw}`) };
-  if (!path.startsWith("/")) return { ok: false, env: validationError(cmd, "HTTP path must start with /") };
+  if (!isHttpMethod(method))
+    return { ok: false, env: validationError(cmd, `Unsupported HTTP method: ${methodRaw}`) };
+  if (!path.startsWith("/"))
+    return { ok: false, env: validationError(cmd, "HTTP path must start with /") };
 
   try {
     const input: AgentInput = {};
@@ -168,7 +177,12 @@ function httpOperation(method: HttpMethod, path: string, input: AgentInput): Ope
     pathTemplate: path,
     group: ["http"],
     tags: [],
-    risk: method === "GET" || method === "HEAD" ? "read" : method === "DELETE" ? "destructive" : "mutate",
+    risk:
+      method === "GET" || method === "HEAD"
+        ? "read"
+        : method === "DELETE"
+          ? "destructive"
+          : "mutate",
     pathParams: [],
     queryParams: [],
     headerParams: [],

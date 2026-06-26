@@ -5,7 +5,18 @@ import { emitAndExit, validationError } from "../../core/errors";
 import { waitForOperation } from "../wait";
 import { ExitCode } from "../../core/types";
 import type { AgentInput, Envelope, RunOpts } from "../../core/types";
-import { addPaginationFlags, commandName, compact, compactInput, emit, message, projectFields, required, resolveListOpts, runOpts } from "./shared";
+import {
+  addPaginationFlags,
+  commandName,
+  compact,
+  compactInput,
+  emit,
+  message,
+  projectFields,
+  required,
+  resolveListOpts,
+  runOpts,
+} from "./shared";
 
 export interface DubbingCreateFlags {
   file?: string;
@@ -20,7 +31,10 @@ export interface DubbingIdFlags {
   language?: string;
 }
 
-export function buildDubbingCreateInput(flags: DubbingCreateFlags): { operationId: string; input: AgentInput } {
+export function buildDubbingCreateInput(flags: DubbingCreateFlags): {
+  operationId: string;
+  input: AgentInput;
+} {
   return {
     operationId: "create_dubbing",
     input: compactInput({
@@ -30,22 +44,42 @@ export function buildDubbingCreateInput(flags: DubbingCreateFlags): { operationI
   };
 }
 
-export function buildDubbingGetInput(flags: DubbingIdFlags): { operationId: string; input: AgentInput } {
-  return { operationId: "get_dubbed_metadata", input: { path: { dubbing_id: required(flags.id, "--id") } } };
-}
-
-export function buildDubbingAudioInput(flags: DubbingIdFlags): { operationId: string; input: AgentInput } {
+export function buildDubbingGetInput(flags: DubbingIdFlags): {
+  operationId: string;
+  input: AgentInput;
+} {
   return {
-    operationId: "get_dubbed_file",
-    input: { path: { dubbing_id: required(flags.id, "--id"), language_code: required(flags.language, "--language") } },
+    operationId: "get_dubbed_metadata",
+    input: { path: { dubbing_id: required(flags.id, "--id") } },
   };
 }
 
-export function buildDubbingListInput(_flags: DubbingIdFlags): { operationId: string; input: AgentInput } {
+export function buildDubbingAudioInput(flags: DubbingIdFlags): {
+  operationId: string;
+  input: AgentInput;
+} {
+  return {
+    operationId: "get_dubbed_file",
+    input: {
+      path: {
+        dubbing_id: required(flags.id, "--id"),
+        language_code: required(flags.language, "--language"),
+      },
+    },
+  };
+}
+
+export function buildDubbingListInput(_flags: DubbingIdFlags): {
+  operationId: string;
+  input: AgentInput;
+} {
   return { operationId: "list_dubs", input: {} };
 }
 
-export function registerDubbingCommand(program: Command, addCommonFlags: (command: Command) => Command): void {
+export function registerDubbingCommand(
+  program: Command,
+  addCommonFlags: (command: Command) => Command,
+): void {
   const dubbing = program.command("dubbing").description("Dubbing");
   addCommonFlags(
     dubbing
@@ -64,18 +98,48 @@ export function registerDubbingCommand(program: Command, addCommonFlags: (comman
           if (!options.wait || !env.ok) emit(env);
           await waitForDubbing(env, opts);
         } catch (error) {
-          emitAndExit(validationError(commandName(command), message(error)), ExitCode.InputValidation);
+          emitAndExit(
+            validationError(commandName(command), message(error)),
+            ExitCode.InputValidation,
+          );
         }
       }),
   );
-  addCommonFlags(dubbing.command("get").description("Get dubbing project metadata").option("--id <id>", "dubbing project id").action((options: DubbingIdFlags, command: Command) => runBuilt(buildDubbingGetInput, options, command)));
-  addCommonFlags(dubbing.command("audio").description("Download dubbed audio").option("--id <id>", "dubbing project id").option("--language <code>", "target language code for dubbed audio").action((options: DubbingIdFlags, command: Command) => runBuilt(buildDubbingAudioInput, options, command)));
-  addCommonFlags(addPaginationFlags(dubbing.command("list")).description("List dubbing projects").action((options: DubbingIdFlags, command: Command) => runBuilt(buildDubbingListInput, options, command)));
+  addCommonFlags(
+    dubbing
+      .command("get")
+      .description("Get dubbing project metadata")
+      .option("--id <id>", "dubbing project id")
+      .action((options: DubbingIdFlags, command: Command) =>
+        runBuilt(buildDubbingGetInput, options, command),
+      ),
+  );
+  addCommonFlags(
+    dubbing
+      .command("audio")
+      .description("Download dubbed audio")
+      .option("--id <id>", "dubbing project id")
+      .option("--language <code>", "target language code for dubbed audio")
+      .action((options: DubbingIdFlags, command: Command) =>
+        runBuilt(buildDubbingAudioInput, options, command),
+      ),
+  );
+  addCommonFlags(
+    addPaginationFlags(dubbing.command("list"))
+      .description("List dubbing projects")
+      .action((options: DubbingIdFlags, command: Command) =>
+        runBuilt(buildDubbingListInput, options, command),
+      ),
+  );
 }
 
 async function waitForDubbing(env: Envelope, opts: RunOpts): Promise<never> {
   const id = stringAt(env, ["dubbing_id", "id"]);
-  if (!id) emitAndExit(validationError("elv dubbing create", "--wait could not find a dubbing id in the response"), ExitCode.InputValidation);
+  if (!id)
+    emitAndExit(
+      validationError("elv dubbing create", "--wait could not find a dubbing id in the response"),
+      ExitCode.InputValidation,
+    );
   const result = await waitForOperation(
     {
       operation: "get_dubbed_metadata",
@@ -89,11 +153,18 @@ async function waitForDubbing(env: Envelope, opts: RunOpts): Promise<never> {
   emitAndExit(result.env, result.exitCode);
 }
 
-async function runBuilt<T>(builder: (flags: T) => { operationId: string; input: AgentInput }, flags: T, command: Command): Promise<never> {
+async function runBuilt<T>(
+  builder: (flags: T) => { operationId: string; input: AgentInput },
+  flags: T,
+  command: Command,
+): Promise<never> {
   try {
     const built = builder(flags);
     const { fields, fetch } = resolveListOpts(command);
-    const env = await runOperation(built.operationId, built.input, { ...runOpts(command), ...fetch });
+    const env = await runOperation(built.operationId, built.input, {
+      ...runOpts(command),
+      ...fetch,
+    });
     emit(fields && env.ok ? projectFields(env, fields) : env);
   } catch (error) {
     emitAndExit(validationError(commandName(command), message(error)), ExitCode.InputValidation);

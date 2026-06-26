@@ -26,7 +26,8 @@ export function normalizeProviderError(
   }
 
   if (isRecord(detail)) {
-    const code = stringValue(detail.code) ?? stringValue(detail.status) ?? genericCodeFromStatus(httpStatus);
+    const code =
+      stringValue(detail.code) ?? stringValue(detail.status) ?? genericCodeFromStatus(httpStatus);
     return {
       type: stringValue(detail.type) ?? classifyTypeFromStatus(httpStatus),
       code,

@@ -1,7 +1,8 @@
 export function readPath(obj: unknown, path: string): unknown {
   const clean = path.startsWith("$.") ? path.slice(2) : path;
   if (!clean) throw new Error("status path must be a non-empty dotted path");
-  if (clean.includes("..")) throw new Error("Recursive descent is not supported; use a dotted path");
+  if (clean.includes(".."))
+    throw new Error("Recursive descent is not supported; use a dotted path");
   if (clean.includes("*")) {
     throw new Error("Wildcards use [] for arrays (e.g. voices[].name); * is not supported");
   }

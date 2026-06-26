@@ -20,12 +20,19 @@ export function buildMusicInput(flags: MusicFlags): { operationId: string; input
     operationId: flags.stream ? "stream_compose" : "generate",
     input: compactInput({
       query: compact({ output_format: flags.format }),
-      body: compact({ prompt: readPrompt(flags.prompt, flags.promptFile), model_id: flags.model, music_length_ms: numberValue(flags.lengthMs) }),
+      body: compact({
+        prompt: readPrompt(flags.prompt, flags.promptFile),
+        model_id: flags.model,
+        music_length_ms: numberValue(flags.lengthMs),
+      }),
     }),
   };
 }
 
-export function registerMusicCommand(program: Command, addCommonFlags: (command: Command) => Command): void {
+export function registerMusicCommand(
+  program: Command,
+  addCommonFlags: (command: Command) => Command,
+): void {
   const music = program.command("music").description("Music generation");
   const configure = (command: Command, stream: boolean) =>
     addCommonFlags(
@@ -35,7 +42,9 @@ export function registerMusicCommand(program: Command, addCommonFlags: (command:
         .option("--model <id>", "music model id")
         .option("--format <format>", "output audio format (output_format)")
         .option("--length-ms <ms>", "target track length in milliseconds")
-        .action(async (options: MusicFlags, command: Command) => runBuilt({ ...options, stream }, command)),
+        .action(async (options: MusicFlags, command: Command) =>
+          runBuilt({ ...options, stream }, command),
+        ),
     );
   configure(music, false);
   configure(music.command("stream").description("Music generation (streaming)"), true);
@@ -52,7 +61,8 @@ async function runBuilt(flags: MusicFlags, command: Command): Promise<never> {
 }
 
 function readPrompt(prompt: string | undefined, file: string | undefined): string | undefined {
-  if (prompt !== undefined && file !== undefined) throw new Error("Use --prompt or --prompt-file, not both");
+  if (prompt !== undefined && file !== undefined)
+    throw new Error("Use --prompt or --prompt-file, not both");
   if (prompt !== undefined) return prompt;
   if (file !== undefined) return readFileSync(file, "utf8");
   return undefined;

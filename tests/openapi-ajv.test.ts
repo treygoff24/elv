@@ -5,7 +5,9 @@ import { compileSpec } from "../src/openapi/compile-spec";
 describe("Ajv 2020 validator", () => {
   it("validates good TTS bodies and rejects bad ones by component $ref", async () => {
     const compiled = await compileSpec({ sourcePath: "spec/openapi.snapshot.json" });
-    const op = compiled.operations.find((candidate) => candidate.operationId === "text_to_speech_full");
+    const op = compiled.operations.find(
+      (candidate) => candidate.operationId === "text_to_speech_full",
+    );
     expect(op).toBeDefined();
 
     const ajv = buildAjv(compiled.bundledSpec);
@@ -18,7 +20,9 @@ describe("Ajv 2020 validator", () => {
 
   it("compiles inline request body schemas", async () => {
     const compiled = await compileSpec({ sourcePath: "fixtures/fake-openapi.json" });
-    const op = compiled.operations.find((candidate) => candidate.operationId === "text_to_speech_fake");
+    const op = compiled.operations.find(
+      (candidate) => candidate.operationId === "text_to_speech_fake",
+    );
     expect(op).toBeDefined();
 
     const validate = getInputValidator(buildAjv(compiled.bundledSpec), op!);

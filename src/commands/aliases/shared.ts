@@ -5,7 +5,8 @@ import type { AgentInput, Envelope, RunOpts, SuccessEnvelope } from "../../core/
 
 export function mergedOptions(command: Command): Record<string, unknown> {
   const chain: Command[] = [];
-  for (let current: Command | null = command; current; current = current.parent) chain.unshift(current);
+  for (let current: Command | null = command; current; current = current.parent)
+    chain.unshift(current);
   return Object.assign({}, ...chain.map((current) => current.opts()));
 }
 
@@ -23,7 +24,11 @@ export function runOpts(command: Command): RunOpts {
   };
 }
 
-export function paginationOpts(command: Command): { all?: boolean; limit?: number; saveJson?: string } {
+export function paginationOpts(command: Command): {
+  all?: boolean;
+  limit?: number;
+  saveJson?: string;
+} {
   const opts = mergedOptions(command);
   return {
     all: opts.all ? true : undefined,
@@ -35,15 +40,24 @@ export function paginationOpts(command: Command): { all?: boolean; limit?: numbe
 export function addPaginationFlags(command: Command): Command {
   return command
     .option("--limit <n>", "max items returned (also sets page size)")
-    .option("--all", "fetch every page and save the full set to a file (requires --save-json or --out)")
+    .option(
+      "--all",
+      "fetch every page and save the full set to a file (requires --save-json or --out)",
+    )
     .option("--save-json <path>", "write the full JSON result to this path")
-    .option("--fields <csv>", "project list items to a comma-separated set of fields (compact inline output)");
+    .option(
+      "--fields <csv>",
+      "project list items to a comma-separated set of fields (compact inline output)",
+    );
 }
 
 export function fieldsOpt(command: Command): string[] | undefined {
   const raw = optionString(mergedOptions(command).fields);
   if (!raw) return undefined;
-  const fields = raw.split(",").map((field) => field.trim()).filter(Boolean);
+  const fields = raw
+    .split(",")
+    .map((field) => field.trim())
+    .filter(Boolean);
   return fields.length ? fields : undefined;
 }
 
@@ -119,7 +133,10 @@ export function commandName(command: Command): string {
 }
 
 export function emit(env: Envelope): never {
-  emitAndExit(env, env.ok ? ExitCode.Success : exitCodeForError(env.error, env.http?.status ?? undefined));
+  emitAndExit(
+    env,
+    env.ok ? ExitCode.Success : exitCodeForError(env.error, env.http?.status ?? undefined),
+  );
 }
 
 export function message(error: unknown): string {
@@ -137,7 +154,9 @@ export function compact(record: Record<string, unknown>): Record<string, unknown
 }
 
 export function compactInput(input: AgentInput): AgentInput {
-  return Object.fromEntries(Object.entries(input).filter(([, value]) => value !== undefined)) as AgentInput;
+  return Object.fromEntries(
+    Object.entries(input).filter(([, value]) => value !== undefined),
+  ) as AgentInput;
 }
 
 export function numberValue(value: string | number | undefined): number | undefined {

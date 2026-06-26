@@ -34,9 +34,18 @@ export function buildViewResult(
       return {
         env: failure({
           cmd,
-          error: { type: "not_found_error", code: "not_found", message: `File not found: ${resolved}` },
+          error: {
+            type: "not_found_error",
+            code: "not_found",
+            message: `File not found: ${resolved}`,
+          },
           retry: { recommended: false, after_ms: null },
-          hints: [{ cmd: "elv <prior-cmd>", why: "Check files[].path from the prior command's envelope." }],
+          hints: [
+            {
+              cmd: "elv <prior-cmd>",
+              why: "Check files[].path from the prior command's envelope.",
+            },
+          ],
         }),
         exitCode: ExitCode.NotFound,
       };

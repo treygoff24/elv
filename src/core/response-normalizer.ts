@@ -255,7 +255,8 @@ async function writeFullTimestampFiles(
 ): Promise<FileRecord[]> {
   const target = resolveOutTarget(ctx.out, false);
   const audioName =
-    target.file ?? deriveFilename(op.operationId, "audio", audioExtensionFromRequestPath(ctx.requestPath));
+    target.file ??
+    deriveFilename(op.operationId, "audio", audioExtensionFromRequestPath(ctx.requestPath));
   const audioPath = await writeBufferToFile(
     Buffer.from(String(data.audio_base64), "base64"),
     join(target.dir, audioName),
@@ -287,7 +288,9 @@ function isFullTimestampResponse(
 
 function timestampSidecarPath(audioPath: string): string {
   const ext = extname(audioPath);
-  return ext ? `${audioPath.slice(0, -ext.length)}.timestamps.json` : `${audioPath}.timestamps.json`;
+  return ext
+    ? `${audioPath.slice(0, -ext.length)}.timestamps.json`
+    : `${audioPath}.timestamps.json`;
 }
 
 async function streamJsonEventsFiles(

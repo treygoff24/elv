@@ -3,9 +3,7 @@ import { redact, redactString } from "../core/redaction";
 import { tempFileWriter } from "../core/files";
 import type { TempFileWriter } from "../core/files";
 
-export type SendScriptAction =
-  | { type: "send"; data: Record<string, unknown> }
-  | { type: "close" };
+export type SendScriptAction = { type: "send"; data: Record<string, unknown> } | { type: "close" };
 
 export class NdjsonEventWriter {
   readonly path: string;

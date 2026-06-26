@@ -17,17 +17,21 @@ export function buildUsageInput(flags: UsageFlags): { operationId: string; input
   return {
     operationId: "usage_characters",
     input: {
-      query: compact({
-        start_unix: dateMs(required(flags.from, "--from")),
-        end_unix: dateMs(required(flags.to, "--to")),
-        breakdown_type: flags.breakdown,
-        metric: flags.metric,
-      }) ?? {},
+      query:
+        compact({
+          start_unix: dateMs(required(flags.from, "--from")),
+          end_unix: dateMs(required(flags.to, "--to")),
+          breakdown_type: flags.breakdown,
+          metric: flags.metric,
+        }) ?? {},
     },
   };
 }
 
-export function registerUsageCommand(program: Command, addCommonFlags: (command: Command) => Command): void {
+export function registerUsageCommand(
+  program: Command,
+  addCommonFlags: (command: Command) => Command,
+): void {
   addCommonFlags(
     program
       .command("usage")

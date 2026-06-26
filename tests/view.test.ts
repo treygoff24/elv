@@ -30,7 +30,11 @@ describe("view command", () => {
 
   it("drills into a dotted path", () => {
     const file = join(dir, "nested.json");
-    writeFileSync(file, JSON.stringify({ data: { x: [{ name: "alpha" }, { name: "beta" }] } }), "utf8");
+    writeFileSync(
+      file,
+      JSON.stringify({ data: { x: [{ name: "alpha" }, { name: "beta" }] } }),
+      "utf8",
+    );
 
     const { env, exitCode } = buildViewResult(file, { path: "data.x.0" });
     expect(exitCode).toBe(ExitCode.Success);

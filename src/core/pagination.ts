@@ -1,10 +1,5 @@
 import { join } from "node:path";
-import {
-  deriveFilename,
-  fileRecord,
-  resolveOutTarget,
-  writeBufferToFile,
-} from "./files";
+import { deriveFilename, fileRecord, resolveOutTarget, writeBufferToFile } from "./files";
 import { success } from "./envelope";
 import { shellArg } from "../util/shell";
 import type {
@@ -263,7 +258,10 @@ async function writeAllItems(
 ): Promise<FileRecord> {
   const target = resolveOutTarget(options.saveJson ?? options.out, false);
   const filename = target.file ?? deriveFilename(options.op.operationId, "all", "json");
-  const path = await writeBufferToFile(`${JSON.stringify(items, null, 2)}\n`, join(target.dir, filename));
+  const path = await writeBufferToFile(
+    `${JSON.stringify(items, null, 2)}\n`,
+    join(target.dir, filename),
+  );
   return { ...(await fileRecord(path, { hash: options.hash })), mime: "application/json" };
 }
 

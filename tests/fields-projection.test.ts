@@ -31,7 +31,13 @@ describe("projectFields", () => {
   });
 
   it("projects a top-level array directly", () => {
-    const result = projectFields(env([{ id: 1, big: "z".repeat(99) }, { id: 2, big: "z" }]), ["id"]);
+    const result = projectFields(
+      env([
+        { id: 1, big: "z".repeat(99) },
+        { id: 2, big: "z" },
+      ]),
+      ["id"],
+    );
     expect(result.data).toEqual([{ id: 1 }, { id: 2 }]);
   });
 

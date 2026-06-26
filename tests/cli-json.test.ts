@@ -86,7 +86,9 @@ describe("CLI JSON output contract", () => {
     expect((data.description as string).length).toBeGreaterThan(0);
     const commands = data.commands as Array<{ name: string; description: string }>;
     expect(commands.length).toBeGreaterThan(0);
-    expect(commands.every((c) => typeof c.name === "string" && c.description.length > 0)).toBe(true);
+    expect(commands.every((c) => typeof c.name === "string" && c.description.length > 0)).toBe(
+      true,
+    );
     expect(commands.some((c) => c.name === "tts")).toBe(true);
   });
 

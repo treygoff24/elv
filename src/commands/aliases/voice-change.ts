@@ -4,7 +4,16 @@ import { runOperation } from "../../core/client";
 import { emitAndExit, validationError } from "../../core/errors";
 import { ExitCode } from "../../core/types";
 import type { AgentInput, Envelope, RunOpts } from "../../core/types";
-import { commandName, compact, compactInput, emit, mergedOptions, message, required, runOpts } from "./shared";
+import {
+  commandName,
+  compact,
+  compactInput,
+  emit,
+  mergedOptions,
+  message,
+  required,
+  runOpts,
+} from "./shared";
 import { findMatchingVoices, RESOLVER_PAGE_SIZE, type VoiceRecord } from "./voices";
 
 export interface VoiceChangeFlags {
@@ -17,25 +26,37 @@ export interface VoiceChangeFlags {
   removeBackgroundNoise?: boolean;
 }
 
-export function buildVoiceChangeInput(flags: VoiceChangeFlags): { operationId: string; input: AgentInput } {
+export function buildVoiceChangeInput(flags: VoiceChangeFlags): {
+  operationId: string;
+  input: AgentInput;
+} {
   return {
     operationId: flags.stream ? "speech_to_speech_stream" : "speech_to_speech_full",
     input: compactInput({
       path: { voice_id: required(flags.voiceId, "--voice-id") },
       query: compact({ output_format: flags.format }),
       files: { audio: resolve(required(flags.file, "--file")) },
-      body: compact({ model_id: flags.model, remove_background_noise: flags.removeBackgroundNoise }),
+      body: compact({
+        model_id: flags.model,
+        remove_background_noise: flags.removeBackgroundNoise,
+      }),
     }),
   };
 }
 
-export function registerVoiceChangeCommand(program: Command, addCommonFlags: (command: Command) => Command): void {
+export function registerVoiceChangeCommand(
+  program: Command,
+  addCommonFlags: (command: Command) => Command,
+): void {
   const root = program.command("voice-change").description("Speech to speech voice conversion");
   const configure = (command: Command, stream: boolean) =>
     addCommonFlags(
       command
         .option("--voice-id <id>", "target ElevenLabs voice id")
-        .option("--voice <name>", "resolve target voice by name (exact, else unique substring) instead of id")
+        .option(
+          "--voice <name>",
+          "resolve target voice by name (exact, else unique substring) instead of id",
+        )
         .option("--file <path>", "input audio file to convert")
         .option("--model <id>", "speech-to-speech model id")
         .option("--format <format>", "output audio format (output_format)")
@@ -61,10 +82,18 @@ async function runBuilt(flags: VoiceChangeFlags, command: Command): Promise<neve
   }
 }
 
-async function resolveVoiceId(flags: VoiceChangeFlags, opts: RunOpts, cmd: string): Promise<string> {
+async function resolveVoiceId(
+  flags: VoiceChangeFlags,
+  opts: RunOpts,
+  cmd: string,
+): Promise<string> {
   if (flags.voiceId) return flags.voiceId;
   if (!flags.voice) return required(undefined, "--voice-id or --voice");
-  const env = await runOperation("get_user_voices_v2", { query: { search: flags.voice } }, { ...opts, inline: true, limit: RESOLVER_PAGE_SIZE });
+  const env = await runOperation(
+    "get_user_voices_v2",
+    { query: { search: flags.voice } },
+    { ...opts, inline: true, limit: RESOLVER_PAGE_SIZE },
+  );
   if (!env.ok) emit(env);
   const voices = voicesFrom(env);
   const matches = findMatchingVoices(flags.voice, voices);
@@ -83,7 +112,11 @@ async function resolveVoiceId(flags: VoiceChangeFlags, opts: RunOpts, cmd: strin
 function candidateNames(name: string, voices: VoiceRecord[]): string {
   const needle = name.toLowerCase();
   const names = voices
-    .filter((voice) => String(voice.name ?? "").toLowerCase().includes(needle))
+    .filter((voice) =>
+      String(voice.name ?? "")
+        .toLowerCase()
+        .includes(needle),
+    )
     .map((voice) => `${voice.name} (${voice.voice_id})`)
     .slice(0, 10);
   return names.length ? `; candidates: ${names.join(", ")}` : "";

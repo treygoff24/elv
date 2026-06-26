@@ -12,10 +12,7 @@ let servers: WebSocketServer[] = [];
 
 afterEach(async () => {
   await Promise.all(
-    servers.map(
-      (server) =>
-        new Promise<void>((resolve) => server.close(() => resolve())),
-    ),
+    servers.map((server) => new Promise<void>((resolve) => server.close(() => resolve()))),
   );
   servers = [];
   for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
@@ -24,7 +21,9 @@ afterEach(async () => {
 describe("ws session", () => {
   it("plays a send script, auto-pongs, drains audio after script close, and redacts files", async () => {
     const server = await startServer((socket, received) => {
-      socket.send(JSON.stringify({ type: "ping", event_id: "evt-secret", single_use_token: "tok_secret" }));
+      socket.send(
+        JSON.stringify({ type: "ping", event_id: "evt-secret", single_use_token: "tok_secret" }),
+      );
       socket.send(JSON.stringify({ audio: Buffer.from("one").toString("base64") }));
       socket.on("message", () => {
         const payload = JSON.parse(received.at(-1)!) as { type?: string; text?: string };
@@ -49,16 +48,33 @@ describe("ws session", () => {
         .join("\n"),
     );
 
-    const result = await runWs([server.url, "--send", script, "--out", dir, "--query", "single_use_token=tok_secret", "--query", "output_format=mp3_44100_128"], {
-      apiKey: "sk_test_LEAK_CANARY",
-      timeoutMs: 500,
-    });
+    const result = await runWs(
+      [
+        server.url,
+        "--send",
+        script,
+        "--out",
+        dir,
+        "--query",
+        "single_use_token=tok_secret",
+        "--query",
+        "output_format=mp3_44100_128",
+      ],
+      {
+        apiKey: "sk_test_LEAK_CANARY",
+        timeoutMs: 500,
+      },
+    );
 
     expect(result.env.ok).toBe(true);
     expect(result.exitCode).toBe(0);
     if (!result.env.ok) throw new Error("expected success");
     expect(result.env.ws).toMatchObject({ catalog: null, events_sent: 3, closed: true });
-    expect(server.received.some((line) => line.includes('"type":"pong"') && line.includes('"event_id":"evt-secret"'))).toBe(true);
+    expect(
+      server.received.some(
+        (line) => line.includes('"type":"pong"') && line.includes('"event_id":"evt-secret"'),
+      ),
+    ).toBe(true);
 
     const audioPath = join(dir, "audio.mp3");
     expect(readFileSync(audioPath, "utf8")).toBe("onetwo");
@@ -86,10 +102,23 @@ describe("ws session", () => {
     const script = join(dir, "script.ndjson");
     writeFileSync(script, JSON.stringify({ type: "send", data: { text: " " } }));
 
-    const result = await runWs(["tts-realtime", "--query", "voice_id=v1", "--query", "model_id=eleven_v3", "--send", script, "--out", dir], {
-      baseUrl: "http://127.0.0.1:1",
-      timeoutMs: 100,
-    });
+    const result = await runWs(
+      [
+        "tts-realtime",
+        "--query",
+        "voice_id=v1",
+        "--query",
+        "model_id=eleven_v3",
+        "--send",
+        script,
+        "--out",
+        dir,
+      ],
+      {
+        baseUrl: "http://127.0.0.1:1",
+        timeoutMs: 100,
+      },
+    );
 
     expect(result.env.ok).toBe(false);
     expect(result.exitCode).toBe(2);

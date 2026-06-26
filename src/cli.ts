@@ -53,7 +53,10 @@ function buildProgram(version: string): Command {
     .command("ops")
     .description("OpenAPI operation discovery")
     .action((_options: Record<string, unknown>, command: Command) =>
-      emitAndExit(success({ cmd: `elv ${command.name()}`, data: commandHelpData(command) }), ExitCode.Success),
+      emitAndExit(
+        success({ cmd: `elv ${command.name()}`, data: commandHelpData(command) }),
+        ExitCode.Success,
+      ),
     );
   addCommonFlags(
     ops
@@ -64,7 +67,12 @@ function buildProgram(version: string): Command {
         handleOpsSearch(query, { limit: optionString(options.limit) }),
       ),
   );
-  addCommonFlags(ops.command("get <operation_id>").description("Show an operation card: params, risk, examples").action((id: string) => handleOpsGet(id)));
+  addCommonFlags(
+    ops
+      .command("get <operation_id>")
+      .description("Show an operation card: params, risk, examples")
+      .action((id: string) => handleOpsGet(id)),
+  );
   addCommonFlags(
     ops
       .command("schema <operation_id>")
@@ -152,28 +160,40 @@ function buildProgram(version: string): Command {
     .command("config")
     .description("Configuration")
     .action((_options: Record<string, unknown>, command: Command) =>
-      emitAndExit(success({ cmd: `elv ${command.name()}`, data: commandHelpData(command) }), ExitCode.Success),
+      emitAndExit(
+        success({ cmd: `elv ${command.name()}`, data: commandHelpData(command) }),
+        ExitCode.Success,
+      ),
     );
   addCommonFlags(
-    config.command("get").description("Print resolved configuration").action((...args: unknown[]) => {
-      const command = lastCommand(args);
-      const configData = loadConfig(configOverrides(command));
-      emitAndExit(success({ cmd: "elv config get", data: configData }), ExitCode.Success);
-    }),
+    config
+      .command("get")
+      .description("Print resolved configuration")
+      .action((...args: unknown[]) => {
+        const command = lastCommand(args);
+        const configData = loadConfig(configOverrides(command));
+        emitAndExit(success({ cmd: "elv config get", data: configData }), ExitCode.Success);
+      }),
   );
   addCommonFlags(
-    config.command("doctor").description("Check auth, connectivity, and credits").action(async (...args: unknown[]) => {
-      const command = lastCommand(args);
-      const result = await configDoctor(configOverrides(command));
-      emitAndExit(result.env, result.exitCode);
-    }),
+    config
+      .command("doctor")
+      .description("Check auth, connectivity, and credits")
+      .action(async (...args: unknown[]) => {
+        const command = lastCommand(args);
+        const result = await configDoctor(configOverrides(command));
+        emitAndExit(result.env, result.exitCode);
+      }),
   );
 
   const spec = program
     .command("spec")
     .description("OpenAPI spec cache")
     .action((_options: Record<string, unknown>, command: Command) =>
-      emitAndExit(success({ cmd: `elv ${command.name()}`, data: commandHelpData(command) }), ExitCode.Success),
+      emitAndExit(
+        success({ cmd: `elv ${command.name()}`, data: commandHelpData(command) }),
+        ExitCode.Success,
+      ),
     );
   addCommonFlags(
     spec

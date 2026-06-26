@@ -22,13 +22,17 @@ interface RegistryCache {
   bundledSpec: unknown;
 }
 
-export async function loadRegistry(options: RegistryOptions = {}): Promise<Map<string, OperationCard>> {
+export async function loadRegistry(
+  options: RegistryOptions = {},
+): Promise<Map<string, OperationCard>> {
   if (!options.forceRecompile) {
     const cached = readRegistryCache(options);
     if (cached) return mapOperations(cached.operations);
   }
 
-  const sourcePath = options.specPath ?? (existsSync(rawSpecCachePath(options)) ? rawSpecCachePath(options) : vendoredSpecPath());
+  const sourcePath =
+    options.specPath ??
+    (existsSync(rawSpecCachePath(options)) ? rawSpecCachePath(options) : vendoredSpecPath());
   const compiled = await compileSpec(
     options.specDocument === undefined ? { sourcePath } : { document: options.specDocument },
   );
@@ -45,7 +49,10 @@ export function readRegistryCache(options: RegistryOptions = {}): RegistryCache 
   return parsed as RegistryCache;
 }
 
-export function writeRegistryCache(compiled: CompileSpecResult, options: RegistryOptions = {}): string {
+export function writeRegistryCache(
+  compiled: CompileSpecResult,
+  options: RegistryOptions = {},
+): string {
   const path = registryCachePath(options);
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(

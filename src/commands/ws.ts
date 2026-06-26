@@ -35,7 +35,8 @@ export async function runWs(
   options: RunWsOptions = {},
 ): Promise<{ env: Envelope; exitCode: ExitCode }> {
   const parsed = parseArgs(args);
-  if (!parsed.ok) return { env: validationError("elv ws", parsed.error), exitCode: ExitCode.InputValidation };
+  if (!parsed.ok)
+    return { env: validationError("elv ws", parsed.error), exitCode: ExitCode.InputValidation };
 
   const input = parsed.value;
   if (input.list) {
@@ -49,19 +50,28 @@ export async function runWs(
   if (!input.send) return inputError("Missing --send script.ndjson");
 
   try {
-    const config = loadConfig({ profile: options.profile ?? input.profile, baseUrl: options.baseUrl ?? input.baseUrl });
+    const config = loadConfig({
+      profile: options.profile ?? input.profile,
+      baseUrl: options.baseUrl ?? input.baseUrl,
+    });
     const entry = getWsCatalogEntry(target);
     if (entry && !entry.scriptable) {
-      return inputError(`${entry.name} is interactive and is not supported by the scripted ws player`);
+      return inputError(
+        `${entry.name} is interactive and is not supported by the scripted ws player`,
+      );
     }
     const script = parseScriptFile(input.send);
     if (entry && rejectsElevenV3(entry, input.query, script)) {
-      return inputError("eleven_v3 is not supported over ElevenLabs WebSocket TTS; use eleven_flash_v2_5");
+      return inputError(
+        "eleven_v3 is not supported over ElevenLabs WebSocket TTS; use eleven_flash_v2_5",
+      );
     }
 
     const resolved = resolveTargetForInput(target, entry, input.query, config.baseUrl);
     if (!entry && rejectsRawElevenV3(resolved.url, script)) {
-      return inputError("eleven_v3 is not supported over ElevenLabs WebSocket TTS; use eleven_flash_v2_5");
+      return inputError(
+        "eleven_v3 is not supported over ElevenLabs WebSocket TTS; use eleven_flash_v2_5",
+      );
     }
     const outDir = resolveOutTarget(input.out ?? config.outputDir, true).dir;
     const apiKey = options.apiKey ?? getApiKey({ profile: options.profile ?? input.profile });
@@ -108,7 +118,9 @@ export function buildWsCommand(): CommanderCommand {
     });
 }
 
-function parseArgs(args: string[]): { ok: true; value: ParsedWsArgs } | { ok: false; error: string } {
+function parseArgs(
+  args: string[],
+): { ok: true; value: ParsedWsArgs } | { ok: false; error: string } {
   const parsed: ParsedWsArgs = { list: false, query: {} };
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
@@ -155,11 +167,12 @@ function resolveTarget(
   baseUrl: string,
 ): { url: URL; path: string } {
   if (entry) return { url: buildCatalogUrl(entry, { baseUrl, query }), path: entry.pathTemplate };
-  const url = target.startsWith("ws://") || target.startsWith("wss://")
-    ? new URL(target)
-    : target.startsWith("/")
-      ? wsUrlFromPath(target, baseUrl)
-      : undefined;
+  const url =
+    target.startsWith("ws://") || target.startsWith("wss://")
+      ? new URL(target)
+      : target.startsWith("/")
+        ? wsUrlFromPath(target, baseUrl)
+        : undefined;
   if (!url) throw new Error(`Unknown WS catalog entry or raw path: ${target}`);
   for (const [key, value] of Object.entries(query)) url.searchParams.set(key, value);
   return { url, path: url.pathname };
@@ -187,11 +200,11 @@ function rejectsElevenV3(
   return query.model_id?.toLowerCase() === "eleven_v3" || scriptUsesModel(script, "eleven_v3");
 }
 
-function rejectsRawElevenV3(
-  url: URL,
-  script: ReturnType<typeof parseSendScript>,
-): boolean {
-  return url.searchParams.get("model_id")?.toLowerCase() === "eleven_v3" || scriptUsesModel(script, "eleven_v3");
+function rejectsRawElevenV3(url: URL, script: ReturnType<typeof parseSendScript>): boolean {
+  return (
+    url.searchParams.get("model_id")?.toLowerCase() === "eleven_v3" ||
+    scriptUsesModel(script, "eleven_v3")
+  );
 }
 
 function authHeaders(apiKey: string | undefined): Record<string, string> | undefined {
@@ -258,5 +271,7 @@ function collect(value: string, previous: string[]): string[] {
 }
 
 function arrayOption(value: unknown): string[] {
-  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string")
+    : [];
 }

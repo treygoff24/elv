@@ -169,5 +169,10 @@ function parseJson(raw: string): unknown {
 }
 
 function isPing(value: unknown): value is { type: "ping"; event_id?: unknown } {
-  return Boolean(value && typeof value === "object" && !Array.isArray(value) && (value as { type?: unknown }).type === "ping");
+  return Boolean(
+    value &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    (value as { type?: unknown }).type === "ping",
+  );
 }

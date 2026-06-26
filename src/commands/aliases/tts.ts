@@ -4,7 +4,17 @@ import { runOperation } from "../../core/client";
 import { emitAndExit, validationError } from "../../core/errors";
 import { ExitCode } from "../../core/types";
 import type { AgentInput, Envelope, RunOpts } from "../../core/types";
-import { commandName, compact, compactInput, emit, mergedOptions, message, numberValue, required, runOpts } from "./shared";
+import {
+  commandName,
+  compact,
+  compactInput,
+  emit,
+  mergedOptions,
+  message,
+  numberValue,
+  required,
+  runOpts,
+} from "./shared";
 import { findMatchingVoices, RESOLVER_PAGE_SIZE, type VoiceRecord } from "./voices";
 
 export interface TtsFlags {
@@ -35,13 +45,19 @@ export function buildTtsInput(flags: TtsFlags): { operationId: string; input: Ag
   };
 }
 
-export function registerTtsCommand(program: Command, addCommonFlags: (command: Command) => Command): void {
+export function registerTtsCommand(
+  program: Command,
+  addCommonFlags: (command: Command) => Command,
+): void {
   const tts = program.command("tts").description("Text to speech");
   const configure = (command: Command, stream: boolean) =>
     addCommonFlags(
       command
         .option("--voice-id <id>", "ElevenLabs voice id to synthesize with")
-        .option("--voice <name>", "resolve voice by name (exact, else unique substring) instead of id")
+        .option(
+          "--voice <name>",
+          "resolve voice by name (exact, else unique substring) instead of id",
+        )
         .option("--text <text>", "text to synthesize")
         .option("--text-file <path>", "read synthesis text from a file")
         .option("--model <id>", "TTS model id")
@@ -81,7 +97,11 @@ function ttsOperationId(stream: boolean, timestamps: boolean): string {
 async function resolveVoiceId(flags: TtsFlags, opts: RunOpts, cmd: string): Promise<string> {
   if (flags.voiceId) return flags.voiceId;
   if (!flags.voice) return required(undefined, "--voice-id or --voice");
-  const env = await runOperation("get_user_voices_v2", { query: { search: flags.voice } }, { ...opts, inline: true, limit: RESOLVER_PAGE_SIZE });
+  const env = await runOperation(
+    "get_user_voices_v2",
+    { query: { search: flags.voice } },
+    { ...opts, inline: true, limit: RESOLVER_PAGE_SIZE },
+  );
   if (!env.ok) emit(env);
   const voices = voicesFrom(env);
   const matches = findMatchingVoices(flags.voice, voices);
@@ -101,7 +121,11 @@ async function resolveVoiceId(flags: TtsFlags, opts: RunOpts, cmd: string): Prom
 function candidateNames(name: string, voices: VoiceRecord[]): string {
   const needle = name.toLowerCase();
   const names = voices
-    .filter((voice) => String(voice.name ?? "").toLowerCase().includes(needle))
+    .filter((voice) =>
+      String(voice.name ?? "")
+        .toLowerCase()
+        .includes(needle),
+    )
     .map((voice) => `${voice.name} (${voice.voice_id})`)
     .slice(0, 10);
   return names.length ? `; candidates: ${names.join(", ")}` : "";
@@ -114,7 +138,8 @@ function voicesFrom(env: Envelope): VoiceRecord[] {
 }
 
 function readText(text: string | undefined, file: string | undefined, label: string): string {
-  if (text !== undefined && file !== undefined) throw new Error(`elv ${label}: use --text or --text-file, not both`);
+  if (text !== undefined && file !== undefined)
+    throw new Error(`elv ${label}: use --text or --text-file, not both`);
   if (text !== undefined) return text;
   if (file !== undefined) return readFileSync(file, "utf8");
   throw new Error(`elv ${label}: --text or --text-file is required`);

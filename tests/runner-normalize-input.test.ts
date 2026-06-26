@@ -25,7 +25,10 @@ function op(): OperationCard {
       contentType: "application/json",
       required: true,
       multipart: false,
-      schema: { type: "object", properties: { name: { type: "string" }, shared: { type: "string" } } },
+      schema: {
+        type: "object",
+        properties: { name: { type: "string" }, shared: { type: "string" } },
+      },
     },
     responses: [],
     returnsBinary: false,
@@ -55,7 +58,12 @@ describe("runner input normalization", () => {
       const detail = (error as InputNormalizationError).toNormalizedError();
       expect(exitCodeForError(detail)).toBe(ExitCode.InputValidation);
       expect(detail.raw).toMatchObject({
-        bucketed_shape: { path: {}, query: { shared: "x" }, headers: { shared: "x" }, body: { shared: "x" } },
+        bucketed_shape: {
+          path: {},
+          query: { shared: "x" },
+          headers: { shared: "x" },
+          body: { shared: "x" },
+        },
       });
     }
   });

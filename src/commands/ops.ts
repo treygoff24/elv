@@ -1,7 +1,11 @@
 import { failure, success } from "../core/envelope";
 import { emitAndExit, validationError } from "../core/errors";
 import { ExitCode } from "../core/types";
-import { buildExampleCommand, compactSchemaForOperation, rawInputSchemaForOperation } from "../openapi/compact-schema";
+import {
+  buildExampleCommand,
+  compactSchemaForOperation,
+  rawInputSchemaForOperation,
+} from "../openapi/compact-schema";
 import { readRegistryCache, loadRegistry } from "../openapi/registry";
 import type { OpenApiDocument } from "../openapi/compile-spec";
 import type { OperationCard, Risk } from "../core/types";
@@ -24,13 +28,22 @@ export interface OpsSchemaOptions {
   example?: boolean;
 }
 
-export async function handleOpsSearch(query: string, options: OpsSearchOptions = {}): Promise<never> {
+export async function handleOpsSearch(
+  query: string,
+  options: OpsSearchOptions = {},
+): Promise<never> {
   const limit = parseLimit(options.limit);
   if (!query.trim()) {
-    emitAndExit(validationError("elv ops search", "Missing search query"), ExitCode.InputValidation);
+    emitAndExit(
+      validationError("elv ops search", "Missing search query"),
+      ExitCode.InputValidation,
+    );
   }
   if (limit === null) {
-    emitAndExit(validationError("elv ops search", "--limit must be a positive integer"), ExitCode.InputValidation);
+    emitAndExit(
+      validationError("elv ops search", "--limit must be a positive integer"),
+      ExitCode.InputValidation,
+    );
   }
   const registry = await loadRegistry();
   emitAndExit(
@@ -43,7 +56,10 @@ export async function handleOpsGet(operationId: string): Promise<never> {
   const registry = await loadRegistry();
   const op = registry.get(operationId);
   if (!op) emitUnknown(`elv ops get ${operationId}`, operationId);
-  emitAndExit(success({ cmd: `elv ops get ${operationId}`, operation_id: operationId, data: op }), ExitCode.Success);
+  emitAndExit(
+    success({ cmd: `elv ops get ${operationId}`, operation_id: operationId, data: op }),
+    ExitCode.Success,
+  );
 }
 
 export async function handleOpsSchema(
@@ -83,7 +99,10 @@ export async function handleOpsSchema(
     : options.raw
       ? rawInputSchemaForOperation(op, spec)
       : compactSchemaForOperation(op, spec);
-  emitAndExit(success({ cmd: `elv ops schema ${operationId}`, operation_id: operationId, data }), ExitCode.Success);
+  emitAndExit(
+    success({ cmd: `elv ops schema ${operationId}`, operation_id: operationId, data }),
+    ExitCode.Success,
+  );
 }
 
 export function searchOperations(
@@ -122,11 +141,18 @@ function scoreOperation(op: OperationCard, queryTokens: string[], normalizedQuer
   );
 }
 
-function scoreField(field: string, queryTokens: string[], normalizedQuery: string, weight: number): number {
+function scoreField(
+  field: string,
+  queryTokens: string[],
+  normalizedQuery: string,
+  weight: number,
+): number {
   if (!field) return 0;
   const fieldTokens = new Set(tokenize(field));
   const overlap = queryTokens.filter((token) => fieldTokens.has(token)).length;
-  const phraseBonus = normalizePhrase(field).includes(normalizedQuery) ? queryTokens.length * weight : 0;
+  const phraseBonus = normalizePhrase(field).includes(normalizedQuery)
+    ? queryTokens.length * weight
+    : 0;
   return overlap * weight + phraseBonus;
 }
 
@@ -135,7 +161,10 @@ function tokenize(value: string): string[] {
 }
 
 function normalizePhrase(value: string): string {
-  return value.toLowerCase().replace(/[^a-z0-9]+/gu, " ").trim();
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/gu, " ")
+    .trim();
 }
 
 function parseLimit(value: string | number | undefined): number | null {

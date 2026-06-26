@@ -4,7 +4,18 @@ import { runOperation } from "../../core/client";
 import { emitAndExit, validationError } from "../../core/errors";
 import { ExitCode } from "../../core/types";
 import type { AgentInput, SuccessEnvelope } from "../../core/types";
-import { addPaginationFlags, commandName, compact, compactInput, emit, message, projectFields, required, resolveListOpts, runOpts } from "./shared";
+import {
+  addPaginationFlags,
+  commandName,
+  compact,
+  compactInput,
+  emit,
+  message,
+  projectFields,
+  required,
+  resolveListOpts,
+  runOpts,
+} from "./shared";
 
 export interface VoicesFlags {
   query?: string;
@@ -25,30 +36,49 @@ export interface VoiceRecord {
   [key: string]: unknown;
 }
 
-export function buildVoicesListInput(flags: VoicesFlags): { operationId: string; input: AgentInput } {
+export function buildVoicesListInput(flags: VoicesFlags): {
+  operationId: string;
+  input: AgentInput;
+} {
   return {
     operationId: "get_user_voices_v2",
     input: compactInput({ query: compact({ search: flags.search, sort: flags.sort }) }),
   };
 }
 
-export function buildVoicesFindInput(flags: VoicesFlags): { operationId: string; input: AgentInput } {
+export function buildVoicesFindInput(flags: VoicesFlags): {
+  operationId: string;
+  input: AgentInput;
+} {
   return {
     operationId: "get_user_voices_v2",
     input: compactInput({ query: compact({ search: flags.query }) }),
   };
 }
 
-export function buildVoicesGetInput(flags: VoicesFlags): { operationId: string; input: AgentInput } {
-  return { operationId: "get_voice_by_id", input: { path: { voice_id: required(flags.voiceId, "a voice id (positional or --voice-id)") } } };
+export function buildVoicesGetInput(flags: VoicesFlags): {
+  operationId: string;
+  input: AgentInput;
+} {
+  return {
+    operationId: "get_voice_by_id",
+    input: { path: { voice_id: required(flags.voiceId, "a voice id (positional or --voice-id)") } },
+  };
 }
 
-export function buildVoicesCloneInstantInput(flags: VoicesFlags): { operationId: string; input: AgentInput } {
+export function buildVoicesCloneInstantInput(flags: VoicesFlags): {
+  operationId: string;
+  input: AgentInput;
+} {
   return {
     operationId: "add_voice",
     input: compactInput({
       files: { files: [resolve(required(flags.file, "--file"))] },
-      body: compact({ name: required(flags.name, "--name"), remove_background_noise: flags.removeBackgroundNoise, description: flags.description }),
+      body: compact({
+        name: required(flags.name, "--name"),
+        remove_background_noise: flags.removeBackgroundNoise,
+        description: flags.description,
+      }),
     }),
   };
 }
@@ -57,17 +87,26 @@ export function findMatchingVoices(query: string, voices: VoiceRecord[]): VoiceR
   const needle = query.toLowerCase();
   const exact = voices.filter((voice) => String(voice.name ?? "").toLowerCase() === needle);
   if (exact.length) return exact;
-  return voices.filter((voice) => String(voice.name ?? "").toLowerCase().includes(needle));
+  return voices.filter((voice) =>
+    String(voice.name ?? "")
+      .toLowerCase()
+      .includes(needle),
+  );
 }
 
-export function registerVoicesCommand(program: Command, addCommonFlags: (command: Command) => Command): void {
+export function registerVoicesCommand(
+  program: Command,
+  addCommonFlags: (command: Command) => Command,
+): void {
   const voices = program.command("voices").description("Voices");
   addCommonFlags(
     addPaginationFlags(voices.command("list"))
       .description("List your voices")
       .option("--search <query>", "filter voices by name/labels")
       .option("--sort <field>", "sort field, e.g. created_at_unix or name")
-      .action((options: VoicesFlags, command: Command) => runBuilt(buildVoicesListInput, options, command)),
+      .action((options: VoicesFlags, command: Command) =>
+        runBuilt(buildVoicesListInput, options, command),
+      ),
   );
   addCommonFlags(
     voices
@@ -95,14 +134,20 @@ export function registerVoicesCommand(program: Command, addCommonFlags: (command
       .option("--file <path>", "sample audio file for instant cloning")
       .option("--remove-background-noise", "remove background noise from the sample")
       .option("--description <text>", "optional voice description")
-      .action((options: VoicesFlags, command: Command) => runBuilt(buildVoicesCloneInstantInput, options, command)),
+      .action((options: VoicesFlags, command: Command) =>
+        runBuilt(buildVoicesCloneInstantInput, options, command),
+      ),
   );
 }
 
 async function runFind(flags: VoicesFlags, command: Command): Promise<never> {
   try {
     const built = buildVoicesFindInput(flags);
-    const env = await runOperation(built.operationId, built.input, { ...runOpts(command), inline: true, limit: RESOLVER_PAGE_SIZE });
+    const env = await runOperation(built.operationId, built.input, {
+      ...runOpts(command),
+      inline: true,
+      limit: RESOLVER_PAGE_SIZE,
+    });
     if (!env.ok) emit(env);
     const data = env.data as { voices?: unknown } | undefined;
     const voices = Array.isArray(data?.voices) ? (data.voices as VoiceRecord[]) : [];
@@ -116,11 +161,18 @@ async function runFind(flags: VoicesFlags, command: Command): Promise<never> {
   }
 }
 
-async function runBuilt<T>(builder: (flags: T) => { operationId: string; input: AgentInput }, flags: T, command: Command): Promise<never> {
+async function runBuilt<T>(
+  builder: (flags: T) => { operationId: string; input: AgentInput },
+  flags: T,
+  command: Command,
+): Promise<never> {
   try {
     const built = builder(flags);
     const { fields, fetch } = resolveListOpts(command);
-    const env = await runOperation(built.operationId, built.input, { ...runOpts(command), ...fetch });
+    const env = await runOperation(built.operationId, built.input, {
+      ...runOpts(command),
+      ...fetch,
+    });
     emit(fields && env.ok ? projectFields(env, fields) : env);
   } catch (error) {
     emitAndExit(validationError(commandName(command), message(error)), ExitCode.InputValidation);

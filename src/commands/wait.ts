@@ -23,7 +23,10 @@ export interface WaitResult {
 }
 
 export interface WaitDeps {
-  runOperation?: (operationId: string, input: AgentInput | Record<string, unknown>) => Promise<Envelope>;
+  runOperation?: (
+    operationId: string,
+    input: AgentInput | Record<string, unknown>,
+  ) => Promise<Envelope>;
   runCommand?: (argv: string[]) => Promise<Envelope>;
   sleep?: (ms: number) => Promise<void>;
   now?: () => number;
@@ -47,7 +50,8 @@ export async function waitForOperation(
   const run = parsed.cmd
     ? () => (deps.runCommand ?? runCommand)(parsed.cmd)
     : () => (deps.runOperation ?? runOperation)(parsed.operation, parsed.input);
-  const sleep = deps.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+  const sleep =
+    deps.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
   const now = deps.now ?? (() => Date.now());
   const deadline = now() + parsed.timeoutMs;
 
@@ -142,7 +146,8 @@ function parseOptions(options: WaitOptions):
     }
   }
 
-  if (!options.operation) return { ok: false, env: validationError(cmd, "--operation is required") };
+  if (!options.operation)
+    return { ok: false, env: validationError(cmd, "--operation is required") };
   try {
     const input = options.json === undefined ? {} : parseJsonObject(options.json);
     return { ok: true, operation: options.operation, input, ...common };

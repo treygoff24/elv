@@ -12,8 +12,19 @@ import { registerVoiceChangeCommand } from "./voice-change";
 import { registerVoiceIsolateCommand } from "./voice-isolate";
 import { registerVoicesCommand } from "./voices";
 
-export { buildAgentsCreateInput, buildAgentsGetInput, buildAgentsListInput, buildAgentsSimulateInput, buildAgentsUpdateInput } from "./agents";
-export { buildDubbingAudioInput, buildDubbingCreateInput, buildDubbingGetInput, buildDubbingListInput } from "./dubbing";
+export {
+  buildAgentsCreateInput,
+  buildAgentsGetInput,
+  buildAgentsListInput,
+  buildAgentsSimulateInput,
+  buildAgentsUpdateInput,
+} from "./agents";
+export {
+  buildDubbingAudioInput,
+  buildDubbingCreateInput,
+  buildDubbingGetInput,
+  buildDubbingListInput,
+} from "./dubbing";
 export { buildHistoryAudioInput, buildHistoryDeleteInput, buildHistoryListInput } from "./history";
 export { buildModelsListInput } from "./models";
 export { buildMusicInput } from "./music";
@@ -23,9 +34,18 @@ export { buildTtsInput } from "./tts";
 export { buildUsageInput } from "./usage";
 export { buildVoiceChangeInput } from "./voice-change";
 export { buildVoiceIsolateInput } from "./voice-isolate";
-export { buildVoicesCloneInstantInput, buildVoicesFindInput, buildVoicesGetInput, buildVoicesListInput, findMatchingVoices } from "./voices";
+export {
+  buildVoicesCloneInstantInput,
+  buildVoicesFindInput,
+  buildVoicesGetInput,
+  buildVoicesListInput,
+  findMatchingVoices,
+} from "./voices";
 
-export function registerAliases(program: Command, addCommonFlags: (command: Command) => Command): void {
+export function registerAliases(
+  program: Command,
+  addCommonFlags: (command: Command) => Command,
+): void {
   registerTtsCommand(program, addCommonFlags);
   registerSttCommand(program, addCommonFlags);
   registerMusicCommand(program, addCommonFlags);

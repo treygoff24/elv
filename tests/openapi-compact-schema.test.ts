@@ -9,7 +9,9 @@ import {
 describe("compact schema", () => {
   it("returns required and optional buckets from path/query/body input schemas", async () => {
     const compiled = await compileSpec({ sourcePath: "spec/openapi.snapshot.json" });
-    const op = compiled.operations.find((candidate) => candidate.operationId === "text_to_speech_full");
+    const op = compiled.operations.find(
+      (candidate) => candidate.operationId === "text_to_speech_full",
+    );
     expect(op).toBeDefined();
 
     const schema = compactSchemaForOperation(op!, compiled.bundledSpec);
@@ -35,7 +37,9 @@ describe("compact schema", () => {
 
   it("returns raw input fragments and runnable examples", async () => {
     const compiled = await compileSpec({ sourcePath: "spec/openapi.snapshot.json" });
-    const op = compiled.operations.find((candidate) => candidate.operationId === "text_to_speech_full");
+    const op = compiled.operations.find(
+      (candidate) => candidate.operationId === "text_to_speech_full",
+    );
     expect(op).toBeDefined();
 
     const raw = rawInputSchemaForOperation(op!, compiled.bundledSpec);
