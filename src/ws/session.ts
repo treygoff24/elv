@@ -4,7 +4,7 @@ import { mkdir } from "node:fs/promises";
 import { fileRecord, writeManifest } from "../core/files";
 import { AudioWriter } from "./audio-writer";
 import { NdjsonEventWriter, redactWs, redactWsString } from "./events";
-import { parseJson as parseJsonValue } from "../util/json";
+import { isRecord, parseJson as parseJsonValue } from "../util/json";
 import type { FileRecord, WsInfo } from "../core/types";
 import type { SendScriptAction } from "./events";
 
@@ -257,10 +257,5 @@ function rawDataToString(data: RawData): string {
 }
 
 function isPing(value: unknown): value is { type: "ping"; event_id?: unknown } {
-  return Boolean(
-    value &&
-    typeof value === "object" &&
-    !Array.isArray(value) &&
-    (value as { type?: unknown }).type === "ping",
-  );
+  return isRecord(value) && value.type === "ping";
 }

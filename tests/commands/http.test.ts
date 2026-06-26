@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { runHttp } from "../../src/commands/http";
+import { arrayValue } from "../helpers/cli-result";
 
 describe("http command", () => {
   afterEach(() => vi.unstubAllGlobals());
@@ -132,7 +133,7 @@ describe("http command", () => {
       if (!env.ok) throw new Error("expected success");
       expect(fetch).toHaveBeenCalledTimes(1);
       expect(env.files).toHaveLength(1);
-      const saved = JSON.parse(readFileSync(env.files![0]!.path, "utf8")) as unknown[];
+      const saved = arrayValue(JSON.parse(readFileSync(env.files![0]!.path, "utf8")), "saved");
       expect(saved).toHaveLength(voices.length);
     } finally {
       rmSync(out, { recursive: true, force: true });

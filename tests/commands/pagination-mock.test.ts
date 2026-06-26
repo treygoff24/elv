@@ -3,7 +3,13 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { parseEnvelope, runCli, type CliResult } from "../helpers/cli-result";
+import {
+  arrayValue,
+  parseEnvelope,
+  recordValue,
+  runCli,
+  type CliResult,
+} from "../helpers/cli-result";
 
 const CANARY_KEY = "test_key_CANARY";
 const CALL_TIMEOUT_MS = 30_000;
@@ -174,12 +180,12 @@ describe("pagination mock server (black-box, integration gate)", () => {
       const envelope = parseEnvelope(stdout);
       expect(envelope.ok).toBe(true);
 
-      const data = envelope.data as Record<string, unknown>;
-      const history = (data.history ?? data.items) as unknown;
-      expect(Array.isArray(history)).toBe(true);
-      expect((history as unknown[]).length).toBeLessThanOrEqual(PAGE_ONE_SIZE);
+      const data = recordValue(envelope.data, "data");
+      const history = arrayValue(data.history ?? data.items, "history");
+      expect(history.length).toBeLessThanOrEqual(PAGE_ONE_SIZE);
 
-      const next = (data.next ?? envelope.next) as Record<string, unknown> | undefined;
+      const nextRaw = data.next ?? envelope.next;
+      const next = nextRaw === undefined ? undefined : recordValue(nextRaw, "next");
       expect(next).toBeDefined();
       const nextCmd = String(next?.cmd ?? "");
       expect(nextCmd).toMatch(/get_speech_history/);
@@ -213,8 +219,7 @@ describe("pagination mock server (black-box, integration gate)", () => {
         const saved: unknown = JSON.parse(readFileSync(jsonPath, "utf8"));
         const savedItems = Array.isArray(saved)
           ? saved
-          : ((saved as Record<string, unknown>).voices as unknown[]);
-        expect(Array.isArray(savedItems)).toBe(true);
+          : arrayValue(recordValue(saved, "saved").voices, "saved.voices");
         expect(JSON.stringify(savedItems)).toContain("voice_id");
       } finally {
         rmSync(outDir, { recursive: true, force: true });
@@ -237,15 +242,15 @@ describe("pagination mock server (black-box, integration gate)", () => {
       expect(envelope.ok).toBe(true);
       expect(envelope.operation_id).toBe("get_user_voices_v2");
 
-      expect(Array.isArray(envelope.files)).toBe(true);
-      expect((envelope.files as unknown[]).length).toBeGreaterThan(0);
+      expect(arrayValue(envelope.files, "files").length).toBeGreaterThan(0);
       expect(envelope.data_summary).toBeDefined();
       expect(envelope.truncated).toBe(true);
 
-      const data = envelope.data as Record<string, unknown> | undefined;
+      const data = envelope.data === undefined ? undefined : recordValue(envelope.data, "data");
       expect(data?.voices).toBeUndefined();
 
-      const next = (data?.next ?? envelope.next) as Record<string, unknown> | undefined;
+      const nextRaw = data?.next ?? envelope.next;
+      const next = nextRaw === undefined ? undefined : recordValue(nextRaw, "next");
       expect(next).toBeDefined();
       expect(String(next?.cmd ?? "")).toMatch(/get_user_voices_v2/);
     },
@@ -278,9 +283,8 @@ describe("pagination mock server (black-box, integration gate)", () => {
         const saved: unknown = JSON.parse(readFileSync(join(outDir, jsonFiles[0]!), "utf8"));
         const items = Array.isArray(saved)
           ? saved
-          : ((saved as Record<string, unknown>).voices as unknown[]);
-        expect(Array.isArray(items)).toBe(true);
-        expect((items as unknown[]).length).toBe(PAGE_ONE_SIZE + PAGE_TWO_SIZE);
+          : arrayValue(recordValue(saved, "saved").voices, "saved.voices");
+        expect(items.length).toBe(PAGE_ONE_SIZE + PAGE_TWO_SIZE);
       } finally {
         rmSync(outDir, { recursive: true, force: true });
       }

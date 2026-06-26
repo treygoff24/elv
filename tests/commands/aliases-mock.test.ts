@@ -5,8 +5,10 @@ import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   assertNoKeyLeak,
+  arrayValue,
   filesArray,
   parseEnvelope,
+  recordValue,
   runCli,
   type CliResult,
 } from "../helpers/cli-result";
@@ -245,10 +247,9 @@ describe("aliases mock server (black-box, integration gate)", () => {
 
       expect(code).toBe(0);
       const envelope = assertOkEnvelope(stdout, stderr);
-      const data = envelope.data as Record<string, unknown>;
+      const data = recordValue(envelope.data, "data");
       const voices = data.voices ?? envelope.data;
-      expect(Array.isArray(voices)).toBe(true);
-      expect((voices as unknown[]).length).toBeGreaterThan(0);
+      expect(arrayValue(voices, "voices").length).toBeGreaterThan(0);
     },
     CALL_TIMEOUT_MS,
   );
@@ -272,10 +273,9 @@ describe("aliases mock server (black-box, integration gate)", () => {
 
       expect(code).toBe(0);
       const envelope = assertOkEnvelope(stdout, stderr);
-      const data = envelope.data as Record<string, unknown>;
+      const data = recordValue(envelope.data, "data");
       const history = data.history ?? envelope.data;
-      expect(Array.isArray(history)).toBe(true);
-      expect((history as unknown[]).length).toBe(20);
+      expect(arrayValue(history, "history").length).toBe(20);
     },
     CALL_TIMEOUT_MS,
   );

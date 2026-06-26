@@ -3,7 +3,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { parseEnvelope, type CliResult } from "../helpers/cli-result";
+import { arrayValue, parseEnvelope, recordValue, type CliResult } from "../helpers/cli-result";
 
 type CachedCliResult = CliResult & { cacheDir: string };
 
@@ -23,17 +23,15 @@ function runCli(args: string[], env?: Record<string, string>): CachedCliResult {
 }
 
 function operationIdOf(item: unknown): string | undefined {
-  if (typeof item !== "object" || item === null) return undefined;
-  const record = item as Record<string, unknown>;
+  if (typeof item !== "object" || item === null || Array.isArray(item)) return undefined;
+  const record = recordValue(item, "operation");
   if (typeof record.operationId === "string") return record.operationId;
   if (typeof record.operation_id === "string") return record.operation_id;
   return undefined;
 }
 
 function searchResults(envelope: Record<string, unknown>): unknown[] {
-  const data = envelope.data;
-  expect(Array.isArray(data)).toBe(true);
-  return data as unknown[];
+  return arrayValue(envelope.data, "data");
 }
 
 describe("ops CLI (black-box, integration gate)", () => {
@@ -71,11 +69,7 @@ describe("ops CLI (black-box, integration gate)", () => {
     const envelope = parseEnvelope(stdout);
     expect(envelope.ok).toBe(true);
 
-    const data = envelope.data;
-    expect(data).toBeTypeOf("object");
-    expect(data).not.toBeNull();
-
-    const op = data as Record<string, unknown>;
+    const op = recordValue(envelope.data, "data");
     expect(op.operationId ?? op.operation_id).toBe("text_to_speech_full");
     expect(typeof op.method).toBe("string");
     expect(typeof (op.pathTemplate ?? op.path)).toBe("string");
@@ -98,7 +92,7 @@ describe("ops CLI (black-box, integration gate)", () => {
     const envelope = parseEnvelope(stdout);
     expect(envelope.ok).toBe(true);
 
-    const schema = (envelope.data ?? envelope) as Record<string, unknown>;
+    const schema = recordValue(envelope.data ?? envelope, "schema");
     const hasRequired = schema.required !== undefined;
     const hasOptional = schema.optional !== undefined;
     expect(hasRequired || hasOptional).toBe(true);
@@ -114,11 +108,11 @@ describe("ops CLI (black-box, integration gate)", () => {
     const exampleRaw =
       envelope.example ??
       (typeof envelope.data === "object" && envelope.data !== null
-        ? (envelope.data as Record<string, unknown>).example
+        ? recordValue(envelope.data, "data").example
         : undefined);
     expect(exampleRaw).toBeTypeOf("object");
     expect(exampleRaw).not.toBeNull();
-    const example = exampleRaw as Record<string, unknown>;
+    const example = recordValue(exampleRaw, "example");
     expect(typeof example.cmd).toBe("string");
     expect(example.cmd).toMatch(/^elv call/);
   });

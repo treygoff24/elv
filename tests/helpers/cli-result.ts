@@ -33,24 +33,37 @@ export function parseEnvelope(stdout: string): Record<string, unknown> {
   expect(trimmed.endsWith("}")).toBe(true);
 
   const parsed: unknown = JSON.parse(trimmed);
-  expect(parsed).toBeTypeOf("object");
-  expect(parsed).not.toBeNull();
-  expect(Array.isArray(parsed)).toBe(false);
-
-  return parsed as Record<string, unknown>;
+  return recordValue(parsed, "stdout envelope");
 }
 
 export function errorRecord(envelope: Record<string, unknown>): Record<string, unknown> {
-  const error = envelope.error;
-  expect(error).toBeTypeOf("object");
-  expect(error).not.toBeNull();
-  return error as Record<string, unknown>;
+  return recordValue(envelope.error, "error");
 }
 
 export function filesArray(envelope: Record<string, unknown>): Record<string, unknown>[] {
-  const files = envelope.files;
-  expect(Array.isArray(files)).toBe(true);
-  return files as Record<string, unknown>[];
+  return arrayValue(envelope.files, "files").map((file) => recordValue(file, "file"));
+}
+
+export function arrayValue(value: unknown, label = "value"): unknown[] {
+  if (!Array.isArray(value)) {
+    expect(Array.isArray(value)).toBe(true);
+    throw new Error(`${label} must be an array`);
+  }
+  return value;
+}
+
+export function recordValue(value: unknown, label = "value"): Record<string, unknown> {
+  if (!isRecordValue(value)) {
+    expect(value).toBeTypeOf("object");
+    expect(value).not.toBeNull();
+    expect(Array.isArray(value)).toBe(false);
+    throw new Error(`${label} must be an object`);
+  }
+  return value;
+}
+
+function isRecordValue(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
 export function assertNoKeyLeak(stdout: string, stderr: string, apiKey = "test_key_CANARY"): void {

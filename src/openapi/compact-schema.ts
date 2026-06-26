@@ -151,7 +151,8 @@ function isObjectShape(type: string | undefined, object: JsonObject): boolean {
 
 function firstUsefulVariant(object: JsonObject): unknown {
   for (const key of ["anyOf", "oneOf", "allOf"] as const) {
-    const variants = Array.isArray(object[key]) ? (object[key] as unknown[]) : [];
+    const value = object[key];
+    const variants = Array.isArray(value) ? value : [];
     const variant = variants.find((candidate) => typeName(asObject(candidate)) !== "null");
     if (variant) return variant;
   }

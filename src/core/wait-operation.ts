@@ -18,8 +18,6 @@ export interface WaitOptions {
   cmd?: string;
 }
 
-type WaitResult = CommandResult;
-
 interface WaitDeps {
   runOperation?: (
     operationId: string,
@@ -58,7 +56,10 @@ interface CommandRunState {
   resolve: (env: Envelope) => void;
 }
 
-export function waitForOperation(options: WaitOptions, deps: WaitDeps = {}): Promise<WaitResult> {
+export function waitForOperation(
+  options: WaitOptions,
+  deps: WaitDeps = {},
+): Promise<CommandResult> {
   const result = parseOptions(options);
   if (!result.ok) {
     return Promise.resolve({ env: result.env, exitCode: ExitCode.InputValidation });
@@ -93,7 +94,7 @@ function waitRunner(parsed: ParsedWait, deps: WaitDeps): () => Promise<Envelope>
   return () => (deps.runOperation ?? runOperation)(parsed.operation, parsed.input);
 }
 
-async function pollUntilComplete(parsed: ParsedWait, runtime: WaitRuntime): Promise<WaitResult> {
+async function pollUntilComplete(parsed: ParsedWait, runtime: WaitRuntime): Promise<CommandResult> {
   let last: PollObservation | undefined;
   for (;;) {
     if (last && remainingMs(runtime) <= 0) {
@@ -117,7 +118,7 @@ function remainingMs(runtime: WaitRuntime): number {
 async function runPoll(
   parsed: ParsedWait,
   runtime: WaitRuntime,
-): Promise<PollObservation | { result: WaitResult }> {
+): Promise<PollObservation | { result: CommandResult }> {
   const env = await safeRun(runtime.run);
   if (!env.ok) {
     return {
@@ -138,7 +139,7 @@ async function safeRun(run: () => Promise<Envelope>): Promise<Envelope> {
 function statusObservation(
   parsed: ParsedWait,
   env: Envelope,
-): PollObservation | { result: WaitResult } {
+): PollObservation | { result: CommandResult } {
   try {
     const status = readPath(env, parsed.statusPath);
     const result = terminalStatusResult(parsed, env, status);
@@ -157,7 +158,7 @@ function terminalStatusResult(
   parsed: ParsedWait,
   env: Envelope,
   status: unknown,
-): WaitResult | undefined {
+): CommandResult | undefined {
   if (!isScalar(status)) return undefined;
   const value = String(status);
   if (parsed.success.has(value)) return { env, exitCode: ExitCode.Success };
@@ -236,7 +237,7 @@ function parseOptions(
   }
 }
 
-function waitFailure(status: string, env: Envelope): WaitResult {
+function waitFailure(status: string, env: Envelope): CommandResult {
   return {
     env: failure({
       cmd: "elv wait",
@@ -253,7 +254,7 @@ function waitFailure(status: string, env: Envelope): WaitResult {
   };
 }
 
-function waitTimeout(path: string, status: unknown, env: Envelope): WaitResult {
+function waitTimeout(path: string, status: unknown, env: Envelope): CommandResult {
   return {
     env: failure({
       cmd: "elv wait",

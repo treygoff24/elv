@@ -5,9 +5,11 @@ import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   assertNoKeyLeak,
+  arrayValue,
   errorRecord,
   filesArray,
   parseEnvelope,
+  recordValue,
   runCli,
   type CliResult,
 } from "../helpers/cli-result";
@@ -168,10 +170,9 @@ describe("call mock server (black-box, integration gate)", () => {
       expect(data).toBeTypeOf("object");
       expect(data).not.toBeNull();
 
-      const record = data as Record<string, unknown>;
+      const record = recordValue(data, "data");
       const voices = record.voices ?? data;
-      expect(Array.isArray(voices)).toBe(true);
-      expect((voices as unknown[]).length).toBeGreaterThan(0);
+      expect(arrayValue(voices, "voices").length).toBeGreaterThan(0);
     },
     CALL_TIMEOUT_MS,
   );

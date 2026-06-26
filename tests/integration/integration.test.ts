@@ -2,7 +2,14 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { assertNoKeyLeak, parseEnvelope, runCli, type CliResult } from "../helpers/cli-result";
+import {
+  arrayValue,
+  assertNoKeyLeak,
+  parseEnvelope,
+  recordValue,
+  runCli,
+  type CliResult,
+} from "../helpers/cli-result";
 
 const CALL_TIMEOUT_MS = 30_000;
 const HAS_API_KEY = Boolean(process.env.ELEVENLABS_API_KEY);
@@ -79,10 +86,9 @@ describe.skipIf(!HAS_API_KEY)("integration (live API, read-only)", () => {
       const envelope = parseEnvelope(stdout);
       expect(envelope.ok).toBe(true);
 
-      const data = envelope.data as Record<string, unknown>;
-      const results = data.results ?? data;
-      expect(Array.isArray(results)).toBe(true);
-      expect((results as unknown[]).length).toBeGreaterThan(0);
+      const data = envelope.data;
+      const results = Array.isArray(data) ? data : arrayValue(recordValue(data, "data").results);
+      expect(arrayValue(results, "results").length).toBeGreaterThan(0);
     },
     CALL_TIMEOUT_MS,
   );

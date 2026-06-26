@@ -28,12 +28,10 @@ interface OpsSchemaOptions {
   example?: boolean;
 }
 
-type OpsResult = CommandResult;
-
 export async function handleOpsSearch(
   query: string,
   options: OpsSearchOptions = {},
-): Promise<OpsResult> {
+): Promise<CommandResult> {
   const limit = parseLimit(options.limit);
   if (!query.trim()) {
     return {
@@ -57,7 +55,7 @@ export async function handleOpsSearch(
   };
 }
 
-export async function handleOpsGet(operationId: string): Promise<OpsResult> {
+export async function handleOpsGet(operationId: string): Promise<CommandResult> {
   const registry = await loadRegistry();
   const op = registry.get(operationId);
   if (!op) return unknownOperation(`elv ops get ${operationId}`, operationId);
@@ -70,7 +68,7 @@ export async function handleOpsGet(operationId: string): Promise<OpsResult> {
 export async function handleOpsSchema(
   operationId: string,
   options: OpsSchemaOptions = {},
-): Promise<OpsResult> {
+): Promise<CommandResult> {
   if (options.raw && options.example) {
     return {
       env: validationError(`elv ops schema ${operationId}`, "Use only one of --raw or --example"),
@@ -177,7 +175,7 @@ function parseLimit(value: string | number | undefined): number | null {
   return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
 }
 
-function unknownOperation(cmd: string, operationId: string): OpsResult {
+function unknownOperation(cmd: string, operationId: string): CommandResult {
   return {
     env: failure({
       cmd,
