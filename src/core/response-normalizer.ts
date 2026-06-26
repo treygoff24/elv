@@ -457,10 +457,15 @@ function toNodeReadable(body: globalThis.ReadableStream | Readable): Readable {
 
 function audioExtensionFromRequestPath(path: string | undefined): string {
   if (!path) return "mp3";
-  const outputFormat = new URL(path, "https://elv.local").searchParams.get("output_format") ?? "";
+  const outputFormat = requestPathSearchParams(path).get("output_format") ?? "";
   const codec = outputFormat.split("_")[0];
   if (codec === "pcm" || codec === "ulaw" || codec === "alaw" || codec === "opus") return codec;
   return "mp3";
+}
+
+function requestPathSearchParams(path: string): URLSearchParams {
+  const queryStart = path.indexOf("?");
+  return new URLSearchParams(queryStart === -1 ? "" : path.slice(queryStart + 1));
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
