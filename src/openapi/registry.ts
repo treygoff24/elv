@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { compileSpec } from "./compile-spec";
+import { parseJson } from "../util/json";
 import type { CompileSpecResult } from "./compile-spec";
 import type { OperationCard } from "./types";
 
@@ -45,7 +46,7 @@ export function readRegistryCache(options: RegistryOptions = {}): RegistryCache 
   if (!existsSync(path)) return null;
   let parsed: Partial<RegistryCache>;
   try {
-    parsed = JSON.parse(readFileSync(path, "utf8")) as Partial<RegistryCache>;
+    parsed = parseJson(readFileSync(path, "utf8"), path) as Partial<RegistryCache>;
   } catch {
     return null;
   }
@@ -94,8 +95,12 @@ function packageVersion(override?: string): string {
   if (override) return override;
   for (const path of packageJsonCandidates()) {
     if (!existsSync(path)) continue;
-    const json = JSON.parse(readFileSync(path, "utf8")) as { version?: string };
-    if (json.version) return json.version;
+    try {
+      const json = parseJson(readFileSync(path, "utf8"), path) as { version?: string };
+      if (json.version) return json.version;
+    } catch {
+      continue;
+    }
   }
   return "0.0.0";
 }

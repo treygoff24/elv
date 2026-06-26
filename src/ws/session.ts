@@ -3,6 +3,7 @@ import { mkdir } from "node:fs/promises";
 import { fileRecord, writeManifest } from "../core/files";
 import { AudioWriter } from "./audio-writer";
 import { NdjsonEventWriter, redactWs, redactWsString } from "./events";
+import { parseJson as parseJsonValue } from "../util/json";
 import type { FileRecord, WsInfo } from "../core/types";
 import type { SendScriptAction } from "./events";
 
@@ -237,7 +238,7 @@ function rawDataToString(data: RawData): string {
 
 function parseJson(raw: string): unknown {
   try {
-    return JSON.parse(raw) as unknown;
+    return parseJsonValue(raw, "WebSocket message");
   } catch {
     return null;
   }

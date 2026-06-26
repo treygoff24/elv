@@ -24,6 +24,7 @@ import { handleOpsGet, handleOpsSchema, handleOpsSearch } from "./commands/ops";
 import { handleView } from "./commands/view";
 import { registerAliases } from "./commands/aliases";
 import { updateSpecCache } from "./openapi/fetch-spec";
+import { parseJson } from "./util/json";
 import type { ConfigOverrides } from "./core/config";
 import type { RunWsOptions, WsCommandInput } from "./commands/ws";
 import type { Envelope } from "./core/types";
@@ -453,8 +454,14 @@ function topLevelHelpData(program: Command): Record<string, unknown> {
 
 function packageVersion(): string {
   const packageUrl = new URL("../package.json", import.meta.url);
-  const json = JSON.parse(readFileSync(packageUrl, "utf8")) as { version?: string };
-  return json.version ?? "0.0.0";
+  try {
+    const json = parseJson(readFileSync(packageUrl, "utf8"), "package.json") as {
+      version?: string;
+    };
+    return json.version ?? "0.0.0";
+  } catch {
+    return "0.0.0";
+  }
 }
 
 const DIRECT_ENTRY_NAMES = new Set(["cli.ts", "cli.js", "elv"]);

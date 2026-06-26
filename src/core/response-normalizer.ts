@@ -13,6 +13,7 @@ import {
   tempFileWriter,
   writeBufferToFile,
 } from "./files";
+import { parseJson as parseJsonValue } from "../util/json";
 import { shellArg } from "../util/shell";
 import type {
   CostInfo,
@@ -545,7 +546,7 @@ async function parseErrorBody(res: Response): Promise<unknown> {
 
 function parseJson(text: string): unknown {
   if (!text) return null;
-  return JSON.parse(text) as unknown;
+  return parseJsonValue(text);
 }
 
 function declaredBinary(op: OperationCard): boolean {

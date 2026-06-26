@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { bundle } from "@apidevtools/json-schema-ref-parser";
 import { classifyRisk, costHintForOperationId } from "./risk";
+import { parseJson } from "../util/json";
 import type {
   BodyCard,
   ExampleCard,
@@ -104,7 +105,7 @@ async function sourceForBundle(options: CompileSpecOptions): Promise<string | Js
   if (options.document !== undefined) return options.document as JsonObject;
   const sourcePath = options.sourcePath ?? "spec/openapi.snapshot.json";
   if (options.sourcePath) return resolve(sourcePath);
-  return JSON.parse(await readFile(resolve(sourcePath), "utf8")) as JsonObject;
+  return parseJson(await readFile(resolve(sourcePath), "utf8"), sourcePath) as JsonObject;
 }
 
 function extractParameters(parameters: unknown[], spec: OpenApiDocument): ParamCard[] {

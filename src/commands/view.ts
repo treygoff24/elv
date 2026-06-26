@@ -5,6 +5,7 @@ import { emitAndExit, validationError } from "../core/errors";
 import { SMALL_JSON_LIMIT, summarizeData } from "../core/response-normalizer";
 import { ExitCode } from "../core/types";
 import type { Envelope, Hint } from "../core/types";
+import { isRecord, parseJson } from "../util/json";
 import { readPath } from "../util/jsonpath";
 import { shellArg } from "../util/shell";
 
@@ -125,9 +126,9 @@ function parseFileContent(text: string, filePath: string): unknown {
     return text
       .split("\n")
       .filter((line) => line.trim().length > 0)
-      .map((line) => JSON.parse(line) as unknown);
+      .map((line, index) => parseJson(line, `NDJSON line ${index + 1}`));
   }
-  return JSON.parse(text) as unknown;
+  return parseJson(text, `File ${filePath}`);
 }
 
 function parseLimit(value: string | number | undefined): number | undefined | null {
@@ -161,8 +162,4 @@ function narrowHint(filePath: string, value: unknown, jsonPath?: string): Hint {
     cmd: `elv view ${shellArg(filePath)}`,
     why: "Inspect spilled JSON without loading it into context.",
   };
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
 }

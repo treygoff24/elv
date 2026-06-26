@@ -3,6 +3,7 @@ import { failure } from "./envelope";
 import { exitCodeForError, validationError } from "./errors";
 import { runOperation } from "./client";
 import { ExitCode } from "./types";
+import { parseJson, parseJsonRecord } from "../util/json";
 import { readPath } from "../util/jsonpath";
 import type { AgentInput, Envelope } from "./types";
 
@@ -147,7 +148,7 @@ function parseOptions(
 
   if (options.cmd) {
     try {
-      const parsed = JSON.parse(options.cmd) as unknown;
+      const parsed = parseJson(options.cmd, "--cmd");
       if (!isStringArray(parsed)) {
         throw new Error("--cmd must be a JSON string array");
       }
@@ -211,9 +212,7 @@ function waitTimeout(path: string, status: unknown, env: Envelope): WaitResult {
 }
 
 function parseJsonObject(raw: string): Record<string, unknown> {
-  const parsed = JSON.parse(raw) as unknown;
-  if (isRecord(parsed)) return parsed;
-  throw new Error("--json must be a JSON object");
+  return parseJsonRecord(raw, "--json", "--json must be a JSON object");
 }
 
 function csvSet(value: string): Set<string> {
@@ -234,10 +233,6 @@ function positiveMs(value: string | number | undefined, fallback: number, label:
 
 function isScalar(value: unknown): value is string | number | boolean | null {
   return value === null || ["string", "number", "boolean"].includes(typeof value);
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
 function isStringArray(value: unknown): value is string[] {
@@ -263,7 +258,7 @@ function runCommand(argv: string[]): Promise<Envelope> {
     child.on("error", reject);
     child.on("close", (code) => {
       try {
-        resolve(JSON.parse(stdout.trim()) as Envelope);
+        resolve(parseJson(stdout.trim(), "command stdout") as Envelope);
       } catch {
         resolve(
           commandEnvelopeError("Command did not emit a JSON envelope", {

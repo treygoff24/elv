@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { exitCodeForError, validationError } from "../core/errors";
 import { runOperation } from "../core/client";
 import { ExitCode } from "../core/types";
+import { parseJsonRecord } from "../util/json";
 import type { AgentInput, Envelope, RunOpts } from "../core/types";
 import type { PaginationOptions } from "../core/pagination";
 import { addFiles, addPairs } from "./input";
@@ -110,11 +111,5 @@ function callRunOpts(options: CallOptions): RunOpts & PaginationOptions {
 }
 
 function parseJsonObject(raw: string): Record<string, unknown> {
-  const parsed = JSON.parse(raw) as unknown;
-  if (isRecord(parsed)) return parsed;
-  throw new Error("JSON input must be an object");
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
+  return parseJsonRecord(raw, "JSON input", "JSON input must be an object");
 }

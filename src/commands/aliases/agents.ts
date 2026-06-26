@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import type { Command } from "commander";
+import { parseJsonRecord } from "../../util/json";
 import type { AgentInput } from "../../core/types";
 import { addPaginationFlags, compact, compactInput, required, runListAlias } from "./shared";
 
@@ -126,11 +127,5 @@ function readJson(flags: AgentsFlags): Record<string, unknown> {
     throw new Error("Use --json or --json-file, not both");
   const raw = flags.jsonFile !== undefined ? readFileSync(flags.jsonFile, "utf8") : flags.json;
   if (raw === undefined) throw new Error("--json or --json-file is required");
-  const parsed = JSON.parse(raw) as unknown;
-  if (isRecord(parsed)) return parsed;
-  throw new Error("JSON must be an object");
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
+  return parseJsonRecord(raw, "JSON", "JSON must be an object");
 }

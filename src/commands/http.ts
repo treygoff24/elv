@@ -3,6 +3,7 @@ import { envelopeForThrown, runPreparedOperation } from "../core/client";
 import { applyPaginationDefaults, type PaginationOptions } from "../core/pagination";
 import { estimateCredits } from "../core/budget";
 import { loadRegistry } from "../openapi/registry";
+import { parseJson } from "../util/json";
 import type { AgentInput, Envelope, RunOpts } from "../core/types";
 import type { HttpMethod, OperationCard } from "../openapi/types";
 import { ExitCode as Codes } from "../core/types";
@@ -99,7 +100,7 @@ function parseHttpInput(
   try {
     const input: AgentInput & Record<string, unknown> = {};
     addPairs(input, "query", options.query);
-    if (options.bodyJson !== undefined) input.body = JSON.parse(options.bodyJson) as unknown;
+    if (options.bodyJson !== undefined) input.body = parseJson(options.bodyJson, "--body-json");
     addFiles(input, options.file);
     return { ok: true, method, input };
   } catch (error) {

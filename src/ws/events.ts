@@ -1,6 +1,7 @@
 import { join } from "node:path";
 import { redact, redactString } from "../core/redaction";
 import { tempFileWriter } from "../core/files";
+import { parseJson } from "../util/json";
 import type { TempFileWriter } from "../core/files";
 
 export type SendScriptAction = { type: "send"; data: Record<string, unknown> } | { type: "close" };
@@ -66,7 +67,7 @@ export function redactWsString(value: string): string {
 function parseLine(line: string, index: number): SendScriptAction {
   let parsed: unknown;
   try {
-    parsed = JSON.parse(line) as unknown;
+    parsed = parseJson(line, `send-script line ${index}`);
   } catch (error) {
     throw new Error(`send-script line ${index} is not valid JSON: ${errorMessage(error)}`);
   }
@@ -83,7 +84,7 @@ function parseLine(line: string, index: number): SendScriptAction {
 
 function redactedEventLine(raw: string): string {
   try {
-    return JSON.stringify(redactWs(JSON.parse(raw) as unknown));
+    return JSON.stringify(redactWs(parseJson(raw, "WebSocket event")));
   } catch {
     return redactWsString(raw);
   }

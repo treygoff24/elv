@@ -3,6 +3,7 @@ import { homedir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 import { success, failure } from "./envelope";
 import { ExitCode } from "./types";
+import { parseJson } from "../util/json";
 import type { Envelope } from "./types";
 
 interface ProfileConfig {
@@ -167,7 +168,7 @@ function readConfigFile(): FileConfig {
   if (!path) return {};
   let parsed: unknown;
   try {
-    parsed = JSON.parse(readFileSync(path, "utf8")) as unknown;
+    parsed = parseJson(readFileSync(path, "utf8"), path);
   } catch (error) {
     throw new ConfigFileError(path, error);
   }

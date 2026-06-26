@@ -4,6 +4,7 @@ import { compileSpec } from "./compile-spec";
 import { rawSpecCachePath, vendoredSpecPath, writeRegistryCache } from "./registry";
 import { failure, success } from "../core/envelope";
 import { ExitCode } from "../core/types";
+import { parseJson } from "../util/json";
 import type { RegistryOptions } from "./registry";
 import type { Envelope } from "../core/types";
 
@@ -121,7 +122,7 @@ async function documentForUpdate(options: UpdateSpecOptions): Promise<SpecDocume
 
 function readSpecJson(path: string): unknown {
   try {
-    return JSON.parse(readFileSync(path, "utf8")) as unknown;
+    return parseJson(readFileSync(path, "utf8"), path);
   } catch (error) {
     throw new SpecInputError(
       `Invalid JSON in OpenAPI spec ${path}: ${error instanceof Error ? error.message : String(error)}`,
