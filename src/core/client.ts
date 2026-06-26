@@ -112,7 +112,7 @@ export async function runOperation(
   }
 }
 
-export async function runPreparedOperation({
+export function runPreparedOperation({
   cmd,
   op,
   input,
@@ -136,7 +136,7 @@ export async function runPreparedOperation({
     requestPath,
     method,
   });
-  if (preflightEnvelope) return preflightEnvelope;
+  if (preflightEnvelope) return Promise.resolve(preflightEnvelope);
 
   const config = loadConfig({
     profile: opts.profile,
@@ -144,9 +144,11 @@ export async function runPreparedOperation({
     maxCredits: opts.maxCredits,
   });
   if (opts.all && !allOutputTarget(opts)) {
-    return validationError(cmd, "--all requires --save-json or --out", {
-      operationId: op.operationId,
-    });
+    return Promise.resolve(
+      validationError(cmd, "--all requires --save-json or --out", {
+        operationId: op.operationId,
+      }),
+    );
   }
 
   const requestContext = {
@@ -205,7 +207,7 @@ function preparedOperationPreflight({
 
 type RequestFactory = (nextInput: AgentInput) => Promise<HttpRequest>;
 
-async function runAllPages(
+function runAllPages(
   { cmd, op, input, opts, command, creditsEstimated, requestPath, method }: ExecutableOperationRun,
   makeRequest: RequestFactory,
   outputDir: string,
