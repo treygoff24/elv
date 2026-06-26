@@ -303,36 +303,55 @@ async function validateInput(
   input: AgentInput,
   bundledSpec: unknown,
 ): Promise<NormalizedError | null> {
-  for (const param of [...op.pathParams, ...op.queryParams, ...op.headerParams]) {
-    if (!param.required) continue;
-    const bucket = param.location === "header" ? input.headers : input[param.location];
-    if (bucket?.[param.name] === undefined) {
-      return {
-        type: "validation_error",
-        code: "validation_error",
-        message: `${param.location}: missing required parameter ${param.name}`,
-        param: param.name,
-        raw: { location: param.location, name: param.name },
-      };
-    }
-  }
+  const missingParam = missingRequiredParamError(op, input);
+  if (missingParam) return missingParam;
+  if (skipRequestBodyValidation(op, bundledSpec)) return null;
 
-  if (!op.requestBody) return null;
-  if (!bundledSpec && op.requestBody.schemaRef) return null;
-  if (op.requestBody.required && !hasRequestPayload(op, input)) {
-    return {
-      type: "validation_error",
-      code: "validation_error",
-      message: "body: request body is required",
-      param: "body",
-      raw: {},
-    };
-  }
+  const missingBody = missingRequiredBodyError(op, input);
+  if (missingBody) return missingBody;
 
   const validator = await getInputValidatorForOperation(op, bundledSpec ?? minimalSpec());
   if (!validator) return null;
-  if (validator(validationBody(op, input))) return null;
+  return validationFailure(op, input, validator);
+}
 
+function missingRequiredParamError(op: OperationCard, input: AgentInput): NormalizedError | null {
+  for (const param of [...op.pathParams, ...op.queryParams, ...op.headerParams]) {
+    if (!param.required) continue;
+    const bucket = param.location === "header" ? input.headers : input[param.location];
+    if (bucket?.[param.name] !== undefined) continue;
+    return {
+      type: "validation_error",
+      code: "validation_error",
+      message: `${param.location}: missing required parameter ${param.name}`,
+      param: param.name,
+      raw: { location: param.location, name: param.name },
+    };
+  }
+  return null;
+}
+
+function skipRequestBodyValidation(op: OperationCard, bundledSpec: unknown): boolean {
+  return !op.requestBody || (!bundledSpec && Boolean(op.requestBody.schemaRef));
+}
+
+function missingRequiredBodyError(op: OperationCard, input: AgentInput): NormalizedError | null {
+  if (!op.requestBody?.required || hasRequestPayload(op, input)) return null;
+  return {
+    type: "validation_error",
+    code: "validation_error",
+    message: "body: request body is required",
+    param: "body",
+    raw: {},
+  };
+}
+
+function validationFailure(
+  op: OperationCard,
+  input: AgentInput,
+  validator: ValidateFunction,
+): NormalizedError | null {
+  if (validator(validationBody(op, input))) return null;
   const first = validator.errors?.[0];
   const param = ajvParam(first?.instancePath, first?.params);
   return {
