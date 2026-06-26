@@ -73,7 +73,7 @@ export function normalizeInput(
   return compactInput(normalized);
 }
 
-export async function buildHttpRequest(
+export function buildHttpRequest(
   op: OperationCard,
   normalized: AgentInput,
   ctx: BuildRequestContext = {},
@@ -90,19 +90,30 @@ export async function buildHttpRequest(
     const contentType = op.requestBody?.contentType ?? "application/json";
     if (op.requestBody?.multipart || contentType.toLowerCase().includes("multipart/form-data")) {
       // Do NOT set content-type: fetch derives multipart/form-data + boundary from the FormData body.
-      return {
-        url: url.toString(),
-        method: op.method,
-        headers,
-        body: await buildMultipartBody(op, normalized, ctx),
-        path,
-      };
+      return buildMultipartRequest(op, normalized, ctx, url, headers, path);
     }
     headers["content-type"] = contentType;
     body = serializeBody(contentType, normalized.body ?? {});
   }
 
-  return { url: url.toString(), method: op.method, headers, body, path };
+  return Promise.resolve({ url: url.toString(), method: op.method, headers, body, path });
+}
+
+async function buildMultipartRequest(
+  op: OperationCard,
+  normalized: AgentInput,
+  ctx: BuildRequestContext,
+  url: URL,
+  headers: Record<string, string>,
+  path: string,
+): Promise<HttpRequest> {
+  return {
+    url: url.toString(),
+    method: op.method,
+    headers,
+    body: await buildMultipartBody(op, normalized, ctx),
+    path,
+  };
 }
 
 function routeFlatKey(
