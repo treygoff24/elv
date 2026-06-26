@@ -39,10 +39,8 @@ export function registerSfxCommand(
       .option("--model <id>", "sound effects model id")
       .option("--format <format>", "output audio format (output_format)")
       .option("--loop", "generate a seamlessly looping effect")
-      .action(async (options: SfxFlags, command: Command) => runBuilt(options, command)),
+      .action(async (options: SfxFlags, command: Command) =>
+        runAlias(buildSfxInput, options, command),
+      ),
   );
-}
-
-async function runBuilt(flags: SfxFlags, command: Command): Promise<never> {
-  return runAlias(buildSfxInput, flags, command);
 }

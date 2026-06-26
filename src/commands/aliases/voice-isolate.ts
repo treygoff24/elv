@@ -33,10 +33,8 @@ export function registerVoiceIsolateCommand(
       .option("--file <path>", "input audio file to isolate")
       .option("--file-format <format>", "input file format hint for the API")
       .option("--preview-b64 <value>", "base64 preview snippet for the request body")
-      .action(async (options: VoiceIsolateFlags, command: Command) => runBuilt(options, command)),
+      .action(async (options: VoiceIsolateFlags, command: Command) =>
+        runAlias(buildVoiceIsolateInput, options, command),
+      ),
   );
-}
-
-async function runBuilt(flags: VoiceIsolateFlags, command: Command): Promise<never> {
-  return runAlias(buildVoiceIsolateInput, flags, command);
 }

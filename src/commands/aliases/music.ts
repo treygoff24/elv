@@ -41,15 +41,11 @@ export function registerMusicCommand(
         .option("--format <format>", "output audio format (output_format)")
         .option("--length-ms <ms>", "target track length in milliseconds")
         .action(async (options: MusicFlags, command: Command) =>
-          runBuilt({ ...options, stream }, command),
+          runAlias(buildMusicInput, { ...options, stream }, command),
         ),
     );
   configure(music, false);
   configure(music.command("stream").description("Music generation (streaming)"), true);
-}
-
-async function runBuilt(flags: MusicFlags, command: Command): Promise<never> {
-  return runAlias(buildMusicInput, flags, command);
 }
 
 function readPrompt(prompt: string | undefined, file: string | undefined): string | undefined {

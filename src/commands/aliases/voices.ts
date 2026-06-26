@@ -157,7 +157,7 @@ export function registerVoicesCommand(
       .option("--search <query>", "filter voices by name/labels")
       .option("--sort <field>", "sort field, e.g. created_at_unix or name")
       .action((options: VoicesFlags, command: Command) =>
-        runBuilt(buildVoicesListInput, options, command),
+        runListAlias(buildVoicesListInput, options, command),
       ),
   );
   addCommonFlags(
@@ -175,7 +175,11 @@ export function registerVoicesCommand(
       .description("Get a voice by id (positional or --voice-id)")
       .option("--voice-id <id>", "ElevenLabs voice id (alternative to the positional argument)")
       .action((voiceId: string | undefined, options: VoicesFlags, command: Command) =>
-        runBuilt(buildVoicesGetInput, { ...options, voiceId: voiceId ?? options.voiceId }, command),
+        runListAlias(
+          buildVoicesGetInput,
+          { ...options, voiceId: voiceId ?? options.voiceId },
+          command,
+        ),
       ),
   );
   addCommonFlags(
@@ -187,7 +191,7 @@ export function registerVoicesCommand(
       .option("--remove-background-noise", "remove background noise from the sample")
       .option("--description <text>", "optional voice description")
       .action((options: VoicesFlags, command: Command) =>
-        runBuilt(buildVoicesCloneInstantInput, options, command),
+        runListAlias(buildVoicesCloneInstantInput, options, command),
       ),
   );
 }
@@ -208,12 +212,4 @@ async function runFind(flags: VoicesFlags, command: Command): Promise<never> {
   const matched = findMatchingVoices(query, voices);
   const result: SuccessEnvelope = { ...env, data: { voices: matched, count: matched.length } };
   emit(result);
-}
-
-async function runBuilt<T>(
-  builder: (flags: T) => { operationId: string; input: AgentInput },
-  flags: T,
-  command: Command,
-): Promise<never> {
-  return runListAlias(builder, flags, command);
 }

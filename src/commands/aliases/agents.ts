@@ -74,7 +74,7 @@ export function registerAgentsCommand(
       .description("List conversational agents")
       .option("--search <query>", "filter agents by search query")
       .action((options: AgentsFlags, command: Command) =>
-        runBuilt(buildAgentsListInput, options, command),
+        runListAlias(buildAgentsListInput, options, command, { mergeOptions: true }),
       ),
   );
   addCommonFlags(
@@ -83,7 +83,7 @@ export function registerAgentsCommand(
       .description("Get an agent by id")
       .option("--agent-id <id>", "conversational agent id")
       .action((options: AgentsFlags, command: Command) =>
-        runBuilt(buildAgentsGetInput, options, command),
+        runListAlias(buildAgentsGetInput, options, command, { mergeOptions: true }),
       ),
   );
   addCommonFlags(
@@ -93,7 +93,7 @@ export function registerAgentsCommand(
       .option("--json <json>", "agent configuration JSON")
       .option("--json-file <path>", "agent configuration JSON file")
       .action((options: AgentsFlags, command: Command) =>
-        runBuilt(buildAgentsCreateInput, options, command),
+        runListAlias(buildAgentsCreateInput, options, command, { mergeOptions: true }),
       ),
   );
   addCommonFlags(
@@ -104,7 +104,7 @@ export function registerAgentsCommand(
       .option("--json <json>", "partial agent settings JSON")
       .option("--json-file <path>", "partial agent settings JSON file")
       .action((options: AgentsFlags, command: Command) =>
-        runBuilt(buildAgentsUpdateInput, options, command),
+        runListAlias(buildAgentsUpdateInput, options, command, { mergeOptions: true }),
       ),
   );
   addCommonFlags(
@@ -116,17 +116,9 @@ export function registerAgentsCommand(
       .option("--json <json>", "full simulation specification JSON")
       .option("--json-file <path>", "full simulation specification JSON file")
       .action((options: AgentsFlags, command: Command) =>
-        runBuilt(buildAgentsSimulateInput, options, command),
+        runListAlias(buildAgentsSimulateInput, options, command, { mergeOptions: true }),
       ),
   );
-}
-
-async function runBuilt<T>(
-  builder: (flags: T) => { operationId: string; input: AgentInput },
-  flags: T,
-  command: Command,
-): Promise<never> {
-  return runListAlias(builder, flags, command, { mergeOptions: true });
 }
 
 function readJson(flags: AgentsFlags): Record<string, unknown> {

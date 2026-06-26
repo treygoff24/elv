@@ -37,12 +37,10 @@ export function registerUsageCommand(
       .option("--to <YYYY-MM-DD>", "usage range end date (requires --from)")
       .option("--breakdown <type>", "usage breakdown type for character usage")
       .option("--metric <metric>", "usage metric to report")
-      .action((options: UsageFlags, command: Command) => runBuilt(options, command)),
+      .action((options: UsageFlags, command: Command) =>
+        runAlias(buildUsageInput, options, command),
+      ),
   );
-}
-
-async function runBuilt(flags: UsageFlags, command: Command): Promise<never> {
-  return runAlias(buildUsageInput, flags, command);
 }
 
 function dateMs(value: string): number {

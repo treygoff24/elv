@@ -42,7 +42,7 @@ export function registerHistoryCommand(
     addPaginationFlags(history.command("list"))
       .description("List speech history")
       .action((options: HistoryFlags, command: Command) =>
-        runBuilt(buildHistoryListInput, options, command),
+        runListAlias(buildHistoryListInput, options, command),
       ),
   );
   addCommonFlags(
@@ -51,7 +51,7 @@ export function registerHistoryCommand(
       .description("Download a history item's audio")
       .option("--id <id>", "speech history item id")
       .action((options: HistoryFlags, command: Command) =>
-        runBuilt(buildHistoryAudioInput, options, command),
+        runListAlias(buildHistoryAudioInput, options, command),
       ),
   );
   addCommonFlags(
@@ -60,15 +60,7 @@ export function registerHistoryCommand(
       .description("Delete a speech history item")
       .option("--id <id>", "speech history item id")
       .action((options: HistoryFlags, command: Command) =>
-        runBuilt(buildHistoryDeleteInput, options, command),
+        runListAlias(buildHistoryDeleteInput, options, command),
       ),
   );
-}
-
-async function runBuilt<T>(
-  builder: (flags: T) => { operationId: string; input: AgentInput },
-  flags: T,
-  command: Command,
-): Promise<never> {
-  return runListAlias(builder, flags, command);
 }

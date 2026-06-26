@@ -102,7 +102,7 @@ export function registerDubbingCommand(
       .description("Get dubbing project metadata")
       .option("--id <id>", "dubbing project id")
       .action((options: DubbingIdFlags, command: Command) =>
-        runBuilt(buildDubbingGetInput, options, command),
+        runListAlias(buildDubbingGetInput, options, command),
       ),
   );
   addCommonFlags(
@@ -112,14 +112,14 @@ export function registerDubbingCommand(
       .option("--id <id>", "dubbing project id")
       .option("--language <code>", "target language code for dubbed audio")
       .action((options: DubbingIdFlags, command: Command) =>
-        runBuilt(buildDubbingAudioInput, options, command),
+        runListAlias(buildDubbingAudioInput, options, command),
       ),
   );
   addCommonFlags(
     addPaginationFlags(dubbing.command("list"))
       .description("List dubbing projects")
       .action((options: DubbingIdFlags, command: Command) =>
-        runBuilt(buildDubbingListInput, options, command),
+        runListAlias(buildDubbingListInput, options, command),
       ),
   );
 }
@@ -142,14 +142,6 @@ async function waitForDubbing(env: Envelope, opts: RunOpts): Promise<never> {
     { runOperation: (operationId, input) => runOperation(operationId, input, opts) },
   );
   emitAndExit(result.env, result.exitCode);
-}
-
-async function runBuilt<T>(
-  builder: (flags: T) => { operationId: string; input: AgentInput },
-  flags: T,
-  command: Command,
-): Promise<never> {
-  return runListAlias(builder, flags, command);
 }
 
 function stringAt(env: Envelope, keys: string[]): string | null {

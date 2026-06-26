@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { success, failure } from "../core/envelope";
-import { getApiKey, loadConfig } from "../core/config";
-import { validationError } from "../core/errors";
+import { ConfigFileError, getApiKey, loadConfig } from "../core/config";
+import { configFileError, validationError } from "../core/errors";
 import { ExitCode } from "../core/types";
 import { resolveOutTarget, OutTargetError } from "../core/files";
 import { buildCatalogUrl, getWsCatalogEntry, listWsCatalog, wsUrlFromPath } from "../ws/catalog";
@@ -152,6 +152,12 @@ function parseScriptFile(path: string): ReturnType<typeof parseSendScript> {
 
 function errorEnvelope(error: unknown): { env: Envelope; exitCode: ExitCode } {
   if (error instanceof ScriptValidationError) return inputError(error.message);
+  if (error instanceof ConfigFileError) {
+    return {
+      env: configFileError("elv ws", error.message, { raw: { path: error.path } }),
+      exitCode: ExitCode.InputValidation,
+    };
+  }
   if (error instanceof OutTargetError) {
     return {
       env: failure({

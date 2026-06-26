@@ -19,10 +19,8 @@ export function registerModelsCommand(
       .description("Models")
       .command("list")
       .description("List available models")
-      .action((options: Record<string, never>, command: Command) => runBuilt(options, command)),
+      .action((options: Record<string, never>, command: Command) =>
+        runAlias(buildModelsListInput, options, command),
+      ),
   );
-}
-
-async function runBuilt(flags: Record<string, never>, command: Command): Promise<never> {
-  return runAlias(buildModelsListInput, flags, command);
 }

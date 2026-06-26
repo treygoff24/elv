@@ -121,6 +121,32 @@ describe("ws session", () => {
     expect(result.env.ok ? undefined : result.env.error.message).toContain("eleven_v3");
   });
 
+  it("maps malformed config files to config validation errors", async () => {
+    const dir = await tempDir();
+    const config = join(dir, "config.json");
+    writeFileSync(config, "{not-json");
+    const previous = process.env.ELV_CONFIG;
+    process.env.ELV_CONFIG = config;
+    try {
+      const result = await runWs({
+        target: "/v1/text-to-speech/voice/stream-input",
+        send: join(dir, "missing.ndjson"),
+        out: dir,
+        query: {},
+      });
+
+      expect(result.exitCode).toBe(2);
+      expect(result.env.ok).toBe(false);
+      if (result.env.ok) throw new Error("expected config failure");
+      expect(result.env.error.type).toBe("config_error");
+      expect(result.env.error.code).toBe("config_json_invalid");
+      expect(result.env.error.raw).toMatchObject({ path: config });
+    } finally {
+      if (previous === undefined) delete process.env.ELV_CONFIG;
+      else process.env.ELV_CONFIG = previous;
+    }
+  });
+
   it("parses and rejects unsupported send-script operations", () => {
     expect(() => parseSendScript('{"type":"wait"}\n')).toThrow(/unsupported/i);
   });
