@@ -3,6 +3,6 @@ import type { WaitOptions } from "../core/wait-operation";
 
 export { waitForOperation };
 
-export async function handleWait(options: WaitOptions): ReturnType<typeof waitForOperation> {
+export function handleWait(options: WaitOptions): ReturnType<typeof waitForOperation> {
   return waitForOperation(options);
 }
