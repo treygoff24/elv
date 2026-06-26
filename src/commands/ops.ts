@@ -72,9 +72,8 @@ export async function handleOpsSchema(
       ExitCode.InputValidation,
     );
   }
-  await loadRegistry();
+  const registry = await loadRegistry();
   const cached = readRegistryCache();
-  const registry = new Map((cached?.operations ?? []).map((op) => [op.operationId, op]));
   const op = registry.get(operationId);
   if (!op) emitUnknown(`elv ops schema ${operationId}`, operationId);
   const spec = cached?.bundledSpec as OpenApiDocument | undefined;

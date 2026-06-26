@@ -1,7 +1,6 @@
 import type { Command } from "commander";
-import type { AgentInput } from "../../core/types";
 import { numberValue } from "../options";
-import { compact, compactInput, required, runAlias } from "./shared";
+import { compact, compactInput, required, runAlias, type BuiltOperation } from "./shared";
 
 export interface SfxFlags {
   prompt?: string;
@@ -11,7 +10,7 @@ export interface SfxFlags {
   loop?: boolean;
 }
 
-export function buildSfxInput(flags: SfxFlags): { operationId: string; input: AgentInput } {
+export function buildSfxInput(flags: SfxFlags): BuiltOperation {
   return {
     operationId: "sound_generation",
     input: compactInput({

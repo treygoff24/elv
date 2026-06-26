@@ -1,8 +1,8 @@
 import { resolve } from "node:path";
 import type { Command } from "commander";
 import { runOperation } from "../../core/client";
-import type { AgentInput } from "../../core/types";
 import {
+  type BuiltOperation,
   compact,
   compactInput,
   emit,
@@ -22,7 +22,7 @@ export interface SttFlags {
   wait?: boolean;
 }
 
-export function buildSttInput(flags: SttFlags): { operationId: string; input: AgentInput } {
+export function buildSttInput(flags: SttFlags): BuiltOperation {
   return {
     operationId: "speech_to_text",
     input: compactInput({

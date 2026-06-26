@@ -1,9 +1,9 @@
 import { readFileSync } from "node:fs";
 import type { Command } from "commander";
 import { runOperation } from "../../core/client";
-import type { AgentInput } from "../../core/types";
 import { mergedOptions, numberValue } from "../options";
 import {
+  type BuiltOperation,
   commandName,
   compact,
   compactInput,
@@ -28,7 +28,7 @@ export interface TtsFlags {
   enableLogging?: boolean;
 }
 
-export function buildTtsInput(flags: TtsFlags): { operationId: string; input: AgentInput } {
+export function buildTtsInput(flags: TtsFlags): BuiltOperation {
   const text = readText(flags.text, flags.textFile, "tts");
   const body = compact({ text, model_id: flags.model, language_code: flags.language });
   const query = compact({

@@ -1,9 +1,9 @@
 import { resolve } from "node:path";
 import type { Command } from "commander";
 import { runOperation } from "../../core/client";
-import type { AgentInput } from "../../core/types";
 import { mergedOptions } from "../options";
 import {
+  type BuiltOperation,
   commandName,
   compact,
   compactInput,
@@ -24,10 +24,7 @@ export interface VoiceChangeFlags {
   removeBackgroundNoise?: boolean;
 }
 
-export function buildVoiceChangeInput(flags: VoiceChangeFlags): {
-  operationId: string;
-  input: AgentInput;
-} {
+export function buildVoiceChangeInput(flags: VoiceChangeFlags): BuiltOperation {
   return {
     operationId: flags.stream ? "speech_to_speech_stream" : "speech_to_speech_full",
     input: compactInput({

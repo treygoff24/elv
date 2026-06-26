@@ -1,30 +1,13 @@
-import { spawn } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import type { CliResult } from "../helpers/cli-result";
+import { errorRecord, parseEnvelope, runCli, type CliResult } from "../helpers/cli-result";
 
 const CANARY_KEY = "test_key_CANARY";
 const CALL_TIMEOUT_MS = 30_000;
 const PROCESSING_POLLS = 3;
-
-function parseEnvelope(stdout: string): Record<string, unknown> {
-  const trimmed = stdout.trim();
-  expect(trimmed.length).toBeGreaterThan(0);
-  const parsed: unknown = JSON.parse(trimmed);
-  expect(parsed).toBeTypeOf("object");
-  expect(parsed).not.toBeNull();
-  return parsed as Record<string, unknown>;
-}
-
-function errorRecord(envelope: Record<string, unknown>): Record<string, unknown> {
-  const error = envelope.error;
-  expect(error).toBeTypeOf("object");
-  expect(error).not.toBeNull();
-  return error as Record<string, unknown>;
-}
 
 describe("wait mock server (black-box, integration gate)", () => {
   let server: Server;
@@ -36,27 +19,11 @@ describe("wait mock server (black-box, integration gate)", () => {
   // Async spawn (NOT spawnSync): the mock server runs in THIS process, so the event
   // loop must stay free to service the spawned CLI's request — spawnSync would deadlock.
   function runElv(args: string[], env?: Record<string, string>): Promise<CliResult> {
-    return new Promise((resolve, reject) => {
-      const child = spawn("npx", ["tsx", "src/cli.ts", ...args], {
-        env: {
-          ...process.env,
-          ELEVENLABS_BASE_URL: baseUrl,
-          ELEVENLABS_API_KEY: CANARY_KEY,
-          ELV_CACHE_DIR: cacheDir,
-          ...env,
-        },
-      });
-
-      let stdout = "";
-      let stderr = "";
-      child.stdout.on("data", (chunk: Buffer | string) => {
-        stdout += chunk.toString();
-      });
-      child.stderr.on("data", (chunk: Buffer | string) => {
-        stderr += chunk.toString();
-      });
-      child.on("error", reject);
-      child.on("close", (code: number | null) => resolve({ stdout, stderr, code }));
+    return runCli(args, {
+      ELEVENLABS_BASE_URL: baseUrl,
+      ELEVENLABS_API_KEY: CANARY_KEY,
+      ELV_CACHE_DIR: cacheDir,
+      ...env,
     });
   }
 

@@ -1,31 +1,11 @@
-import { spawn } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import type { CliResult } from "../helpers/cli-result";
+import { assertNoKeyLeak, parseEnvelope, runCli, type CliResult } from "../helpers/cli-result";
 
 const CALL_TIMEOUT_MS = 30_000;
 const HAS_API_KEY = Boolean(process.env.ELEVENLABS_API_KEY);
-
-function parseEnvelope(stdout: string): Record<string, unknown> {
-  const trimmed = stdout.trim();
-  expect(trimmed.length).toBeGreaterThan(0);
-  expect(trimmed.startsWith("{")).toBe(true);
-  expect(trimmed.endsWith("}")).toBe(true);
-
-  const parsed: unknown = JSON.parse(trimmed);
-  expect(parsed).toBeTypeOf("object");
-  expect(parsed).not.toBeNull();
-  expect(Array.isArray(parsed)).toBe(false);
-
-  return parsed as Record<string, unknown>;
-}
-
-function assertNoKeyLeak(stdout: string, stderr: string, apiKey: string): void {
-  expect(stdout).not.toContain(apiKey);
-  expect(stderr).not.toContain(apiKey);
-}
 
 describe.skipIf(!HAS_API_KEY)("integration (live API, read-only)", () => {
   let cacheDir: string;
@@ -33,25 +13,9 @@ describe.skipIf(!HAS_API_KEY)("integration (live API, read-only)", () => {
 
   // Async spawn (NOT spawnSync): keep the event loop free for child I/O.
   function runElv(args: string[]): Promise<CliResult> {
-    return new Promise((resolve, reject) => {
-      const child = spawn("npx", ["tsx", "src/cli.ts", ...args], {
-        env: {
-          ...process.env,
-          ELEVENLABS_API_KEY: apiKey,
-          ELV_CACHE_DIR: cacheDir,
-        },
-      });
-
-      let stdout = "";
-      let stderr = "";
-      child.stdout.on("data", (chunk: Buffer | string) => {
-        stdout += chunk.toString();
-      });
-      child.stderr.on("data", (chunk: Buffer | string) => {
-        stderr += chunk.toString();
-      });
-      child.on("error", reject);
-      child.on("close", (code: number | null) => resolve({ stdout, stderr, code }));
+    return runCli(args, {
+      ELEVENLABS_API_KEY: apiKey,
+      ELV_CACHE_DIR: cacheDir,
     });
   }
 

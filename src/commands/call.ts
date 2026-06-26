@@ -103,10 +103,10 @@ function parseCallInput(
 
 function callRunOpts(options: CallOptions): RunOpts & PaginationOptions {
   return {
-    ...runOptsFromOptions(options as Record<string, unknown>),
+    ...runOptsFromOptions(options),
     allowUnknown: options.allowUnknown,
     unpack: options.unpack,
-    ...paginationOptionsFromOptions(options as Record<string, unknown>),
+    ...paginationOptionsFromOptions(options),
   };
 }
 

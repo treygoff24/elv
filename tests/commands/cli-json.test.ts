@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
-import type { CliResult } from "../helpers/cli-result";
+import { parseEnvelope, type CliResult } from "../helpers/cli-result";
 
 function hasAnsiEscape(text: string): boolean {
   return text.includes("\u001b");
@@ -22,20 +22,6 @@ export function runCli(args: string[], env?: Record<string, string>): CliResult 
   };
 }
 
-function parseStdoutEnvelope(stdout: string): Record<string, unknown> {
-  const trimmed = stdout.trim();
-  expect(trimmed.length).toBeGreaterThan(0);
-  expect(trimmed.startsWith("{")).toBe(true);
-  expect(trimmed.endsWith("}")).toBe(true);
-
-  const parsed: unknown = JSON.parse(trimmed);
-  expect(parsed).toBeTypeOf("object");
-  expect(parsed).not.toBeNull();
-  expect(Array.isArray(parsed)).toBe(false);
-
-  return parsed as Record<string, unknown>;
-}
-
 describe("CLI JSON output contract", () => {
   it("config get emits one success envelope with v=1 and ok=true", () => {
     const { stdout, stderr, code } = runCli(["config", "get"]);
@@ -44,7 +30,7 @@ describe("CLI JSON output contract", () => {
     expect(hasAnsiEscape(stdout)).toBe(false);
     expect(hasAnsiEscape(stderr)).toBe(false);
 
-    const envelope = parseStdoutEnvelope(stdout);
+    const envelope = parseEnvelope(stdout);
     expect(envelope.v).toBe(1);
     expect(envelope.ok).toBe(true);
   });
@@ -55,7 +41,7 @@ describe("CLI JSON output contract", () => {
     expect(code).not.toBe(0);
     expect([8, 9]).toContain(code);
 
-    const envelope = parseStdoutEnvelope(stdout);
+    const envelope = parseEnvelope(stdout);
     expect(envelope.v).toBe(1);
     expect(envelope.ok).toBe(false);
     expect(envelope.error).toBeTypeOf("object");
@@ -80,7 +66,7 @@ describe("CLI JSON output contract", () => {
       const { stdout, code } = runCli(["config", "get"], { ELV_CONFIG: configPath });
 
       expect(code).toBe(2);
-      const envelope = parseStdoutEnvelope(stdout);
+      const envelope = parseEnvelope(stdout);
       expect(envelope.ok).toBe(false);
       expect(envelope.error).toMatchObject({
         type: "config_error",
@@ -94,13 +80,13 @@ describe("CLI JSON output contract", () => {
 
   it("success stdout is a single JSON object with no leading or trailing prose", () => {
     const { stdout } = runCli(["config", "get"]);
-    parseStdoutEnvelope(stdout);
+    parseEnvelope(stdout);
   });
 
   it("bare elv emits a success help envelope listing commands with descriptions", () => {
     const { stdout, code } = runCli([]);
     expect(code).toBe(0);
-    const envelope = parseStdoutEnvelope(stdout);
+    const envelope = parseEnvelope(stdout);
     expect(envelope.ok).toBe(true);
     const data = envelope.data as Record<string, unknown>;
     expect(data.command).toBe("elv");
@@ -116,7 +102,7 @@ describe("CLI JSON output contract", () => {
   it("classifies a missing required flag as validation_error (exit 2), not internal_error", () => {
     const { stdout, code } = runCli(["tts"]);
     expect(code).toBe(2);
-    const envelope = parseStdoutEnvelope(stdout);
+    const envelope = parseEnvelope(stdout);
     expect(envelope.ok).toBe(false);
     const error = envelope.error as Record<string, unknown>;
     expect(error.code).toBe("validation_error");
@@ -126,7 +112,7 @@ describe("CLI JSON output contract", () => {
   it("voice-change with no voice also classifies as validation_error (exit 2)", () => {
     const { stdout, code } = runCli(["voice-change", "--file", "/tmp/nope.mp3"]);
     expect(code).toBe(2);
-    const envelope = parseStdoutEnvelope(stdout);
+    const envelope = parseEnvelope(stdout);
     expect(envelope.ok).toBe(false);
     expect((envelope.error as Record<string, unknown>).code).toBe("validation_error");
   });
@@ -134,7 +120,7 @@ describe("CLI JSON output contract", () => {
   it("tts validates local text input before resolving --voice by network lookup", () => {
     const { stdout, code } = runCli(["tts", "--voice", "Rachel"]);
     expect(code).toBe(2);
-    const envelope = parseStdoutEnvelope(stdout);
+    const envelope = parseEnvelope(stdout);
     expect(envelope.ok).toBe(false);
     const error = envelope.error as Record<string, unknown>;
     expect(error.code).toBe("validation_error");
@@ -159,7 +145,7 @@ describe("CLI JSON output contract", () => {
     ]) {
       const { stdout, code } = runCli(args);
       expect(code, args.join(" ")).toBe(2);
-      const envelope = parseStdoutEnvelope(stdout);
+      const envelope = parseEnvelope(stdout);
       expect(envelope.ok).toBe(false);
       expect((envelope.error as Record<string, unknown>).code).toBe("validation_error");
       expect(String((envelope.error as Record<string, unknown>).message)).toContain(
@@ -171,7 +157,7 @@ describe("CLI JSON output contract", () => {
   it("voices get accepts the voice id as a positional argument", () => {
     const { stdout, code } = runCli(["voices", "get", "POSITIONAL_ID", "--dry-run"]);
     expect(code).toBe(0);
-    const envelope = parseStdoutEnvelope(stdout);
+    const envelope = parseEnvelope(stdout);
     expect(envelope.ok).toBe(true);
     const request = (envelope.data as Record<string, unknown>).request as Record<string, unknown>;
     const input = request.input as { path?: { voice_id?: string } };
@@ -181,7 +167,7 @@ describe("CLI JSON output contract", () => {
   it("voices get with no id reports a validation error mentioning the positional form", () => {
     const { stdout, code } = runCli(["voices", "get"]);
     expect(code).toBe(2);
-    const envelope = parseStdoutEnvelope(stdout);
+    const envelope = parseEnvelope(stdout);
     expect(envelope.ok).toBe(false);
     expect(String((envelope.error as Record<string, unknown>).message)).toMatch(/positional/);
   });
@@ -190,7 +176,7 @@ describe("CLI JSON output contract", () => {
     for (const command of ["ops", "config", "spec"]) {
       const { stdout, code } = runCli([command]);
       expect(code).toBe(0);
-      const envelope = parseStdoutEnvelope(stdout);
+      const envelope = parseEnvelope(stdout);
       expect(envelope.ok).toBe(true);
       const data = envelope.data as Record<string, unknown>;
       expect(data.command).toBe(command);
@@ -202,7 +188,7 @@ describe("CLI JSON output contract", () => {
   it("subcommand --help emits per-command metadata instead of the global list", () => {
     const { stdout: ttsStdout, code: ttsCode } = runCli(["tts", "--help"]);
     expect(ttsCode).toBe(0);
-    const ttsEnvelope = parseStdoutEnvelope(ttsStdout);
+    const ttsEnvelope = parseEnvelope(ttsStdout);
     expect(ttsEnvelope.ok).toBe(true);
     const ttsData = ttsEnvelope.data as Record<string, unknown>;
     expect(ttsData.command).toBe("tts");
@@ -217,7 +203,7 @@ describe("CLI JSON output contract", () => {
 
     const { stdout: viewStdout, code: viewCode } = runCli(["view", "--help"]);
     expect(viewCode).toBe(0);
-    const viewEnvelope = parseStdoutEnvelope(viewStdout);
+    const viewEnvelope = parseEnvelope(viewStdout);
     const viewData = viewEnvelope.data as Record<string, unknown>;
     expect(viewData.command).toBe("view");
     expect(viewData).not.toEqual(ttsData);

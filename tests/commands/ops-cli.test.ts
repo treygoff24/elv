@@ -3,7 +3,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import type { CliResult } from "../helpers/cli-result";
+import { parseEnvelope, type CliResult } from "../helpers/cli-result";
 
 type CachedCliResult = CliResult & { cacheDir: string };
 
@@ -20,20 +20,6 @@ function runCli(args: string[], env?: Record<string, string>): CachedCliResult {
     code: result.status,
     cacheDir,
   };
-}
-
-function parseEnvelope(stdout: string): Record<string, unknown> {
-  const trimmed = stdout.trim();
-  expect(trimmed.length).toBeGreaterThan(0);
-  expect(trimmed.startsWith("{")).toBe(true);
-  expect(trimmed.endsWith("}")).toBe(true);
-
-  const parsed: unknown = JSON.parse(trimmed);
-  expect(parsed).toBeTypeOf("object");
-  expect(parsed).not.toBeNull();
-  expect(Array.isArray(parsed)).toBe(false);
-
-  return parsed as Record<string, unknown>;
 }
 
 function operationIdOf(item: unknown): string | undefined {

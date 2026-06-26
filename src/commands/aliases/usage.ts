@@ -1,6 +1,5 @@
 import type { Command } from "commander";
-import type { AgentInput } from "../../core/types";
-import { compact, required, runAlias } from "./shared";
+import { compact, required, runAlias, type BuiltOperation } from "./shared";
 
 export interface UsageFlags {
   from?: string;
@@ -9,7 +8,7 @@ export interface UsageFlags {
   metric?: string;
 }
 
-export function buildUsageInput(flags: UsageFlags): { operationId: string; input: AgentInput } {
+export function buildUsageInput(flags: UsageFlags): BuiltOperation {
   if (!flags.from && !flags.to) return { operationId: "get_user_subscription_info", input: {} };
   return {
     operationId: "usage_characters",

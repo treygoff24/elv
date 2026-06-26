@@ -278,7 +278,7 @@ export function resolveRef(ref: string, spec: OpenApiDocument): unknown {
 }
 
 export function schemaNameFromRef(ref: string): string {
-  return ref.split("/").at(-1) ?? ref;
+  return ref.slice(ref.lastIndexOf("/") + 1);
 }
 
 function refValue(value: unknown): string | undefined {

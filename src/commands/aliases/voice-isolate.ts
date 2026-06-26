@@ -1,7 +1,6 @@
 import { resolve } from "node:path";
 import type { Command } from "commander";
-import type { AgentInput } from "../../core/types";
-import { compact, compactInput, required, runAlias } from "./shared";
+import { compact, compactInput, required, runAlias, type BuiltOperation } from "./shared";
 
 export interface VoiceIsolateFlags {
   file?: string;
@@ -9,10 +8,7 @@ export interface VoiceIsolateFlags {
   previewB64?: string;
 }
 
-export function buildVoiceIsolateInput(flags: VoiceIsolateFlags): {
-  operationId: string;
-  input: AgentInput;
-} {
+export function buildVoiceIsolateInput(flags: VoiceIsolateFlags): BuiltOperation {
   return {
     operationId: "audio_isolation",
     input: compactInput({

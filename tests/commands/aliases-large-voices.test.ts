@@ -1,10 +1,9 @@
-import { spawn } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import type { CliResult } from "../helpers/cli-result";
+import { parseEnvelope, runCli, type CliResult } from "../helpers/cli-result";
 
 const CANARY_KEY = "test_key_CANARY";
 const FAKE_AUDIO = Buffer.from([0xff, 0xfb, 0x90, 0x00]);
@@ -20,13 +19,6 @@ function readBody(req: IncomingMessage): Promise<string> {
     req.on("end", () => resolve(Buffer.concat(chunks).toString("utf-8")));
     req.on("error", reject);
   });
-}
-
-function parseEnvelope(stdout: string): Record<string, unknown> {
-  const parsed = JSON.parse(stdout.trim()) as unknown;
-  expect(parsed).toBeTypeOf("object");
-  expect(parsed).not.toBeNull();
-  return parsed as Record<string, unknown>;
 }
 
 function largeVoices(): Record<string, unknown> {
@@ -47,27 +39,11 @@ describe("aliases resolve large get_user_voices_v2 responses", () => {
   let lastVoicesSearch: string | null = null;
 
   function runElv(args: string[], env?: Record<string, string>): Promise<CliResult> {
-    return new Promise((resolve, reject) => {
-      const child = spawn("npx", ["tsx", "src/cli.ts", ...args], {
-        env: {
-          ...process.env,
-          ELEVENLABS_BASE_URL: baseUrl,
-          ELEVENLABS_API_KEY: CANARY_KEY,
-          ELV_CACHE_DIR: cacheDir,
-          ...env,
-        },
-      });
-
-      let stdout = "";
-      let stderr = "";
-      child.stdout.on("data", (chunk: Buffer | string) => {
-        stdout += chunk.toString();
-      });
-      child.stderr.on("data", (chunk: Buffer | string) => {
-        stderr += chunk.toString();
-      });
-      child.on("error", reject);
-      child.on("close", (code: number | null) => resolve({ stdout, stderr, code }));
+    return runCli(args, {
+      ELEVENLABS_BASE_URL: baseUrl,
+      ELEVENLABS_API_KEY: CANARY_KEY,
+      ELV_CACHE_DIR: cacheDir,
+      ...env,
     });
   }
 

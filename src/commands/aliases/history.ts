@@ -1,32 +1,22 @@
 import type { Command } from "commander";
-import type { AgentInput } from "../../core/types";
-import { addPaginationFlags, required, runListAlias } from "./shared";
+import { addPaginationFlags, required, runListAlias, type BuiltOperation } from "./shared";
 
 export interface HistoryFlags {
   id?: string;
 }
 
-export function buildHistoryListInput(_flags: HistoryFlags): {
-  operationId: string;
-  input: AgentInput;
-} {
+export function buildHistoryListInput(_flags: HistoryFlags): BuiltOperation {
   return { operationId: "get_speech_history", input: {} };
 }
 
-export function buildHistoryAudioInput(flags: HistoryFlags): {
-  operationId: string;
-  input: AgentInput;
-} {
+export function buildHistoryAudioInput(flags: HistoryFlags): BuiltOperation {
   return {
     operationId: "get_audio_full_from_speech_history_item",
     input: { path: { history_item_id: required(flags.id, "--id") } },
   };
 }
 
-export function buildHistoryDeleteInput(flags: HistoryFlags): {
-  operationId: string;
-  input: AgentInput;
-} {
+export function buildHistoryDeleteInput(flags: HistoryFlags): BuiltOperation {
   return {
     operationId: "delete_speech_history_item",
     input: { path: { history_item_id: required(flags.id, "--id") } },

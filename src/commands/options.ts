@@ -2,6 +2,63 @@ import type { Command } from "commander";
 import type { RunOpts } from "../core/types";
 import type { PaginationOptions } from "../core/pagination";
 
+export interface RunOptionValues {
+  dryRun?: boolean;
+  yes?: boolean;
+  maxCredits?: string | number;
+  retryPost?: boolean;
+  hash?: boolean;
+  out?: string;
+  baseUrl?: string;
+  profile?: string;
+}
+
+export interface PaginationOptionValues {
+  all?: boolean;
+  limit?: string | number;
+  saveJson?: string;
+}
+
+export interface CliOptionValues extends RunOptionValues, PaginationOptionValues {
+  allowUnknown?: boolean;
+  bodyJson?: string;
+  cmd?: string;
+  debug?: boolean;
+  enableLogging?: boolean;
+  example?: boolean;
+  failure?: string;
+  fields?: string;
+  file?: string[] | string;
+  format?: string;
+  from?: string;
+  json?: string;
+  jsonFile?: string;
+  language?: string;
+  list?: boolean;
+  model?: string;
+  offline?: boolean;
+  operation?: string;
+  optimizeStreamingLatency?: string | number;
+  path?: string[];
+  query?: string[];
+  raw?: boolean;
+  removeBackgroundNoise?: boolean;
+  search?: string;
+  send?: string;
+  sort?: string;
+  statusPath?: string;
+  stdinJson?: boolean;
+  success?: string;
+  text?: string;
+  textFile?: string;
+  timestamps?: boolean;
+  timeoutMs?: string | number;
+  intervalMs?: string | number;
+  unpack?: boolean;
+  voice?: string;
+  voiceId?: string;
+}
+
 export class OptionValueError extends Error {
   constructor(message: string) {
     super(message);
@@ -21,7 +78,7 @@ export function addCommonFlags(command: Command): Command {
     .option("--retry-post", "retry POST requests");
 }
 
-export function mergedOptions(command: Command): Record<string, unknown> {
+export function mergedOptions(command: Command): CliOptionValues {
   const chain: Command[] = [];
   for (let current: Command | null = command; current; current = current.parent)
     chain.unshift(current);
@@ -32,7 +89,7 @@ export function runOptsFromCommand(command: Command): RunOpts {
   return runOptsFromOptions(mergedOptions(command));
 }
 
-export function runOptsFromOptions(opts: Record<string, unknown>): RunOpts {
+export function runOptsFromOptions(opts: RunOptionValues): RunOpts {
   return {
     dryRun: Boolean(opts.dryRun),
     yes: Boolean(opts.yes),
@@ -49,7 +106,7 @@ export function paginationOptionsFromCommand(command: Command): PaginationOption
   return paginationOptionsFromOptions(mergedOptions(command));
 }
 
-export function paginationOptionsFromOptions(opts: Record<string, unknown>): PaginationOptions {
+export function paginationOptionsFromOptions(opts: PaginationOptionValues): PaginationOptions {
   return {
     all: opts.all ? true : undefined,
     limit: numberValue(opts.limit),

@@ -1,11 +1,7 @@
 import type { Command } from "commander";
-import type { AgentInput } from "../../core/types";
-import { runAlias } from "./shared";
+import { runAlias, type BuiltOperation } from "./shared";
 
-export function buildModelsListInput(_flags: Record<string, never>): {
-  operationId: string;
-  input: AgentInput;
-} {
+export function buildModelsListInput(_flags: Record<string, never>): BuiltOperation {
   return { operationId: "get_models", input: {} };
 }
 

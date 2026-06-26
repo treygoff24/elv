@@ -1,9 +1,9 @@
 import { resolve } from "node:path";
 import type { Command } from "commander";
 import { runOperation } from "../../core/client";
-import type { AgentInput } from "../../core/types";
 import {
   addPaginationFlags,
+  type BuiltOperation,
   compact,
   compactInput,
   emit,
@@ -27,10 +27,7 @@ export interface DubbingIdFlags {
   language?: string;
 }
 
-export function buildDubbingCreateInput(flags: DubbingCreateFlags): {
-  operationId: string;
-  input: AgentInput;
-} {
+export function buildDubbingCreateInput(flags: DubbingCreateFlags): BuiltOperation {
   return {
     operationId: "create_dubbing",
     input: compactInput({
@@ -40,20 +37,14 @@ export function buildDubbingCreateInput(flags: DubbingCreateFlags): {
   };
 }
 
-export function buildDubbingGetInput(flags: DubbingIdFlags): {
-  operationId: string;
-  input: AgentInput;
-} {
+export function buildDubbingGetInput(flags: DubbingIdFlags): BuiltOperation {
   return {
     operationId: "get_dubbed_metadata",
     input: { path: { dubbing_id: required(flags.id, "--id") } },
   };
 }
 
-export function buildDubbingAudioInput(flags: DubbingIdFlags): {
-  operationId: string;
-  input: AgentInput;
-} {
+export function buildDubbingAudioInput(flags: DubbingIdFlags): BuiltOperation {
   return {
     operationId: "get_dubbed_file",
     input: {
@@ -65,10 +56,7 @@ export function buildDubbingAudioInput(flags: DubbingIdFlags): {
   };
 }
 
-export function buildDubbingListInput(_flags: DubbingIdFlags): {
-  operationId: string;
-  input: AgentInput;
-} {
+export function buildDubbingListInput(_flags: DubbingIdFlags): BuiltOperation {
   return { operationId: "list_dubs", input: {} };
 }
 

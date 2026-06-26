@@ -475,7 +475,7 @@ async function streamResponseFile(
   return { ...record, mime };
 }
 
-function chunkBuffer(chunk: unknown): Buffer {
+function chunkBuffer(chunk: Buffer | Uint8Array | string): Buffer {
   if (Buffer.isBuffer(chunk)) return chunk;
   if (chunk instanceof Uint8Array) return Buffer.from(chunk);
   if (typeof chunk === "string") return Buffer.from(chunk);

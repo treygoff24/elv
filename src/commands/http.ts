@@ -151,7 +151,7 @@ async function matchingRegistryOperation(
   method: HttpMethod,
   path: string,
 ): Promise<OperationCard | undefined> {
-  const requestPath = path.split("?", 1)[0] ?? path;
+  const requestPath = path.replace(/\?.*$/u, "");
   const registry = await loadRegistry();
   for (const op of registry.values()) {
     if (op.method === method && pathMatchesTemplate(op.pathTemplate, requestPath)) return op;
@@ -180,9 +180,9 @@ function fallbackRisk(method: HttpMethod, path: string): OperationCard["risk"] {
 
 function httpRunOpts(options: HttpOptions): HttpRunOpts {
   return {
-    ...runOptsFromOptions(options as Record<string, unknown>),
+    ...runOptsFromOptions(options),
     apiKey: options.apiKey,
-    ...paginationOptionsFromOptions(options as Record<string, unknown>),
+    ...paginationOptionsFromOptions(options),
   };
 }
 

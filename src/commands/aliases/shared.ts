@@ -3,6 +3,7 @@ import { runOperation } from "../../core/client";
 import { emitAndExit, exitCodeForError, validationError } from "../../core/errors";
 import { ExitCode } from "../../core/types";
 import { waitForOperation } from "../../core/wait-operation";
+import type { WaitOptions } from "../../core/wait-operation";
 import {
   mergedOptions,
   optionString,
@@ -11,17 +12,20 @@ import {
 } from "../options";
 import type { AgentInput, Envelope, RunOpts, SuccessEnvelope } from "../../core/types";
 
-export type OperationBuilder<T> = (flags: T) => { operationId: string; input: AgentInput };
+export interface BuiltOperation {
+  operationId: string;
+  input: AgentInput;
+}
 
-interface WaitAfterCreateConfig {
+type RequiredWaitFields = Required<Pick<WaitOptions, "operation" | "statusPath" | "success">>;
+
+export type OperationBuilder<T> = (flags: T) => BuiltOperation;
+
+interface WaitAfterCreateConfig extends RequiredWaitFields, Pick<WaitOptions, "failure"> {
   commandName: string;
   idKeys: string[];
   missingIdMessage: string;
-  operation: string;
   pathKey: string;
-  statusPath: string;
-  success: string;
-  failure?: string;
 }
 
 export function aliasRunOpts(command: Command): RunOpts {
@@ -64,7 +68,7 @@ function fieldsOpt(command: Command): string[] | undefined {
 // inline result, so it is mutually exclusive with the bulk-to-disk flags
 // (--all / --save-json) — combining them would silently ignore the persistence
 // request. Throwing here surfaces as a validation_error (exit 2) via runBuilt.
-export function resolveListOpts(command: Command): {
+function resolveListOpts(command: Command): {
   fields?: string[];
   fetch: { all?: boolean; limit?: number; saveJson?: string; inline?: boolean };
 } {
@@ -219,7 +223,7 @@ function stringAt(env: Envelope, keys: string[]): string | null {
   return null;
 }
 
-export function message(error: unknown): string {
+function message(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 

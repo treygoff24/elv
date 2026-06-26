@@ -1,9 +1,8 @@
 import type { CostHint, OperationCard, Risk } from "./types";
 
-// P7: curated lists reviewed against full 320-op set.
+// Curated overrides for operations whose OpenAPI metadata understates risk/cost.
 const DESTRUCTIVE_OP_IDS = new Set(["disable", "set_third_party_disabling_policy"]);
 
-// P7: curated lists reviewed against full 320-op set.
 const EXTERNAL_SIDE_EFFECT_OP_IDS = new Set([
   "add_member",
   "add_mcp_server_tool_approval_route",
@@ -39,7 +38,6 @@ const EXTERNAL_SIDE_EFFECT_OP_IDS = new Set([
   "whatsapp_outbound_message",
 ]);
 
-// P7: curated lists reviewed against full 320-op set.
 const GENERATE_OP_IDS = new Set([
   "add_language",
   "audio_isolation",

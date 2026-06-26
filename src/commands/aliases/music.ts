@@ -1,8 +1,7 @@
 import { readFileSync } from "node:fs";
 import type { Command } from "commander";
-import type { AgentInput } from "../../core/types";
 import { numberValue } from "../options";
-import { compact, compactInput, runAlias } from "./shared";
+import { compact, compactInput, runAlias, type BuiltOperation } from "./shared";
 
 export interface MusicFlags {
   prompt?: string;
@@ -13,7 +12,7 @@ export interface MusicFlags {
   stream?: boolean;
 }
 
-export function buildMusicInput(flags: MusicFlags): { operationId: string; input: AgentInput } {
+export function buildMusicInput(flags: MusicFlags): BuiltOperation {
   return {
     operationId: flags.stream ? "stream_compose" : "generate",
     input: compactInput({

@@ -31,6 +31,7 @@ import {
 } from "../../src/commands/aliases";
 import { buildHttpRequest, normalizeInput } from "../../src/core/request-builder";
 import { loadRegistry } from "../../src/openapi/registry";
+import type { BuiltOperation } from "../../src/commands/aliases/shared";
 import type { AgentInput, OperationCard } from "../../src/core/types";
 
 let dir: string;
@@ -52,12 +53,7 @@ beforeAll(() => {
 
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
 
-interface BuiltAlias {
-  operationId: string;
-  input: AgentInput;
-}
-
-const cases: Array<{ name: string; alias: () => BuiltAlias; call: () => BuiltAlias }> = [
+const cases: Array<{ name: string; alias: () => BuiltOperation; call: () => BuiltOperation }> = [
   {
     name: "tts",
     alias: () =>

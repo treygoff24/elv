@@ -1,9 +1,6 @@
 import { readFile } from "node:fs/promises";
 
-type ParseFile = (
-  filePath: string,
-  options: { duration: boolean; skipCovers: boolean },
-) => Promise<{ format: { duration?: number } }>;
+type MusicMetadataModule = typeof import("music-metadata");
 
 export async function probeDurationSeconds(filePath: string): Promise<number | null> {
   try {
@@ -40,7 +37,7 @@ async function wavDurationSeconds(filePath: string): Promise<number | null> {
 
 async function metadataDurationSeconds(filePath: string): Promise<number | null> {
   try {
-    const { parseFile } = (await import("music-metadata")) as unknown as { parseFile: ParseFile };
+    const { parseFile }: MusicMetadataModule = await import("music-metadata");
     const metadata = await parseFile(filePath, { duration: true, skipCovers: true });
     return Number.isFinite(metadata.format.duration) ? (metadata.format.duration ?? null) : null;
   } catch {

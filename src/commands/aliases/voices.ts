@@ -3,9 +3,10 @@ import type { Command } from "commander";
 import { runOperation } from "../../core/client";
 import { emitAndExit, validationError } from "../../core/errors";
 import { ExitCode } from "../../core/types";
-import type { AgentInput, Envelope, RunOpts, SuccessEnvelope } from "../../core/types";
+import type { Envelope, RunOpts, SuccessEnvelope } from "../../core/types";
 import {
   addPaginationFlags,
+  type BuiltOperation,
   compact,
   compactInput,
   emit,
@@ -38,40 +39,28 @@ type VoiceListData = {
   voices?: VoiceRecord[];
 };
 
-export function buildVoicesListInput(flags: VoicesFlags): {
-  operationId: string;
-  input: AgentInput;
-} {
+export function buildVoicesListInput(flags: VoicesFlags): BuiltOperation {
   return {
     operationId: "get_user_voices_v2",
     input: compactInput({ query: compact({ search: flags.search, sort: flags.sort }) }),
   };
 }
 
-export function buildVoicesFindInput(flags: VoicesFlags): {
-  operationId: string;
-  input: AgentInput;
-} {
+export function buildVoicesFindInput(flags: VoicesFlags): BuiltOperation {
   return {
     operationId: "get_user_voices_v2",
     input: compactInput({ query: compact({ search: flags.query }) }),
   };
 }
 
-export function buildVoicesGetInput(flags: VoicesFlags): {
-  operationId: string;
-  input: AgentInput;
-} {
+export function buildVoicesGetInput(flags: VoicesFlags): BuiltOperation {
   return {
     operationId: "get_voice_by_id",
     input: { path: { voice_id: required(flags.voiceId, "a voice id (positional or --voice-id)") } },
   };
 }
 
-export function buildVoicesCloneInstantInput(flags: VoicesFlags): {
-  operationId: string;
-  input: AgentInput;
-} {
+export function buildVoicesCloneInstantInput(flags: VoicesFlags): BuiltOperation {
   return {
     operationId: "add_voice",
     input: compactInput({

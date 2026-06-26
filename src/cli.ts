@@ -28,6 +28,7 @@ import { parseJson } from "./util/json";
 import type { ConfigOverrides } from "./core/config";
 import type { RunWsOptions, WsCommandInput } from "./commands/ws";
 import type { Envelope } from "./core/types";
+import type { CliOptionValues } from "./commands/options";
 
 export async function main(argv = process.argv): Promise<void> {
   const version = packageVersion();
@@ -76,7 +77,7 @@ function buildProgram(version: string): Command {
     .option("--all", "fetch and save all pages")
     .option("--limit <n>", "max items inlined in the envelope")
     .option("--save-json <path>", "write the full JSON result to a path")
-    .action(async (id: string, _options: Record<string, unknown>, command: Command) => {
+    .action(async (id: string, _options: CliOptionValues, command: Command) => {
       const result = await handleCall(
         id,
         mergedOptions(command) as Parameters<typeof handleCall>[1],
@@ -94,17 +95,10 @@ function buildProgram(version: string): Command {
       .option("--all", "fetch and save all pages")
       .option("--limit <n>", "max items inlined in the envelope")
       .option("--save-json <path>", "write the full JSON result to a path")
-      .action(
-        async (
-          method: string,
-          path: string,
-          _options: Record<string, unknown>,
-          command: Command,
-        ) => {
-          const result = await handleHttp(method, path, httpOptions(command));
-          emitAndExit(result.env, result.exitCode);
-        },
-      ),
+      .action(async (method: string, path: string, _options: CliOptionValues, command: Command) => {
+        const result = await handleHttp(method, path, httpOptions(command));
+        emitAndExit(result.env, result.exitCode);
+      }),
   );
   addCommonFlags(
     program
@@ -113,15 +107,13 @@ function buildProgram(version: string): Command {
       .option("--list", "list the WebSocket catalog")
       .option("--query <key=value>", "add query parameter", collect, [])
       .option("--send <path>", "NDJSON send-script")
-      .action(
-        async (target: string | undefined, _options: Record<string, unknown>, command: Command) => {
-          const input = wsInput(target, command);
-          if (!input.ok)
-            emitAndExit(validationError("elv ws", input.error), ExitCode.InputValidation);
-          const result = await runWs(input.value, wsRunOptions(command));
-          emitAndExit(result.env, result.exitCode);
-        },
-      ),
+      .action(async (target: string | undefined, _options: CliOptionValues, command: Command) => {
+        const input = wsInput(target, command);
+        if (!input.ok)
+          emitAndExit(validationError("elv ws", input.error), ExitCode.InputValidation);
+        const result = await runWs(input.value, wsRunOptions(command));
+        emitAndExit(result.env, result.exitCode);
+      }),
   );
   addCommonFlags(
     program
@@ -135,7 +127,7 @@ function buildProgram(version: string): Command {
       .option("--interval-ms <ms>", "poll interval in milliseconds")
       .option("--timeout-ms <ms>", "overall timeout in milliseconds")
       .option("--cmd <json>", "JSON array command to poll instead of an operation")
-      .action(async (_options: Record<string, unknown>, command: Command) => {
+      .action(async (_options: CliOptionValues, command: Command) => {
         const result = await handleWait(waitOptions(command));
         emitAndExit(result.env, result.exitCode);
       }),
@@ -146,7 +138,7 @@ function buildProgram(version: string): Command {
       .description("Inspect a spilled JSON/NDJSON result file without loading it into context")
       .option("--path <dotted>", "drill into a JSON path, e.g. data.voices.0.name or voices[].name")
       .option("--limit <n>", "max array items to show")
-      .action((path: string, options: Record<string, unknown>) =>
+      .action((path: string, options: CliOptionValues) =>
         handleView(path, { path: optionString(options.path), limit: optionString(options.limit) }),
       ),
   );
@@ -166,7 +158,7 @@ function registerOpsCommands(program: Command): void {
       .command("search <query>")
       .description("Search operations by keyword")
       .option("--limit <n>", "maximum results", "10")
-      .action((query: string, options: Record<string, unknown>) =>
+      .action((query: string, options: CliOptionValues) =>
         handleOpsSearch(query, { limit: optionString(options.limit) }),
       ),
   );
@@ -182,7 +174,7 @@ function registerOpsCommands(program: Command): void {
       .description("Show the input schema or a runnable example")
       .option("--raw", "return raw JSON Schema for operation input")
       .option("--example", "return a runnable elv call example command")
-      .action((id: string, options: Record<string, unknown>) =>
+      .action((id: string, options: CliOptionValues) =>
         handleOpsSchema(id, { raw: Boolean(options.raw), example: Boolean(options.example) }),
       ),
   );
@@ -220,7 +212,7 @@ function registerSpecCommands(program: Command): void {
       .description("Refresh the cached OpenAPI spec")
       .option("--from <file_or_url>", "OpenAPI spec file path or URL to fetch")
       .option("--offline", "recompile from the vendored spec snapshot")
-      .action(async (options: Record<string, unknown>) => {
+      .action(async (options: CliOptionValues) => {
         const result = await updateSpecCache({
           from: optionString(options.from),
           offline: Boolean(options.offline),
@@ -235,7 +227,7 @@ function parentCommand(program: Command, name: string, description: string): Com
   return program
     .command(name)
     .description(description)
-    .action((_options: Record<string, unknown>, command: Command) =>
+    .action((_options: CliOptionValues, command: Command) =>
       emitAndExit(
         success({ cmd: `elv ${command.name()}`, data: commandHelpData(command) }),
         ExitCode.Success,

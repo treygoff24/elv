@@ -283,11 +283,11 @@ function withWarnings(env: Envelope, warnings: Warning[]): Envelope {
   return { ...env, warnings: [...(env.warnings ?? []), ...warnings] };
 }
 
-export interface SendAndNormalizeContext extends ResponseContext {
+interface SendAndNormalizeContext extends ResponseContext {
   retryPost?: boolean;
 }
 
-export async function sendAndNormalize(
+async function sendAndNormalize(
   req: HttpRequest,
   op: OperationCard,
   ctx: SendAndNormalizeContext,

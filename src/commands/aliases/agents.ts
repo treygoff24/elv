@@ -1,8 +1,14 @@
 import { readFileSync } from "node:fs";
 import type { Command } from "commander";
 import { parseJsonRecord } from "../../util/json";
-import type { AgentInput } from "../../core/types";
-import { addPaginationFlags, compact, compactInput, required, runListAlias } from "./shared";
+import {
+  addPaginationFlags,
+  compact,
+  compactInput,
+  required,
+  runListAlias,
+  type BuiltOperation,
+} from "./shared";
 
 export interface AgentsFlags {
   agentId?: string;
@@ -12,47 +18,32 @@ export interface AgentsFlags {
   search?: string;
 }
 
-export function buildAgentsListInput(flags: AgentsFlags): {
-  operationId: string;
-  input: AgentInput;
-} {
+export function buildAgentsListInput(flags: AgentsFlags): BuiltOperation {
   return {
     operationId: "get_agents_route",
     input: compactInput({ query: compact({ search: flags.search }) }),
   };
 }
 
-export function buildAgentsGetInput(flags: AgentsFlags): {
-  operationId: string;
-  input: AgentInput;
-} {
+export function buildAgentsGetInput(flags: AgentsFlags): BuiltOperation {
   return {
     operationId: "get_agent_route",
     input: { path: { agent_id: required(flags.agentId, "--agent-id") } },
   };
 }
 
-export function buildAgentsCreateInput(flags: AgentsFlags): {
-  operationId: string;
-  input: AgentInput;
-} {
+export function buildAgentsCreateInput(flags: AgentsFlags): BuiltOperation {
   return { operationId: "create_agent_route", input: { body: readJson(flags) } };
 }
 
-export function buildAgentsUpdateInput(flags: AgentsFlags): {
-  operationId: string;
-  input: AgentInput;
-} {
+export function buildAgentsUpdateInput(flags: AgentsFlags): BuiltOperation {
   return {
     operationId: "patch_agent_settings_route",
     input: { path: { agent_id: required(flags.agentId, "--agent-id") }, body: readJson(flags) },
   };
 }
 
-export function buildAgentsSimulateInput(flags: AgentsFlags): {
-  operationId: string;
-  input: AgentInput;
-} {
+export function buildAgentsSimulateInput(flags: AgentsFlags): BuiltOperation {
   return {
     operationId: "run_conversation_simulation_route",
     input: {
