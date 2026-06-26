@@ -112,8 +112,9 @@ export function searchOperations(
   query: string,
   limit = 10,
 ): SearchResult[] {
-  const queryTokens = tokenize(query);
-  const normalizedQuery = normalizePhrase(query);
+  const expanded = expandAliases(query);
+  const queryTokens = tokenize(expanded);
+  const normalizedQuery = normalizePhrase(expanded);
   const scored = [...registry.values()]
     .map((op) => ({ op, score: scoreOperation(op, queryTokens, normalizedQuery) }))
     .filter((entry) => entry.score > 0)
@@ -156,6 +157,21 @@ function scoreField(
     ? queryTokens.length * weight
     : 0;
   return overlap * weight + phraseBonus;
+}
+
+// elv's own command abbreviations don't appear in the spelled-out operation
+// vocabulary (ops are text_to_speech_*, not tts), so expand them before scoring.
+const QUERY_ALIASES: Record<string, string> = {
+  tts: "text to speech",
+  stt: "speech to text",
+  sfx: "sound effects",
+  isolate: "audio isolation",
+};
+
+function expandAliases(query: string): string {
+  return tokenize(query)
+    .map((token) => QUERY_ALIASES[token] ?? token)
+    .join(" ");
 }
 
 function tokenize(value: string): string[] {

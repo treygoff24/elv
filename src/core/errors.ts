@@ -108,6 +108,7 @@ export function exitCodeForError(err: NormalizedError, httpStatus?: number | nul
   const code = err.code.toLowerCase();
   const codeExit = exitCodeFromCode(code);
   if (codeExit) return codeExit;
+  if (httpStatus === 401 || httpStatus === 403) return ExitCode.AuthPermission;
   if (httpStatus === 404) return ExitCode.NotFound;
   return ExitCode.ProviderError;
 }

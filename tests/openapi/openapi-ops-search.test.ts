@@ -13,6 +13,17 @@ describe("ops search ranking", () => {
     expect(results.map((result) => result.operation_id)).toContain("text_to_speech_full");
   });
 
+  it("expands elv's own command abbreviations (tts/stt/sfx) to find operations", async () => {
+    const compiled = await compileSpec({ sourcePath: "spec/openapi.snapshot.json" });
+    const registry = new Map(compiled.operations.map((op) => [op.operationId, op]));
+
+    expect(searchOperations(registry, "tts", 10).map((r) => r.operation_id)).toContain(
+      "text_to_speech_full",
+    );
+    expect(searchOperations(registry, "stt", 10).length).toBeGreaterThan(0);
+    expect(searchOperations(registry, "sfx", 10).length).toBeGreaterThan(0);
+  });
+
   it("searches by path, group, tags, summary, and description", async () => {
     const compiled = await compileSpec({ sourcePath: "fixtures/fake-openapi.json" });
     const registry = new Map(compiled.operations.map((op) => [op.operationId, op]));

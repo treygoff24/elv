@@ -29,6 +29,17 @@ describe("errors", () => {
     );
   });
 
+  it("falls back to auth exit code for 401/403 with unrecognized body codes", () => {
+    // Missing API key returns code "needs_authorization" (not in AUTH_CODES); must
+    // still map to AuthPermission via HTTP status, not ProviderError.
+    expect(exitCodeForError({ type: "x", code: "needs_authorization", message: "no key" }, 401)).toBe(
+      ExitCode.AuthPermission,
+    );
+    expect(exitCodeForError({ type: "x", code: "some_forbidden_thing", message: "no" }, 403)).toBe(
+      ExitCode.AuthPermission,
+    );
+  });
+
   it("classifies fallback error type from status", () => {
     expect(classifyTypeFromStatus(422)).toBe("validation_error");
     expect(classifyTypeFromStatus(401)).toBe("authentication_error");
