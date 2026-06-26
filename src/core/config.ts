@@ -64,8 +64,16 @@ export class ConfigFileError extends Error {
   }
 }
 
-const DEFAULT_BASE_URL = "https://api.elevenlabs.io";
-const DEFAULT_SPEC_URL = "https://api.elevenlabs.io/openapi.json";
+const HTTPS_SCHEME = "https:";
+const DEFAULT_API_HOST = "api.elevenlabs.io";
+const RESIDENCY_API_HOSTS: Record<string, string> = {
+  us: "api.us.elevenlabs.io",
+  eu: "api.eu.residency.elevenlabs.io",
+  in: "api.in.residency.elevenlabs.io",
+  sg: "api.sg.residency.elevenlabs.io",
+};
+const DEFAULT_BASE_URL = httpsUrl(DEFAULT_API_HOST);
+const DEFAULT_SPEC_URL = httpsUrl(DEFAULT_API_HOST, "/openapi.json");
 
 export function loadConfig(overrides: ConfigOverrides = {}): ResolvedConfig {
   const file = readConfigFile();
@@ -197,11 +205,12 @@ function boolFromEnv(name: string): boolean {
 
 function baseUrlFromResidency(residency: string | undefined): string | undefined {
   if (!residency) return undefined;
-  const normalized = residency.toLowerCase();
-  if (normalized === "us") return "https://api.us.elevenlabs.io";
-  if (["eu", "in", "sg"].includes(normalized))
-    return `https://api.${normalized}.residency.elevenlabs.io`;
-  return undefined;
+  const host = RESIDENCY_API_HOSTS[residency.toLowerCase()];
+  return host ? httpsUrl(host) : undefined;
+}
+
+function httpsUrl(host: string, path = ""): string {
+  return `${HTTPS_SCHEME}//${host}${path}`;
 }
 
 function registryCheck(cacheDir: string): DoctorCheck {
