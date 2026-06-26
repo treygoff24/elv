@@ -148,6 +148,27 @@ describe("ws session", () => {
     }
   });
 
+  it("maps session connection failures to network errors", async () => {
+    const server = await startServer(() => undefined);
+    const dir = await tempDir();
+    const script = join(dir, "script.ndjson");
+    writeFileSync(script, JSON.stringify({ type: "send", data: { text: " " } }));
+    await Promise.all(servers.splice(0).map((openServer) => closeServer(openServer)));
+
+    const result = await runWs(
+      { target: server.url, send: script, out: dir, query: {} },
+      { timeoutMs: 100 },
+    );
+
+    expect(result.exitCode).toBe(8);
+    expect(result.env.ok).toBe(false);
+    if (result.env.ok) throw new Error("expected network failure");
+    expect(result.env.error).toMatchObject({
+      type: "network_error",
+      code: "ws_session_failed",
+    });
+  });
+
   it("parses and rejects unsupported send-script operations", () => {
     expect(() => parseSendScript('{"type":"wait"}\n')).toThrow(/unsupported/i);
   });
@@ -181,4 +202,8 @@ async function startServer(
     received,
     url: `ws://127.0.0.1:${address.port}/session?single_use_token=tok_secret`,
   };
+}
+
+function closeServer(server: WebSocketServer): Promise<void> {
+  return new Promise((resolve) => server.close(() => resolve()));
 }

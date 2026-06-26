@@ -53,6 +53,24 @@ describe("http command", () => {
     });
   });
 
+  it("requires --yes for registry-backed raw external side effects", async () => {
+    const fetch = vi.fn();
+    vi.stubGlobal("fetch", fetch);
+
+    const env = await runHttp("POST", "/v1/convai/twilio/outbound-call", {
+      bodyJson: "{}",
+      baseUrl: "https://api.test",
+      apiKey: "sk_test_secret",
+    });
+
+    expect(fetch).not.toHaveBeenCalled();
+    expect(env).toMatchObject({
+      ok: false,
+      operation_id: "http",
+      error: { code: "confirmation" },
+    });
+  });
+
   it("keeps large --all pages inline for collection", async () => {
     const out = mkdtempSync(join(tmpdir(), "elv-http-pages-"));
     try {

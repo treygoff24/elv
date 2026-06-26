@@ -2,6 +2,13 @@ import type { Command } from "commander";
 import type { RunOpts } from "../core/types";
 import type { PaginationOptions } from "../core/pagination";
 
+export class OptionValueError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "OptionValueError";
+  }
+}
+
 export function addCommonFlags(command: Command): Command {
   return command
     .option("--dry-run", "preview without network")
@@ -68,6 +75,6 @@ export function numberValue(value: unknown): number | undefined {
   if (value === undefined || value === "") return undefined;
   if (typeof value !== "string" && typeof value !== "number") return undefined;
   const parsed = Number(value);
-  if (!Number.isFinite(parsed)) throw new Error(`Expected number, got ${value}`);
+  if (!Number.isFinite(parsed)) throw new OptionValueError(`Expected number, got ${value}`);
   return parsed;
 }

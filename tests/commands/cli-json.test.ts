@@ -143,6 +143,7 @@ describe("CLI JSON output contract", () => {
 
   it("rejects invalid --max-credits consistently on call, http, and alias paths", () => {
     for (const args of [
+      ["config", "get", "--max-credits", "not-a-number"],
       ["call", "get_voices", "--max-credits", "not-a-number", "--dry-run"],
       ["http", "GET", "/v1/voices", "--max-credits", "not-a-number", "--dry-run"],
       [

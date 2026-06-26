@@ -2,6 +2,7 @@ import { exitCodeForError, validationError } from "../core/errors";
 import { envelopeForThrown, runPreparedOperation } from "../core/client";
 import { applyPaginationDefaults, type PaginationOptions } from "../core/pagination";
 import { estimateCredits } from "../core/budget";
+import { loadRegistry } from "../openapi/registry";
 import type { AgentInput, Envelope, RunOpts } from "../core/types";
 import type { HttpMethod, OperationCard } from "../openapi/types";
 import { ExitCode as Codes } from "../core/types";
@@ -57,7 +58,7 @@ export async function runHttp(
   }
 
   try {
-    const op = httpOperation(parsed.method, path, parsed.input);
+    const op = await httpOperation(parsed.method, path, parsed.input);
     if (opts.limit !== undefined && (!Number.isInteger(opts.limit) || opts.limit <= 0)) {
       return validationError(cmd, "--limit must be a positive integer", {
         operationId: op.operationId,
@@ -109,20 +110,20 @@ function parseHttpInput(
   }
 }
 
-function httpOperation(method: HttpMethod, path: string, input: AgentInput): OperationCard {
+async function httpOperation(
+  method: HttpMethod,
+  path: string,
+  input: AgentInput,
+): Promise<OperationCard> {
   const fileFields = Object.keys(input.files ?? {});
+  const registryOp = await matchingRegistryOperation(method, path);
   return {
     operationId: "http",
     method,
     pathTemplate: path,
     group: ["http"],
     tags: [],
-    risk:
-      method === "GET" || method === "HEAD"
-        ? "read"
-        : method === "DELETE"
-          ? "destructive"
-          : "mutate",
+    risk: registryOp?.risk ?? fallbackRisk(method),
     pathParams: [],
     queryParams: [],
     headerParams: [],
@@ -142,6 +143,39 @@ function httpOperation(method: HttpMethod, path: string, input: AgentInput): Ope
     deprecated: false,
     examples: [],
   };
+}
+
+async function matchingRegistryOperation(
+  method: HttpMethod,
+  path: string,
+): Promise<OperationCard | undefined> {
+  const requestPath = path.split("?", 1)[0] ?? path;
+  const registry = await loadRegistry();
+  for (const op of registry.values()) {
+    if (op.method === method && pathMatchesTemplate(op.pathTemplate, requestPath)) return op;
+  }
+  return undefined;
+}
+
+function pathMatchesTemplate(template: string, path: string): boolean {
+  const templateParts = pathParts(template);
+  const requestParts = pathParts(path);
+  return (
+    templateParts.length === requestParts.length &&
+    templateParts.every(
+      (part, index) => (part.startsWith("{") && part.endsWith("}")) || part === requestParts[index],
+    )
+  );
+}
+
+function pathParts(path: string): string[] {
+  return path.split("/").filter(Boolean);
+}
+
+function fallbackRisk(method: HttpMethod): OperationCard["risk"] {
+  if (method === "GET" || method === "HEAD") return "read";
+  if (method === "DELETE") return "destructive";
+  return "mutate";
 }
 
 function httpRunOpts(options: HttpOptions): HttpRunOpts {

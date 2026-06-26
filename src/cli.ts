@@ -13,6 +13,8 @@ import {
   addCommonFlags,
   collect,
   mergedOptions,
+  numberValue,
+  OptionValueError,
   optionString,
   optionStrings,
 } from "./commands/options";
@@ -313,12 +315,10 @@ function waitOptions(command: Command): Parameters<typeof handleWait>[0] {
 
 function configOverrides(command: Command): ConfigOverrides {
   const opts = mergedOptions(command);
-  const maxCredits = optionString(opts.maxCredits);
-  const parsedMaxCredits = maxCredits === undefined ? undefined : Number(maxCredits);
   return {
     profile: optionString(opts.profile),
     baseUrl: optionString(opts.baseUrl),
-    maxCredits: Number.isFinite(parsedMaxCredits) ? parsedMaxCredits : undefined,
+    maxCredits: numberValue(opts.maxCredits),
     debug: Boolean(opts.debug),
   };
 }
@@ -415,6 +415,9 @@ function envelopeForError(
       env: configFileError(cmd, error.message, { raw: { path: error.path } }),
       exitCode: ExitCode.InputValidation,
     };
+  }
+  if (error instanceof OptionValueError) {
+    return { env: validationError(cmd, error.message), exitCode: ExitCode.InputValidation };
   }
 
   return {

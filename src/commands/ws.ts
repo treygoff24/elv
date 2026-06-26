@@ -178,7 +178,7 @@ function errorEnvelope(error: unknown): { env: Envelope; exitCode: ExitCode } {
   return {
     env: failure({
       cmd: "elv ws",
-      error: { type: "runtime_error", code: "internal_error", message },
+      error: { type: "network_error", code: "ws_session_failed", message },
       retry: { recommended: false, after_ms: null },
     }),
     exitCode: ExitCode.ProviderError,
