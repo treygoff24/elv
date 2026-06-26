@@ -97,14 +97,24 @@ function waitRunner(parsed: ParsedWait, deps: WaitDeps): () => Promise<Envelope>
 }
 
 async function pollUntilComplete(parsed: ParsedWait, runtime: WaitRuntime): Promise<WaitResult> {
+  let last: PollObservation | undefined;
   for (;;) {
+    if (last && remainingMs(runtime) <= 0) {
+      return waitTimeout(parsed.statusPath, last.status, last.env);
+    }
     const poll = await runPoll(parsed, runtime);
     if ("result" in poll) return poll.result;
-    if (runtime.now() >= runtime.deadline) {
+    last = poll;
+    const remaining = remainingMs(runtime);
+    if (remaining <= 0) {
       return waitTimeout(parsed.statusPath, poll.status, poll.env);
     }
-    await runtime.sleep(parsed.intervalMs);
+    await runtime.sleep(Math.min(parsed.intervalMs, remaining));
   }
+}
+
+function remainingMs(runtime: WaitRuntime): number {
+  return runtime.deadline - runtime.now();
 }
 
 async function runPoll(

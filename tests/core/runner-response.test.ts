@@ -238,6 +238,33 @@ describe("response normalization", () => {
     expect(env.http?.status).toBe(502);
   });
 
+  it("reports malformed successful JSON as a provider response error", async () => {
+    const env = await normalizeResponse(
+      op(),
+      new Response("{broken", {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+      { cmd: "elv call response_demo", requestPath: "/v1/demo?x=1" },
+    );
+
+    expect(env.ok).toBe(false);
+    if (env.ok) throw new Error("expected failure");
+    expect(env.error).toMatchObject({
+      type: "provider_error",
+      code: "invalid_json_response",
+      message: "Provider returned invalid JSON response",
+      raw: {
+        status: 200,
+        path: "/v1/demo?x=1",
+        body: "{broken",
+      },
+    });
+    expect(env.error.raw).toMatchObject({ parse_error: expect.stringContaining("JSON") });
+    expect(env.http?.status).toBe(200);
+    expect(env.retry?.recommended).toBe(false);
+  });
+
   it("points spilled JSON hints at elv view", async () => {
     const out = mkdtempSync(join(tmpdir(), "elv-spill-hint-"));
     const items = Array.from({ length: 30 }, (_, index) => ({ index, value: "x".repeat(1200) }));

@@ -159,7 +159,12 @@ async function jsonSuccess(
   warnings: Warning[],
 ): Promise<Envelope> {
   const text = await res.text();
-  const data = parseJson(text);
+  let data: unknown;
+  try {
+    data = parseJson(text);
+  } catch (error) {
+    return invalidJsonSuccess(op, ctx, base, warnings, text, error);
+  }
   if (isFullTimestampResponse(op, data)) {
     const files = await writeFullTimestampFiles(op, data, ctx);
     return fileSuccess(base, files, warnings);
@@ -179,6 +184,37 @@ async function jsonSuccess(
     ...base,
     data,
     truncated: false,
+    warnings: optional(warnings),
+    hints: [],
+  });
+}
+
+function invalidJsonSuccess(
+  op: OperationCard,
+  ctx: ResponseContext,
+  base: Omit<SuccessEnvelope, "v" | "ok">,
+  warnings: Warning[],
+  body: string,
+  error: unknown,
+): Envelope {
+  const parseError = error instanceof Error ? error.message : String(error);
+  return failure({
+    cmd: ctx.cmd,
+    operation_id: op.operationId,
+    http: base.http,
+    error: {
+      type: "provider_error",
+      code: "invalid_json_response",
+      message: "Provider returned invalid JSON response",
+      raw: {
+        status: base.http?.status,
+        path: base.http?.path,
+        parse_error: parseError,
+        body: previewText(body),
+      },
+    },
+    retry: { recommended: false, after_ms: null },
+    cost: base.cost,
     warnings: optional(warnings),
     hints: [],
   });
@@ -608,6 +644,10 @@ function retryAfterMs(headers: Headers): number | null {
   if (Number.isFinite(seconds)) return Math.max(0, seconds * 1000);
   const dateMs = Date.parse(value);
   return Number.isFinite(dateMs) ? Math.max(0, dateMs - Date.now()) : null;
+}
+
+function previewText(value: string): string {
+  return value.length > 500 ? `${value.slice(0, 500)}...` : value;
 }
 
 function optional<T>(items: T[]): T[] | undefined {
