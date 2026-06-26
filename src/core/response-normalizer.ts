@@ -185,16 +185,26 @@ function viewHint(filePath: string, data: unknown): Hint {
  * the small pagination cursor (`next`) inline. Runs after pagination processing so the `next`
  * command and item truncation survive even when the page itself exceeds the inline limit.
  */
-export async function spillIfLarge(
+export function spillIfLarge(
   op: OperationCard,
   env: Envelope,
   ctx: { cmd: string; out?: string; saveJson?: string; hash?: boolean },
 ): Promise<Envelope> {
-  if (!env.ok || env.data === undefined) return env;
+  if (!env.ok || env.data === undefined) return Promise.resolve(env);
   const text = JSON.stringify(env.data);
   const tooLarge = Buffer.byteLength(text) >= SMALL_JSON_LIMIT;
-  if (!tooLarge && ctx.saveJson === undefined) return env;
+  if (!tooLarge && ctx.saveJson === undefined) return Promise.resolve(env);
 
+  return spillEnvelopeData(op, env, ctx, text, tooLarge);
+}
+
+async function spillEnvelopeData(
+  op: OperationCard,
+  env: SuccessEnvelope,
+  ctx: { cmd: string; out?: string; saveJson?: string; hash?: boolean },
+  text: string,
+  tooLarge: boolean,
+): Promise<Envelope> {
   const file = await spillJsonFile(op, text, {
     cmd: ctx.cmd,
     out: ctx.saveJson ?? ctx.out,
