@@ -232,14 +232,15 @@ function uploadCapBytes(ctx: BuildRequestContext): number {
 
 function putBody(normalized: AgentInput, key: string, value: unknown): void {
   if (normalized.body === undefined) normalized.body = {};
-  if (!isPlainObject(normalized.body)) {
+  const body = normalized.body;
+  if (!isPlainObject(body)) {
     throw new InputNormalizationError(
       `Cannot merge flat key "${key}" into non-object body`,
       undefined,
       key,
     );
   }
-  normalized.body = { ...(normalized.body as Record<string, unknown>), [key]: value };
+  normalized.body = { ...body, [key]: value };
 }
 
 function bucketedShapeForAmbiguity(
@@ -298,7 +299,7 @@ function compactInput(input: AgentInput): AgentInput {
 function copyRecord(value: unknown, bucket: string): Record<string, unknown> {
   if (value === undefined) return {};
   if (!isPlainObject(value)) throw new InputNormalizationError(`${bucket} must be an object`);
-  return { ...(value as Record<string, unknown>) };
+  return { ...value };
 }
 
 function stringifyRecord(value: unknown, bucket: string): Record<string, string> {
@@ -344,7 +345,7 @@ function mergeFile(
 
 function asRecord(value: unknown): Record<string, unknown> {
   if (!isPlainObject(value)) throw new InputNormalizationError("Input JSON must be an object");
-  return value as Record<string, unknown>;
+  return value;
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {

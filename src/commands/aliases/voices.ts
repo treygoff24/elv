@@ -3,18 +3,16 @@ import type { Command } from "commander";
 import { runOperation } from "../../core/client";
 import { emitAndExit, validationError } from "../../core/errors";
 import { ExitCode } from "../../core/types";
-import type { AgentInput, SuccessEnvelope } from "../../core/types";
+import type { AgentInput, Envelope, RunOpts, SuccessEnvelope } from "../../core/types";
 import {
   addPaginationFlags,
-  commandName,
   compact,
   compactInput,
   emit,
-  message,
-  projectFields,
   required,
-  resolveListOpts,
-  runOpts,
+  runListAlias,
+  aliasRunOpts,
+  validationOrExit,
 } from "./shared";
 
 export interface VoicesFlags {
@@ -28,13 +26,17 @@ export interface VoicesFlags {
   description?: string;
 }
 
-export const RESOLVER_PAGE_SIZE = 100;
+const RESOLVER_PAGE_SIZE = 100;
 
 export interface VoiceRecord {
-  name?: unknown;
-  voice_id?: unknown;
+  name?: string;
+  voice_id?: string;
   [key: string]: unknown;
 }
+
+type VoiceListData = {
+  voices?: VoiceRecord[];
+};
 
 export function buildVoicesListInput(flags: VoicesFlags): {
   operationId: string;
@@ -94,6 +96,56 @@ export function findMatchingVoices(query: string, voices: VoiceRecord[]): VoiceR
   );
 }
 
+export async function resolveVoiceId(
+  flags: { voiceId?: string; voice?: string },
+  opts: RunOpts,
+  cmd: string,
+): Promise<string> {
+  if (flags.voiceId) return flags.voiceId;
+  if (!flags.voice)
+    emitAndExit(
+      validationError(cmd, "--voice-id or --voice is required"),
+      ExitCode.InputValidation,
+    );
+  const env = await runOperation(
+    "get_user_voices_v2",
+    { query: { search: flags.voice } },
+    { ...opts, inline: true, limit: RESOLVER_PAGE_SIZE },
+  );
+  if (!env.ok) emit(env);
+  const voices = voicesFrom(env);
+  const matches = findMatchingVoices(flags.voice, voices);
+  if (matches.length === 1) return String(matches[0]?.voice_id);
+  emitAndExit(
+    validationError(
+      cmd,
+      matches.length === 0
+        ? `No voice named "${flags.voice}"${candidateNames(flags.voice, voices)}`
+        : `Ambiguous voice name "${flags.voice}"${candidateNames(flags.voice, voices)}`,
+    ),
+    ExitCode.InputValidation,
+  );
+}
+
+function candidateNames(name: string, voices: VoiceRecord[]): string {
+  const needle = name.toLowerCase();
+  const names = voices
+    .filter((voice) =>
+      String(voice.name ?? "")
+        .toLowerCase()
+        .includes(needle),
+    )
+    .map((voice) => `${voice.name} (${voice.voice_id})`)
+    .slice(0, 10);
+  return names.length ? `; candidates: ${names.join(", ")}` : "";
+}
+
+function voicesFrom(env: Envelope): VoiceRecord[] {
+  if (!env.ok) return [];
+  const data = env.data as VoiceListData | undefined;
+  return Array.isArray(data?.voices) ? data.voices : [];
+}
+
 export function registerVoicesCommand(
   program: Command,
   addCommonFlags: (command: Command) => Command,
@@ -141,24 +193,21 @@ export function registerVoicesCommand(
 }
 
 async function runFind(flags: VoicesFlags, command: Command): Promise<never> {
-  try {
-    const built = buildVoicesFindInput(flags);
-    const env = await runOperation(built.operationId, built.input, {
-      ...runOpts(command),
-      inline: true,
-      limit: RESOLVER_PAGE_SIZE,
-    });
-    if (!env.ok) emit(env);
-    const data = env.data as { voices?: unknown } | undefined;
-    const voices = Array.isArray(data?.voices) ? (data.voices as VoiceRecord[]) : [];
-    // Emit only the matched voices — drop the upstream pagination fields
-    // (has_more, next_page_token, next), which are noise for a name lookup.
-    const matched = findMatchingVoices(required(flags.query, "query"), voices);
-    const result: SuccessEnvelope = { ...env, data: { voices: matched, count: matched.length } };
-    emit(result);
-  } catch (error) {
-    emitAndExit(validationError(commandName(command), message(error)), ExitCode.InputValidation);
-  }
+  const query = validationOrExit(command, () => required(flags.query, "query"));
+  const built = buildVoicesFindInput(flags);
+  const env = await runOperation(built.operationId, built.input, {
+    ...aliasRunOpts(command),
+    inline: true,
+    limit: RESOLVER_PAGE_SIZE,
+  });
+  if (!env.ok) emit(env);
+  const data = env.data as VoiceListData | undefined;
+  const voices = Array.isArray(data?.voices) ? data.voices : [];
+  // Emit only the matched voices — drop the upstream pagination fields
+  // (has_more, next_page_token, next), which are noise for a name lookup.
+  const matched = findMatchingVoices(query, voices);
+  const result: SuccessEnvelope = { ...env, data: { voices: matched, count: matched.length } };
+  emit(result);
 }
 
 async function runBuilt<T>(
@@ -166,15 +215,5 @@ async function runBuilt<T>(
   flags: T,
   command: Command,
 ): Promise<never> {
-  try {
-    const built = builder(flags);
-    const { fields, fetch } = resolveListOpts(command);
-    const env = await runOperation(built.operationId, built.input, {
-      ...runOpts(command),
-      ...fetch,
-    });
-    emit(fields && env.ok ? projectFields(env, fields) : env);
-  } catch (error) {
-    emitAndExit(validationError(commandName(command), message(error)), ExitCode.InputValidation);
-  }
+  return runListAlias(builder, flags, command);
 }

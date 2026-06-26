@@ -1,4 +1,4 @@
-export type WsCatalogName = "tts-realtime" | "tts-multi" | "stt-realtime" | "convai";
+type WsCatalogName = "tts-realtime" | "tts-multi" | "stt-realtime" | "convai";
 
 export interface WsCatalogEntry {
   name: WsCatalogName;
@@ -10,7 +10,7 @@ export interface WsCatalogEntry {
   defaultQuery?: Record<string, string>;
 }
 
-export const WS_CATALOG: readonly WsCatalogEntry[] = [
+const WS_CATALOG: readonly WsCatalogEntry[] = [
   {
     name: "tts-realtime",
     urlTemplate:

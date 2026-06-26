@@ -2,8 +2,8 @@ import { resolveMaybeRef, resolveRef, schemaNameFromRef } from "./compile-spec";
 import type { JsonObject, OpenApiDocument } from "./compile-spec";
 import type { OperationCard, ParamCard } from "../core/types";
 
-export type CompactValue = string | number | boolean | null | JsonObject;
-export interface CompactBuckets {
+type CompactValue = string | number | boolean | null | JsonObject;
+interface CompactBuckets {
   path: Record<string, CompactValue>;
   query: Record<string, CompactValue>;
   header: Record<string, CompactValue>;

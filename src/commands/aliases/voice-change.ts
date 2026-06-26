@@ -1,20 +1,18 @@
 import { resolve } from "node:path";
 import type { Command } from "commander";
 import { runOperation } from "../../core/client";
-import { emitAndExit, validationError } from "../../core/errors";
-import { ExitCode } from "../../core/types";
-import type { AgentInput, Envelope, RunOpts } from "../../core/types";
+import type { AgentInput } from "../../core/types";
+import { mergedOptions } from "../options";
 import {
   commandName,
   compact,
   compactInput,
   emit,
-  mergedOptions,
-  message,
   required,
-  runOpts,
+  aliasRunOpts,
+  validationOrExit,
 } from "./shared";
-import { findMatchingVoices, RESOLVER_PAGE_SIZE, type VoiceRecord } from "./voices";
+import { resolveVoiceId } from "./voices";
 
 export interface VoiceChangeFlags {
   voiceId?: string;
@@ -61,7 +59,7 @@ export function registerVoiceChangeCommand(
         .option("--model <id>", "speech-to-speech model id")
         .option("--format <format>", "output audio format (output_format)")
         .option("--remove-background-noise", "remove background noise before conversion")
-        .action(async (options: VoiceChangeFlags, command: Command) => {
+        .action(async (_options: VoiceChangeFlags, command: Command) => {
           const merged = mergedOptions(command) as VoiceChangeFlags;
           await runBuilt({ ...merged, stream }, command);
         }),
@@ -71,59 +69,9 @@ export function registerVoiceChangeCommand(
 }
 
 async function runBuilt(flags: VoiceChangeFlags, command: Command): Promise<never> {
-  const opts = runOpts(command);
-  try {
-    const voiceId = await resolveVoiceId(flags, opts, commandName(command));
-    const built = buildVoiceChangeInput({ ...flags, voiceId });
-    const env = await runOperation(built.operationId, built.input, opts);
-    emit(env);
-  } catch (error) {
-    emitAndExit(validationError(commandName(command), message(error)), ExitCode.InputValidation);
-  }
-}
-
-async function resolveVoiceId(
-  flags: VoiceChangeFlags,
-  opts: RunOpts,
-  cmd: string,
-): Promise<string> {
-  if (flags.voiceId) return flags.voiceId;
-  if (!flags.voice) return required(undefined, "--voice-id or --voice");
-  const env = await runOperation(
-    "get_user_voices_v2",
-    { query: { search: flags.voice } },
-    { ...opts, inline: true, limit: RESOLVER_PAGE_SIZE },
-  );
-  if (!env.ok) emit(env);
-  const voices = voicesFrom(env);
-  const matches = findMatchingVoices(flags.voice, voices);
-  if (matches.length === 1) return String(matches[0]?.voice_id);
-  emitAndExit(
-    validationError(
-      cmd,
-      matches.length === 0
-        ? `No voice named "${flags.voice}"${candidateNames(flags.voice, voices)}`
-        : `Ambiguous voice name "${flags.voice}"${candidateNames(flags.voice, voices)}`,
-    ),
-    ExitCode.InputValidation,
-  );
-}
-
-function candidateNames(name: string, voices: VoiceRecord[]): string {
-  const needle = name.toLowerCase();
-  const names = voices
-    .filter((voice) =>
-      String(voice.name ?? "")
-        .toLowerCase()
-        .includes(needle),
-    )
-    .map((voice) => `${voice.name} (${voice.voice_id})`)
-    .slice(0, 10);
-  return names.length ? `; candidates: ${names.join(", ")}` : "";
-}
-
-function voicesFrom(env: Envelope): VoiceRecord[] {
-  if (!env.ok) return [];
-  const data = env.data as { voices?: unknown } | undefined;
-  return Array.isArray(data?.voices) ? (data.voices as VoiceRecord[]) : [];
+  const opts = aliasRunOpts(command);
+  const voiceId = await resolveVoiceId(flags, opts, commandName(command));
+  const built = validationOrExit(command, () => buildVoiceChangeInput({ ...flags, voiceId }));
+  const env = await runOperation(built.operationId, built.input, opts);
+  emit(env);
 }

@@ -1,22 +1,7 @@
 import { readFileSync } from "node:fs";
 import type { Command } from "commander";
-import { runOperation } from "../../core/client";
-import { emitAndExit, validationError } from "../../core/errors";
-import { ExitCode } from "../../core/types";
 import type { AgentInput } from "../../core/types";
-import {
-  addPaginationFlags,
-  commandName,
-  compact,
-  compactInput,
-  emit,
-  mergedOptions,
-  message,
-  projectFields,
-  required,
-  resolveListOpts,
-  runOpts,
-} from "./shared";
+import { addPaginationFlags, compact, compactInput, required, runListAlias } from "./shared";
 
 export interface AgentsFlags {
   agentId?: string;
@@ -105,6 +90,7 @@ export function registerAgentsCommand(
     agents
       .command("create")
       .description("Create an agent from a JSON config")
+      .option("--json <json>", "agent configuration JSON")
       .option("--json-file <path>", "agent configuration JSON file")
       .action((options: AgentsFlags, command: Command) =>
         runBuilt(buildAgentsCreateInput, options, command),
@@ -115,6 +101,7 @@ export function registerAgentsCommand(
       .command("update")
       .description("Update an agent's settings")
       .option("--agent-id <id>", "conversational agent id")
+      .option("--json <json>", "partial agent settings JSON")
       .option("--json-file <path>", "partial agent settings JSON file")
       .action((options: AgentsFlags, command: Command) =>
         runBuilt(buildAgentsUpdateInput, options, command),
@@ -126,6 +113,7 @@ export function registerAgentsCommand(
       .description("Run a conversation simulation")
       .option("--agent-id <id>", "conversational agent id")
       .option("--text <text>", "first user message for a simple simulation")
+      .option("--json <json>", "full simulation specification JSON")
       .option("--json-file <path>", "full simulation specification JSON file")
       .action((options: AgentsFlags, command: Command) =>
         runBuilt(buildAgentsSimulateInput, options, command),
@@ -138,17 +126,7 @@ async function runBuilt<T>(
   flags: T,
   command: Command,
 ): Promise<never> {
-  try {
-    const built = builder({ ...(mergedOptions(command) as T), ...flags });
-    const { fields, fetch } = resolveListOpts(command);
-    const env = await runOperation(built.operationId, built.input, {
-      ...runOpts(command),
-      ...fetch,
-    });
-    emit(fields && env.ok ? projectFields(env, fields) : env);
-  } catch (error) {
-    emitAndExit(validationError(commandName(command), message(error)), ExitCode.InputValidation);
-  }
+  return runListAlias(builder, flags, command, { mergeOptions: true });
 }
 
 function readJson(flags: AgentsFlags): Record<string, unknown> {
@@ -157,7 +135,10 @@ function readJson(flags: AgentsFlags): Record<string, unknown> {
   const raw = flags.jsonFile !== undefined ? readFileSync(flags.jsonFile, "utf8") : flags.json;
   if (raw === undefined) throw new Error("--json or --json-file is required");
   const parsed = JSON.parse(raw) as unknown;
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
-    throw new Error("JSON must be an object");
-  return parsed as Record<string, unknown>;
+  if (isRecord(parsed)) return parsed;
+  throw new Error("JSON must be an object");
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
 }

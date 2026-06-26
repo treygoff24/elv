@@ -1,21 +1,18 @@
 import { readFileSync } from "node:fs";
 import type { Command } from "commander";
 import { runOperation } from "../../core/client";
-import { emitAndExit, validationError } from "../../core/errors";
-import { ExitCode } from "../../core/types";
-import type { AgentInput, Envelope, RunOpts } from "../../core/types";
+import type { AgentInput } from "../../core/types";
+import { mergedOptions, numberValue } from "../options";
 import {
   commandName,
   compact,
   compactInput,
   emit,
-  mergedOptions,
-  message,
-  numberValue,
   required,
-  runOpts,
+  aliasRunOpts,
+  validationOrExit,
 } from "./shared";
-import { findMatchingVoices, RESOLVER_PAGE_SIZE, type VoiceRecord } from "./voices";
+import { resolveVoiceId } from "./voices";
 
 export interface TtsFlags {
   voiceId?: string;
@@ -66,7 +63,7 @@ export function registerTtsCommand(
         .option("--timestamps", "include word/char alignment (writes .timestamps.json sidecar)")
         .option("--optimize-streaming-latency <n>", "streaming latency tradeoff level (0-4)")
         .option("--enable-logging", "enable provider request logging")
-        .action(async (options: TtsFlags, command: Command) => {
+        .action(async (_options: TtsFlags, command: Command) => {
           const merged = mergedOptions(command) as TtsFlags;
           await runTts({ ...merged, stream }, command);
         }),
@@ -76,15 +73,11 @@ export function registerTtsCommand(
 }
 
 async function runTts(flags: TtsFlags, command: Command): Promise<never> {
-  const opts = runOpts(command);
-  try {
-    const voiceId = await resolveVoiceId(flags, opts, commandName(command));
-    const built = buildTtsInput({ ...flags, voiceId });
-    const env = await runOperation(built.operationId, built.input, opts);
-    emit(env);
-  } catch (error) {
-    emitAndExit(validationError(commandName(command), message(error)), ExitCode.InputValidation);
-  }
+  const opts = aliasRunOpts(command);
+  const voiceId = await resolveVoiceId(flags, opts, commandName(command));
+  const built = validationOrExit(command, () => buildTtsInput({ ...flags, voiceId }));
+  const env = await runOperation(built.operationId, built.input, opts);
+  emit(env);
 }
 
 function ttsOperationId(stream: boolean, timestamps: boolean): string {
@@ -92,49 +85,6 @@ function ttsOperationId(stream: boolean, timestamps: boolean): string {
   if (stream) return "text_to_speech_stream";
   if (timestamps) return "text_to_speech_full_with_timestamps";
   return "text_to_speech_full";
-}
-
-async function resolveVoiceId(flags: TtsFlags, opts: RunOpts, cmd: string): Promise<string> {
-  if (flags.voiceId) return flags.voiceId;
-  if (!flags.voice) return required(undefined, "--voice-id or --voice");
-  const env = await runOperation(
-    "get_user_voices_v2",
-    { query: { search: flags.voice } },
-    { ...opts, inline: true, limit: RESOLVER_PAGE_SIZE },
-  );
-  if (!env.ok) emit(env);
-  const voices = voicesFrom(env);
-  const matches = findMatchingVoices(flags.voice, voices);
-  if (matches.length === 1) return String(matches[0]?.voice_id);
-  const candidates = candidateNames(flags.voice, voices);
-  emitAndExit(
-    validationError(
-      cmd,
-      matches.length === 0
-        ? `No voice named "${flags.voice}"${candidates}`
-        : `Ambiguous voice name "${flags.voice}"${candidates}`,
-    ),
-    ExitCode.InputValidation,
-  );
-}
-
-function candidateNames(name: string, voices: VoiceRecord[]): string {
-  const needle = name.toLowerCase();
-  const names = voices
-    .filter((voice) =>
-      String(voice.name ?? "")
-        .toLowerCase()
-        .includes(needle),
-    )
-    .map((voice) => `${voice.name} (${voice.voice_id})`)
-    .slice(0, 10);
-  return names.length ? `; candidates: ${names.join(", ")}` : "";
-}
-
-function voicesFrom(env: Envelope): VoiceRecord[] {
-  if (!env.ok) return [];
-  const data = env.data as { voices?: unknown } | undefined;
-  return Array.isArray(data?.voices) ? (data.voices as VoiceRecord[]) : [];
 }
 
 function readText(text: string | undefined, file: string | undefined, label: string): string {

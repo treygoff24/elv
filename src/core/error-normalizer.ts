@@ -60,7 +60,7 @@ export function normalizeProviderError(
   };
 }
 
-export function genericCodeFromStatus(status: number): string {
+function genericCodeFromStatus(status: number): string {
   if (status === 400) return "invalid_parameters";
   if (status === 401) return "invalid_api_key";
   if (status === 402) return "insufficient_credits";

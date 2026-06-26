@@ -38,7 +38,7 @@ export interface ConfigOverrides {
   debug?: boolean;
 }
 
-export interface DoctorCheck {
+interface DoctorCheck {
   name: string;
   status: "pass" | "fail" | "warn" | "skip";
   detail: string;
@@ -52,6 +52,16 @@ export interface DoctorResult {
 
 interface DoctorOptions extends ConfigOverrides {
   network?: boolean;
+}
+
+export class ConfigFileError extends Error {
+  constructor(
+    public readonly path: string,
+    cause: unknown,
+  ) {
+    super(`Invalid JSON in config file ${path}: ${errorMessage(cause)}`);
+    this.name = "ConfigFileError";
+  }
 }
 
 const DEFAULT_BASE_URL = "https://api.elevenlabs.io";
@@ -147,7 +157,12 @@ export async function configDoctor(options: DoctorOptions = {}): Promise<DoctorR
 function readConfigFile(): FileConfig {
   const path = findConfigPath();
   if (!path) return {};
-  const parsed = JSON.parse(readFileSync(path, "utf8")) as unknown;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(readFileSync(path, "utf8")) as unknown;
+  } catch (error) {
+    throw new ConfigFileError(path, error);
+  }
   if (!parsed || typeof parsed !== "object") return {};
   return parsed as FileConfig;
 }
@@ -260,7 +275,7 @@ async function creditBalanceCheck(config: ResolvedConfig): Promise<DoctorCheck> 
         status: "skip",
         detail: `Subscription check returned ${response.status}`,
       };
-    const body = (await response.json()) as Record<string, unknown>;
+    const body = asRecord(await response.json());
     return {
       name: "credit_balance",
       status: "pass",
@@ -273,4 +288,12 @@ async function creditBalanceCheck(config: ResolvedConfig): Promise<DoctorCheck> 
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return isRecord(value) ? value : {};
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
 }

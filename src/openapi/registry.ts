@@ -43,7 +43,12 @@ export async function loadRegistry(
 export function readRegistryCache(options: RegistryOptions = {}): RegistryCache | null {
   const path = registryCachePath(options);
   if (!existsSync(path)) return null;
-  const parsed = JSON.parse(readFileSync(path, "utf8")) as Partial<RegistryCache>;
+  let parsed: Partial<RegistryCache>;
+  try {
+    parsed = JSON.parse(readFileSync(path, "utf8")) as Partial<RegistryCache>;
+  } catch {
+    return null;
+  }
   if (parsed.version !== packageVersion(options.version)) return null;
   if (!Array.isArray(parsed.operations)) return null;
   return parsed as RegistryCache;
@@ -77,15 +82,15 @@ export function rawSpecCachePath(options: RegistryOptions = {}): string {
   return join(versionedCacheDir(options), "openapi.raw.json");
 }
 
-export function versionedCacheDir(options: RegistryOptions = {}): string {
+function versionedCacheDir(options: RegistryOptions = {}): string {
   return join(resolveCacheRoot(options.cacheDir), packageVersion(options.version));
 }
 
-export function resolveCacheRoot(cacheDir?: string): string {
+function resolveCacheRoot(cacheDir?: string): string {
   return resolve(cacheDir ?? process.env.ELV_CACHE_DIR ?? join(homedir(), ".cache", "elv"));
 }
 
-export function packageVersion(override?: string): string {
+function packageVersion(override?: string): string {
   if (override) return override;
   for (const path of packageJsonCandidates()) {
     if (!existsSync(path)) continue;

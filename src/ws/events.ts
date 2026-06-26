@@ -70,16 +70,15 @@ function parseLine(line: string, index: number): SendScriptAction {
   } catch (error) {
     throw new Error(`send-script line ${index} is not valid JSON: ${errorMessage(error)}`);
   }
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+  if (!isRecord(parsed)) {
     throw new Error(`send-script line ${index} must be a JSON object`);
   }
-  const record = parsed as Record<string, unknown>;
-  if (record.type === "close") return { type: "close" };
-  if (record.type !== "send") throw new Error(`unsupported send-script action on line ${index}`);
-  if (!record.data || typeof record.data !== "object" || Array.isArray(record.data)) {
+  if (parsed.type === "close") return { type: "close" };
+  if (parsed.type !== "send") throw new Error(`unsupported send-script action on line ${index}`);
+  if (!isRecord(parsed.data)) {
     throw new Error(`send-script line ${index} send.data must be an object`);
   }
-  return { type: "send", data: record.data as Record<string, unknown> };
+  return { type: "send", data: parsed.data };
 }
 
 function redactedEventLine(raw: string): string {
@@ -117,4 +116,8 @@ function isWsSecretKey(key: string): boolean {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
 }

@@ -1,30 +1,17 @@
 import type { Command } from "commander";
-import { emitAndExit, exitCodeForError } from "../../core/errors";
+import { runOperation } from "../../core/client";
+import { emitAndExit, exitCodeForError, validationError } from "../../core/errors";
 import { ExitCode } from "../../core/types";
+import { mergedOptions, numberValue, optionString, runOptsFromCommand } from "../options";
 import type { AgentInput, Envelope, RunOpts, SuccessEnvelope } from "../../core/types";
 
-export function mergedOptions(command: Command): Record<string, unknown> {
-  const chain: Command[] = [];
-  for (let current: Command | null = command; current; current = current.parent)
-    chain.unshift(current);
-  return Object.assign({}, ...chain.map((current) => current.opts()));
+export type OperationBuilder<T> = (flags: T) => { operationId: string; input: AgentInput };
+
+export function aliasRunOpts(command: Command): RunOpts {
+  return runOptsFromCommand(command);
 }
 
-export function runOpts(command: Command): RunOpts {
-  const opts = mergedOptions(command);
-  return {
-    dryRun: Boolean(opts.dryRun),
-    yes: Boolean(opts.yes),
-    retryPost: Boolean(opts.retryPost),
-    hash: Boolean(opts.hash),
-    out: optionString(opts.out),
-    baseUrl: optionString(opts.baseUrl),
-    profile: optionString(opts.profile),
-    maxCredits: numberValue(optionString(opts.maxCredits)),
-  };
-}
-
-export function paginationOpts(command: Command): {
+function paginationOpts(command: Command): {
   all?: boolean;
   limit?: number;
   saveJson?: string;
@@ -51,7 +38,7 @@ export function addPaginationFlags(command: Command): Command {
     );
 }
 
-export function fieldsOpt(command: Command): string[] | undefined {
+function fieldsOpt(command: Command): string[] | undefined {
   const raw = optionString(mergedOptions(command).fields);
   if (!raw) return undefined;
   const fields = raw
@@ -90,7 +77,10 @@ function projectData(data: unknown, fields: string[]): unknown {
   if (isRecord(data)) {
     const key = longestArrayKey(data);
     if (key === undefined) return data;
-    return { ...data, [key]: (data[key] as unknown[]).map((item) => pickFields(item, fields)) };
+    const value = data[key];
+    return Array.isArray(value)
+      ? { ...data, [key]: value.map((item) => pickFields(item, fields)) }
+      : data;
   }
   return data;
 }
@@ -124,10 +114,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
-export function optionString(value: unknown): string | undefined {
-  return typeof value === "string" ? value : undefined;
-}
-
 export function commandName(command: Command): string {
   return `elv ${command.name()}`;
 }
@@ -137,6 +123,52 @@ export function emit(env: Envelope): never {
     env,
     env.ok ? ExitCode.Success : exitCodeForError(env.error, env.http?.status ?? undefined),
   );
+}
+
+export async function runAlias<T>(
+  builder: OperationBuilder<T>,
+  flags: T,
+  command: Command,
+): Promise<never> {
+  const built = validationOrExit(command, () => builder(flags));
+  const env = await runOperation(built.operationId, built.input, aliasRunOpts(command));
+  emit(env);
+}
+
+export async function runListAlias<T>(
+  builder: OperationBuilder<T>,
+  flags: T,
+  command: Command,
+  options: { mergeOptions?: boolean } = {},
+): Promise<never> {
+  const inputFlags = options.mergeOptions
+    ? ({ ...(mergedOptions(command) as T), ...flags } as T)
+    : flags;
+  const { built, fields, fetch } = validationOrExit(command, () => ({
+    built: builder(inputFlags),
+    ...resolveListOpts(command),
+  }));
+  const env = await runOperation(built.operationId, built.input, {
+    ...aliasRunOpts(command),
+    ...fetch,
+  });
+  emit(fields && env.ok ? projectFields(env, fields) : env);
+}
+
+function validationEnv(command: Command, error: unknown): ReturnType<typeof validationError> {
+  return validationError(commandName(command), message(error));
+}
+
+function validationExit(command: Command, error: unknown): never {
+  emitAndExit(validationEnv(command, error), ExitCode.InputValidation);
+}
+
+export function validationOrExit<T>(command: Command, fn: () => T): T {
+  try {
+    return fn();
+  } catch (error) {
+    validationExit(command, error);
+  }
 }
 
 export function message(error: unknown): string {
@@ -154,14 +186,11 @@ export function compact(record: Record<string, unknown>): Record<string, unknown
 }
 
 export function compactInput(input: AgentInput): AgentInput {
-  return Object.fromEntries(
-    Object.entries(input).filter(([, value]) => value !== undefined),
-  ) as AgentInput;
-}
-
-export function numberValue(value: string | number | undefined): number | undefined {
-  if (value === undefined || value === "") return undefined;
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed)) throw new Error(`Expected number, got ${value}`);
-  return parsed;
+  const out: AgentInput = {};
+  if (input.path !== undefined) out.path = input.path;
+  if (input.query !== undefined) out.query = input.query;
+  if (input.body !== undefined) out.body = input.body;
+  if (input.headers !== undefined) out.headers = input.headers;
+  if (input.files !== undefined) out.files = input.files;
+  return out;
 }

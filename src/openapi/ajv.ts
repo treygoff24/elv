@@ -3,7 +3,7 @@ import addFormats from "ajv-formats";
 import type { AnySchema, ValidateFunction } from "ajv";
 import type { OperationCard } from "../core/types";
 
-export const OPENAPI_SCHEMA_BASE = "elv://openapi";
+const OPENAPI_SCHEMA_BASE = "elv://openapi";
 
 export function buildAjv(bundledSpec: unknown): Ajv2020 {
   const ajv = new Ajv2020({ strict: false, allErrors: true, validateSchema: false });

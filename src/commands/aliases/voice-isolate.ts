@@ -1,10 +1,7 @@
 import { resolve } from "node:path";
 import type { Command } from "commander";
-import { runOperation } from "../../core/client";
-import { emitAndExit, validationError } from "../../core/errors";
-import { ExitCode } from "../../core/types";
 import type { AgentInput } from "../../core/types";
-import { commandName, compact, compactInput, emit, message, required, runOpts } from "./shared";
+import { compact, compactInput, required, runAlias } from "./shared";
 
 export interface VoiceIsolateFlags {
   file?: string;
@@ -41,11 +38,5 @@ export function registerVoiceIsolateCommand(
 }
 
 async function runBuilt(flags: VoiceIsolateFlags, command: Command): Promise<never> {
-  try {
-    const built = buildVoiceIsolateInput(flags);
-    const env = await runOperation(built.operationId, built.input, runOpts(command));
-    emit(env);
-  } catch (error) {
-    emitAndExit(validationError(commandName(command), message(error)), ExitCode.InputValidation);
-  }
+  return runAlias(buildVoiceIsolateInput, flags, command);
 }

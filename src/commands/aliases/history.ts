@@ -1,18 +1,6 @@
 import type { Command } from "commander";
-import { runOperation } from "../../core/client";
-import { emitAndExit, validationError } from "../../core/errors";
-import { ExitCode } from "../../core/types";
 import type { AgentInput } from "../../core/types";
-import {
-  addPaginationFlags,
-  commandName,
-  emit,
-  message,
-  projectFields,
-  required,
-  resolveListOpts,
-  runOpts,
-} from "./shared";
+import { addPaginationFlags, required, runListAlias } from "./shared";
 
 export interface HistoryFlags {
   id?: string;
@@ -82,15 +70,5 @@ async function runBuilt<T>(
   flags: T,
   command: Command,
 ): Promise<never> {
-  try {
-    const built = builder(flags);
-    const { fields, fetch } = resolveListOpts(command);
-    const env = await runOperation(built.operationId, built.input, {
-      ...runOpts(command),
-      ...fetch,
-    });
-    emit(fields && env.ok ? projectFields(env, fields) : env);
-  } catch (error) {
-    emitAndExit(validationError(commandName(command), message(error)), ExitCode.InputValidation);
-  }
+  return runListAlias(builder, flags, command);
 }

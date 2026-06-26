@@ -31,26 +31,9 @@ export async function runWsSession(options: WsSessionOptions): Promise<WsSession
   let eventsSent = 0;
   let eventsReceived = 0;
   let closed = false;
-  let timedOut = false;
   let opened = false;
-  let timer: NodeJS.Timeout | undefined;
   let messageChain = Promise.resolve();
-
-  const clearInactivity = (): void => {
-    if (timer) clearTimeout(timer);
-    timer = undefined;
-  };
-  const resetInactivity = (): void => {
-    clearInactivity();
-    timer = setTimeout(() => {
-      timedOut = true;
-      if (socket.readyState === WebSocket.OPEN) socket.close();
-      setTimeout(() => {
-        if (socket.readyState !== WebSocket.CLOSED) socket.terminate();
-      }, 100).unref();
-    }, timeoutMs);
-    timer.unref();
-  };
+  const inactivity = createInactivityTimer(socket, timeoutMs);
 
   try {
     const closedPromise = new Promise<void>((resolve, reject) => {
@@ -65,15 +48,9 @@ export async function runWsSession(options: WsSessionOptions): Promise<WsSession
 
     socket.on("message", (data) => {
       messageChain = messageChain.then(async () => {
-        resetInactivity();
+        inactivity.reset();
         eventsReceived += 1;
-        const raw = rawDataToString(data);
-        await events.writeRaw(raw);
-        const parsed = parseJson(raw);
-        await audio.writeFromEvent(parsed);
-        if (isPing(parsed) && socket.readyState === WebSocket.OPEN) {
-          await sendJson(socket, { type: "pong", event_id: parsed.event_id });
-        }
+        await processMessage(data, socket, events, audio);
       });
     });
 
@@ -87,14 +64,14 @@ export async function runWsSession(options: WsSessionOptions): Promise<WsSession
       socket.once("error", failBeforeOpen);
     });
 
-    resetInactivity();
+    inactivity.reset();
     await playScript(socket, options.script, () => {
       eventsSent += 1;
     });
 
     await closedPromise;
 
-    clearInactivity();
+    inactivity.clear();
     await messageChain;
     const files: FileRecord[] = [];
     const eventPath = await events.close();
@@ -111,7 +88,7 @@ export async function runWsSession(options: WsSessionOptions): Promise<WsSession
         events_sent: eventsSent,
         events_received: eventsReceived,
         closed,
-        timed_out: timedOut,
+        timed_out: inactivity.timedOut(),
       }),
     );
     files.push(await fileRecord(manifestPath, { hash: true }));
@@ -127,11 +104,57 @@ export async function runWsSession(options: WsSessionOptions): Promise<WsSession
       files,
     };
   } catch (error) {
-    clearInactivity();
+    inactivity.clear();
     await Promise.allSettled([events.abort(), audio.abort()]);
     if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)
       socket.terminate();
     throw error;
+  }
+}
+
+function createInactivityTimer(
+  socket: WebSocket,
+  timeoutMs: number,
+): {
+  reset: () => void;
+  clear: () => void;
+  timedOut: () => boolean;
+} {
+  let timer: NodeJS.Timeout | undefined;
+  let didTimeOut = false;
+  const clear = (): void => {
+    if (timer) clearTimeout(timer);
+    timer = undefined;
+  };
+  return {
+    reset: () => {
+      clear();
+      timer = setTimeout(() => {
+        didTimeOut = true;
+        if (socket.readyState === WebSocket.OPEN) socket.close();
+        setTimeout(() => {
+          if (socket.readyState !== WebSocket.CLOSED) socket.terminate();
+        }, 100).unref();
+      }, timeoutMs);
+      timer.unref();
+    },
+    clear,
+    timedOut: () => didTimeOut,
+  };
+}
+
+async function processMessage(
+  data: RawData,
+  socket: WebSocket,
+  events: NdjsonEventWriter,
+  audio: AudioWriter,
+): Promise<void> {
+  const raw = rawDataToString(data);
+  await events.writeRaw(raw);
+  const parsed = parseJson(raw);
+  await audio.writeFromEvent(parsed);
+  if (isPing(parsed) && socket.readyState === WebSocket.OPEN) {
+    await sendJson(socket, { type: "pong", event_id: parsed.event_id });
   }
 }
 

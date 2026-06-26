@@ -35,7 +35,7 @@ export class AudioWriter {
   }
 }
 
-export function audioExtension(outputFormat: string | undefined): string {
+function audioExtension(outputFormat: string | undefined): string {
   const value = outputFormat?.toLowerCase() ?? "";
   if (value.includes("pcm")) return "pcm";
   if (value.includes("opus")) return "opus";
@@ -44,8 +44,11 @@ export function audioExtension(outputFormat: string | undefined): string {
 }
 
 function audioBase64(event: unknown): string | null {
-  if (!event || typeof event !== "object" || Array.isArray(event)) return null;
-  const record = event as Record<string, unknown>;
-  const value = record.audio ?? record.audio_base64;
+  if (!isRecord(event)) return null;
+  const value = event.audio ?? event.audio_base64;
   return typeof value === "string" && value.length > 0 ? value : null;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
 }

@@ -36,10 +36,6 @@ export type CostHint =
   | "slot"
   | "unknown";
 
-// ---------------------------------------------------------------------------
-// OpenAPI registry (compiler output) — §7
-// ---------------------------------------------------------------------------
-
 export interface ParamCard {
   name: string;
   location: "path" | "query" | "header";
@@ -97,10 +93,6 @@ export interface OperationCard {
   examples: ExampleCard[];
 }
 
-// ---------------------------------------------------------------------------
-// Input model — §5
-// ---------------------------------------------------------------------------
-
 /** Canonical bucketed input to the runner. Flat JSON is normalized into this shape. */
 export interface AgentInput {
   path?: Record<string, unknown>;
@@ -121,34 +113,29 @@ export interface RunOpts {
   allowUnknown?: boolean;
   unpack?: boolean;
   hash?: boolean;
-  // resolved runtime/config
   baseUrl?: string;
   apiKey?: string;
   profile?: string;
 }
 
-// ---------------------------------------------------------------------------
-// Envelope — §4 / §6
-// ---------------------------------------------------------------------------
-
-export interface HttpInfo {
+interface HttpInfo {
   status: number | null;
   method: HttpMethod;
   path: string;
 }
 
-export interface RequestInfo {
+interface RequestInfo {
   id: string | null;
   trace_id: string | null;
   song_id: string | null;
 }
 
-export interface ConcurrencyInfo {
+interface ConcurrencyInfo {
   current: number | null;
   max: number | null;
 }
 
-export type CreditsSource = "estimate" | "header" | "none";
+type CreditsSource = "estimate" | "header" | "none";
 
 export interface CostInfo {
   credits_estimated: number | null;

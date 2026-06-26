@@ -270,7 +270,8 @@ function itemsFromData(op: OperationCard, data: unknown): unknown[] {
   const record = asRecord(data);
   if (!record) return [];
   const key = itemKey(op, record);
-  if (key && Array.isArray(record[key])) return record[key] as unknown[];
+  const items = key === undefined ? undefined : record[key];
+  if (Array.isArray(items)) return items;
   return [data];
 }
 
@@ -295,7 +296,6 @@ function pageSizeParam(op: OperationCard): string | undefined {
   return undefined;
 }
 
-/** True when this operation is a paginated list (drives inline-before-spill handling). */
 export function supportsPagination(op: OperationCard): boolean {
   return pageSizeParam(op) !== undefined;
 }
@@ -312,7 +312,9 @@ function resourceFamily(op: OperationCard): Family {
 }
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {
-  return value !== null && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : undefined;
+  return isRecord(value) ? value : undefined;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
 }

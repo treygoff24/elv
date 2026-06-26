@@ -1,9 +1,6 @@
 import type { Command } from "commander";
-import { runOperation } from "../../core/client";
-import { emitAndExit, validationError } from "../../core/errors";
-import { ExitCode } from "../../core/types";
 import type { AgentInput } from "../../core/types";
-import { commandName, compact, emit, message, required, runOpts } from "./shared";
+import { compact, required, runAlias } from "./shared";
 
 export interface UsageFlags {
   from?: string;
@@ -45,13 +42,7 @@ export function registerUsageCommand(
 }
 
 async function runBuilt(flags: UsageFlags, command: Command): Promise<never> {
-  try {
-    const built = buildUsageInput(flags);
-    const env = await runOperation(built.operationId, built.input, runOpts(command));
-    emit(env);
-  } catch (error) {
-    emitAndExit(validationError(commandName(command), message(error)), ExitCode.InputValidation);
-  }
+  return runAlias(buildUsageInput, flags, command);
 }
 
 function dateMs(value: string): number {

@@ -22,6 +22,7 @@ import type {
   Hint,
   HttpMethod,
   OperationCard,
+  SuccessEnvelope,
   Warning,
 } from "./types";
 
@@ -92,6 +93,17 @@ export async function normalizeResponse(
   };
 
   const runtimeType = contentType(res.headers);
+  return normalizeSuccessResponse(op, res, ctx, base, warnings, runtimeType);
+}
+
+async function normalizeSuccessResponse(
+  op: OperationCard,
+  res: Response,
+  ctx: ResponseContext,
+  base: Omit<SuccessEnvelope, "v" | "ok">,
+  warnings: Warning[],
+  runtimeType: string,
+): Promise<Envelope> {
   if (op.streamKind === "json_events") {
     const files = await streamJsonEventsFiles(op, res, ctx);
     return success({ ...base, files, truncated: false, warnings: optional(warnings), hints: [] });
@@ -160,8 +172,7 @@ async function spillJsonFile(
   return { ...(await fileRecord(path, { hash: ctx.hash })), mime: "application/json" };
 }
 
-/** Agent-facing hint pointing at a spilled file via the real `elv view` command. */
-export function viewHint(filePath: string, data: unknown): Hint {
+function viewHint(filePath: string, data: unknown): Hint {
   const pathHint = viewPathHint(data);
   return {
     cmd: `elv view ${shellArg(filePath)}${pathHint ? ` --path ${shellArg(pathHint)}` : ""}`,
@@ -182,7 +193,6 @@ export async function spillIfLarge(
   if (!env.ok || env.data === undefined) return env;
   const text = JSON.stringify(env.data);
   const tooLarge = Buffer.byteLength(text) >= SMALL_JSON_LIMIT;
-  // Nothing to do when it fits inline and the caller did not ask to save it.
   if (!tooLarge && ctx.saveJson === undefined) return env;
 
   const file = await spillJsonFile(op, text, {
@@ -190,7 +200,6 @@ export async function spillIfLarge(
     out: ctx.saveJson ?? ctx.out,
     hash: ctx.hash,
   });
-  // Small but --save-json was requested: write the file, keep the data inline.
   if (!tooLarge) return { ...env, files: [...(env.files ?? []), file] };
 
   return {
@@ -321,6 +330,7 @@ async function streamJsonEventsFiles(
 
     pending += decoder.decode();
     const parsed = extractJsonObjects(pending);
+    if (parsed.rest.trim()) throw new Error("Incomplete trailing JSON event");
     for (const event of parsed.objects)
       await writeJsonEvent(
         event,
@@ -474,7 +484,16 @@ function costInfo(
 async function parseErrorBody(res: Response): Promise<unknown> {
   const text = await res.text();
   if (!text) return {};
-  if (isJson(contentType(res.headers))) return parseJson(text);
+  if (isJson(contentType(res.headers))) {
+    try {
+      return parseJson(text);
+    } catch (error) {
+      return {
+        detail: text,
+        parse_error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
   return { detail: text };
 }
 

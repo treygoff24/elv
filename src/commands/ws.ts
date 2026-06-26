@@ -1,15 +1,13 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { Command } from "commander";
 import { success, failure } from "../core/envelope";
 import { getApiKey, loadConfig } from "../core/config";
-import { emitAndExit, validationError } from "../core/errors";
+import { validationError } from "../core/errors";
 import { ExitCode } from "../core/types";
 import { resolveOutTarget, OutTargetError } from "../core/files";
 import { buildCatalogUrl, getWsCatalogEntry, listWsCatalog, wsUrlFromPath } from "../ws/catalog";
 import { parseSendScript, scriptUsesModel } from "../ws/events";
 import { runWsSession } from "../ws/session";
-import type { Command as CommanderCommand } from "commander";
 import type { Envelope } from "../core/types";
 import type { WsCatalogEntry } from "../ws/catalog";
 
@@ -94,28 +92,6 @@ export async function runWs(
   } catch (error) {
     return errorEnvelope(error);
   }
-}
-
-export async function handleWs(args: string[] = process.argv.slice(2)): Promise<never> {
-  const result = await runWs(args);
-  emitAndExit(result.env, result.exitCode);
-}
-
-export function buildWsCommand(): CommanderCommand {
-  return new Command("ws")
-    .argument("[target]", "WebSocket catalog name or URL")
-    .option("--list", "list WebSocket catalog")
-    .option("--query <key=value>", "add query parameter", collect, [])
-    .option("--send <path>", "NDJSON send-script")
-    .option("--out <dir>", "session output directory")
-    .action((target: string | undefined, raw: Record<string, unknown>) => {
-      const args = target ? [target] : [];
-      if (raw.list) args.push("--list");
-      for (const pair of arrayOption(raw.query)) args.push("--query", pair);
-      if (typeof raw.send === "string") args.push("--send", raw.send);
-      if (typeof raw.out === "string") args.push("--out", raw.out);
-      return handleWs(args);
-    });
 }
 
 function parseArgs(
@@ -264,14 +240,4 @@ class ScriptValidationError extends Error {
     super(message);
     this.name = "ScriptValidationError";
   }
-}
-
-function collect(value: string, previous: string[]): string[] {
-  return [...previous, value];
-}
-
-function arrayOption(value: unknown): string[] {
-  return Array.isArray(value)
-    ? value.filter((item): item is string => typeof item === "string")
-    : [];
 }

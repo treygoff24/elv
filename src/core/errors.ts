@@ -5,6 +5,8 @@ import type { Envelope, ErrorEnvelope, Hint, NormalizedError } from "./types";
 const INPUT_CODES = new Set([
   "invalid_parameters",
   "validation_error",
+  "config_error",
+  "config_json_invalid",
   "text_too_long",
   "max_character_limit_exceeded",
 ]);
@@ -81,6 +83,26 @@ export function validationError(
     },
     retry: { recommended: false, after_ms: null },
     hints: options.hints,
+  });
+}
+
+export function configFileError(
+  cmd: string,
+  message: string,
+  options: PreflightOptions = {},
+): ErrorEnvelope {
+  return failure({
+    cmd,
+    operation_id: options.operationId,
+    error: {
+      type: "config_error",
+      code: "config_json_invalid",
+      message,
+      param: options.param ?? null,
+      raw: options.raw,
+    },
+    retry: { recommended: false, after_ms: null },
+    hints: [{ cmd: "elv config doctor", why: "Validate local elv configuration." }],
   });
 }
 

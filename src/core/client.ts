@@ -1,9 +1,10 @@
 import { loadRegistry, readRegistryCache } from "../openapi/registry";
 import { estimateDetail, overBudget } from "./budget";
-import { loadConfig, getApiKey } from "./config";
+import { ConfigFileError, loadConfig, getApiKey } from "./config";
 import { dryRun, failure } from "./envelope";
 import {
   budgetExceeded,
+  configFileError,
   confirmationRequired,
   hintsForError,
   mergeErrorHints,
@@ -19,6 +20,7 @@ import {
   applyPaginationDefaults,
   collectAllPages,
   supportsPagination,
+  type PaginationCommand,
   type PaginationOptions,
 } from "./pagination";
 import { requiresYes } from "./safety";
@@ -27,6 +29,7 @@ import type { AnySchema, ValidateFunction } from "ajv";
 import type {
   AgentInput,
   Envelope,
+  HttpMethod,
   NormalizedError,
   OperationCard,
   RunOpts,
@@ -38,6 +41,19 @@ import type { ResponseContext } from "./response-normalizer";
 const OPENAPI_SCHEMA_BASE = "elv://openapi";
 
 type OperationRunOpts = RunOpts & PaginationOptions & { inline?: boolean };
+
+interface PreparedOperationRun {
+  cmd: string;
+  op: OperationCard;
+  input: AgentInput;
+  opts: OperationRunOpts;
+  command: PaginationCommand;
+  dryRunRequest: Record<string, unknown>;
+  creditsEstimated: number | null;
+  warnings?: Warning[];
+  requestPath?: string;
+  method?: HttpMethod;
+}
 
 export async function runOperation(
   operationId: string,
@@ -74,105 +90,133 @@ export async function runOperation(
       normalized,
       opts,
     );
-    if (opts.dryRun) {
-      return withWarnings(
-        dryRun({
-          cmd,
-          operationId,
-          request: {
-            operation_id: operationId,
-            method: op.method,
-            path: op.pathTemplate,
-            input: normalized,
-          },
-          creditsEstimated: estimate,
-          wouldRequireYes: requiresYes(op),
-          wouldExceedBudget: overBudget(estimate, opts),
-        }),
-        estimateWarnings,
-      );
-    }
-
-    if (requiresYes(op) && !opts.yes) {
-      return confirmationRequired(cmd, `${operationId} (${op.risk}) requires --yes`, {
-        operationId,
-      });
-    }
-    if (overBudget(estimate, opts)) {
-      return budgetExceeded(cmd, estimate, opts.maxCredits as number, { operationId });
-    }
-
-    const config = loadConfig({
-      profile: opts.profile,
-      baseUrl: opts.baseUrl,
-      maxCredits: opts.maxCredits,
-    });
-    if (opts.all && !allOutputTarget(opts)) {
-      return validationError(cmd, "--all requires --save-json or --out", { operationId });
-    }
-
-    const requestContext = {
-      baseUrl: opts.baseUrl ?? config.baseUrl,
-      apiKey: opts.apiKey ?? getApiKey({ profile: opts.profile }),
-    };
-    const makeRequest = (nextInput: AgentInput) => buildHttpRequest(op, nextInput, requestContext);
-
-    const isPaginated = supportsPagination(op);
-
-    if (opts.all) {
-      return collectAllPages({
-        op,
-        input: normalized,
-        out: opts.out,
-        saveJson: opts.saveJson,
-        hash: opts.hash,
-        limit: opts.limit,
-        command: { kind: "call" },
-        // Force inline so each page's items and cursor are visible to the collector;
-        // collectAllPages writes the combined set to the --save-json/--out file itself.
-        fetchPage: async (pageInput) =>
-          sendAndNormalize(await makeRequest(pageInput), op, {
-            cmd,
-            out: opts.out ?? config.outputDir,
-            hash: opts.hash,
-            creditsEstimated: estimate,
-            retryPost: opts.retryPost,
-            inline: true,
-          }),
-      });
-    }
-
-    const req = await makeRequest(normalized);
-    const env = await sendAndNormalize(req, op, {
+    return runPreparedOperation({
       cmd,
-      out: opts.out ?? config.outputDir,
-      hash: opts.hash,
-      creditsEstimated: estimate,
-      retryPost: opts.retryPost,
-      requestPath: req.path,
-      method: req.method,
-      // Normalize inline when we need the data downstream: paginated ops so
-      // addPaginationToEnvelope can compute `next`/truncate, or --save-json so the full
-      // result can be written. spillIfLarge then spills/saves below as needed.
-      inline: opts.inline || isPaginated || opts.saveJson !== undefined,
-    });
-    const paginatedEnv = addPaginationToEnvelope(env, op, normalized, {
+      op,
+      input: normalized,
+      opts,
       command: { kind: "call" },
-      limit: opts.limit,
+      dryRunRequest: {
+        operation_id: operationId,
+        method: op.method,
+        path: op.pathTemplate,
+        input: normalized,
+      },
+      creditsEstimated: estimate,
+      warnings: estimateWarnings,
     });
-    const finalEnv =
-      (isPaginated || opts.saveJson !== undefined) && !opts.inline
-        ? await spillIfLarge(op, paginatedEnv, {
-            cmd,
-            out: opts.out ?? config.outputDir,
-            saveJson: opts.saveJson,
-            hash: opts.hash,
-          })
-        : paginatedEnv;
-    return withWarnings(finalEnv, estimateWarnings);
   } catch (error) {
     return envelopeForThrown(cmd, operationId, error);
   }
+}
+
+export async function runPreparedOperation({
+  cmd,
+  op,
+  input,
+  opts,
+  command,
+  dryRunRequest,
+  creditsEstimated,
+  warnings = [],
+  requestPath,
+  method,
+}: PreparedOperationRun): Promise<Envelope> {
+  if (opts.dryRun) {
+    return withWarnings(
+      dryRun({
+        cmd,
+        operationId: op.operationId,
+        request: dryRunRequest,
+        creditsEstimated,
+        wouldRequireYes: requiresYes(op),
+        wouldExceedBudget: overBudget(creditsEstimated, opts),
+      }),
+      warnings,
+    );
+  }
+
+  if (requiresYes(op) && !opts.yes) {
+    return confirmationRequired(cmd, `${op.operationId} (${op.risk}) requires --yes`, {
+      operationId: op.operationId,
+    });
+  }
+  if (overBudget(creditsEstimated, opts)) {
+    return budgetExceeded(cmd, creditsEstimated, opts.maxCredits as number, {
+      operationId: op.operationId,
+    });
+  }
+
+  const config = loadConfig({
+    profile: opts.profile,
+    baseUrl: opts.baseUrl,
+    maxCredits: opts.maxCredits,
+  });
+  if (opts.all && !allOutputTarget(opts)) {
+    return validationError(cmd, "--all requires --save-json or --out", {
+      operationId: op.operationId,
+    });
+  }
+
+  const requestContext = {
+    baseUrl: opts.baseUrl ?? config.baseUrl,
+    apiKey: opts.apiKey ?? getApiKey({ profile: opts.profile }),
+  };
+  const makeRequest = (nextInput: AgentInput) => buildHttpRequest(op, nextInput, requestContext);
+
+  const isPaginated = supportsPagination(op);
+
+  if (opts.all) {
+    return collectAllPages({
+      op,
+      input,
+      out: opts.out,
+      saveJson: opts.saveJson,
+      hash: opts.hash,
+      limit: opts.limit,
+      command,
+      fetchPage: async (pageInput) =>
+        sendAndNormalize(await makeRequest(pageInput), op, {
+          cmd,
+          out: opts.out ?? config.outputDir,
+          hash: opts.hash,
+          creditsEstimated,
+          retryPost: opts.retryPost,
+          requestPath,
+          method,
+          inline: true,
+        }),
+    });
+  }
+
+  const req = await makeRequest(input);
+  const env = await sendAndNormalize(req, op, {
+    cmd,
+    out: opts.out ?? config.outputDir,
+    hash: opts.hash,
+    creditsEstimated,
+    retryPost: opts.retryPost,
+    requestPath: requestPath ?? req.path,
+    method: method ?? req.method,
+    // Normalize inline when downstream code needs data: pagination computes
+    // next/truncation, --save-json writes the full result, and explicit inline
+    // callers consume the body directly.
+    inline: opts.inline || isPaginated || opts.saveJson !== undefined,
+  });
+  const paginatedEnv = addPaginationToEnvelope(env, op, input, {
+    command,
+    limit: opts.limit,
+  });
+  const finalEnv =
+    (isPaginated || opts.saveJson !== undefined) && !opts.inline
+      ? await spillIfLarge(op, paginatedEnv, {
+          cmd,
+          out: opts.out ?? config.outputDir,
+          saveJson: opts.saveJson,
+          hash: opts.hash,
+        })
+      : paginatedEnv;
+  return withWarnings(finalEnv, warnings);
 }
 
 function withWarnings(env: Envelope, warnings: Warning[]): Envelope {
@@ -301,6 +345,9 @@ function ajvParam(instancePath: string | undefined, params: unknown): string | n
 }
 
 export function envelopeForThrown(cmd: string, operationId: string, error: unknown): Envelope {
+  if (error instanceof ConfigFileError) {
+    return configFileError(cmd, error.message, { operationId, raw: { path: error.path } });
+  }
   if (error instanceof InputNormalizationError) {
     return failure({
       cmd,
@@ -365,7 +412,9 @@ function minimalSpec(): unknown {
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
+  return isRecord(value) ? value : {};
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
 }

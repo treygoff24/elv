@@ -1,38 +1,30 @@
-import { resolve } from "node:path";
 import { emitAndExit, exitCodeForError, validationError } from "../core/errors";
-import { dryRun } from "../core/envelope";
-import { getApiKey, loadConfig } from "../core/config";
-import { envelopeForThrown, sendAndNormalize } from "../core/client";
-import { spillIfLarge } from "../core/response-normalizer";
-import {
-  addPaginationToEnvelope,
-  allOutputTarget,
-  applyPaginationDefaults,
-  collectAllPages,
-  supportsPagination,
-} from "../core/pagination";
-import { buildHttpRequest } from "../core/request-builder";
+import { envelopeForThrown, runPreparedOperation } from "../core/client";
+import { applyPaginationDefaults, type PaginationOptions } from "../core/pagination";
 import { estimateCredits } from "../core/budget";
 import type { AgentInput, Envelope, HttpMethod, OperationCard, RunOpts } from "../core/types";
 import { ExitCode as Codes } from "../core/types";
+import { addFiles, addPairs } from "./input";
 
 export interface HttpOptions {
   query?: string[];
   bodyJson?: string;
   file?: string[];
-  out?: string;
-  saveJson?: string;
-  all?: boolean;
+  out?: RunOpts["out"];
+  saveJson?: PaginationOptions["saveJson"];
+  all?: PaginationOptions["all"];
   limit?: string | number;
-  dryRun?: boolean;
-  retryPost?: boolean;
-  hash?: boolean;
-  baseUrl?: string;
-  apiKey?: string;
-  profile?: string;
+  dryRun?: RunOpts["dryRun"];
+  retryPost?: RunOpts["retryPost"];
+  hash?: RunOpts["hash"];
+  baseUrl?: RunOpts["baseUrl"];
+  apiKey?: RunOpts["apiKey"];
+  profile?: RunOpts["profile"];
+  maxCredits?: string | number;
+  yes?: RunOpts["yes"];
 }
 
-type HttpRunOpts = RunOpts & { saveJson?: string; all?: boolean; limit?: number };
+type HttpRunOpts = RunOpts & Omit<PaginationOptions, "limit"> & { limit?: number };
 
 export async function handleHttp(
   method: string,
@@ -57,7 +49,7 @@ export async function runHttp(
 
   try {
     const op = httpOperation(parsed.method, path, parsed.input);
-    const opts = runOpts(options);
+    const opts = httpRunOpts(options);
     if (opts.limit !== undefined && (!Number.isInteger(opts.limit) || opts.limit <= 0)) {
       return validationError(cmd, "--limit must be a positive integer", {
         operationId: op.operationId,
@@ -65,77 +57,17 @@ export async function runHttp(
     }
     const input = applyPaginationDefaults(op, parsed.input, opts.limit ?? 20);
 
-    if (opts.all && !allOutputTarget(opts)) {
-      return validationError(cmd, "--all requires --save-json or --out", {
-        operationId: op.operationId,
-      });
-    }
-
-    const config = loadConfig({
-      profile: opts.profile,
-      baseUrl: opts.baseUrl,
-      maxCredits: opts.maxCredits,
-    });
-    const requestContext = {
-      baseUrl: opts.baseUrl ?? config.baseUrl,
-      apiKey: opts.apiKey ?? getApiKey({ profile: opts.profile }),
-    };
-    const makeRequest = (nextInput: AgentInput) => buildHttpRequest(op, nextInput, requestContext);
-
-    if (opts.dryRun) {
-      return dryRun({
-        cmd,
-        operationId: op.operationId,
-        request: { method: op.method, path, input },
-        creditsEstimated: await estimateCredits(op, input, opts),
-      });
-    }
-
-    if (opts.all) {
-      return collectAllPages({
-        op,
-        input,
-        out: opts.out,
-        saveJson: opts.saveJson,
-        hash: opts.hash,
-        limit: opts.limit,
-        command: { kind: "http", method: op.method, path },
-        fetchPage: async (pageInput) =>
-          sendAndNormalize(await makeRequest(pageInput), op, {
-            cmd,
-            out: opts.out ?? config.outputDir,
-            hash: opts.hash,
-            retryPost: opts.retryPost,
-            requestPath: path,
-            method: op.method,
-          }),
-      });
-    }
-
-    const isPaginated = supportsPagination(op);
-    const env = await sendAndNormalize(await makeRequest(input), op, {
+    return runPreparedOperation({
       cmd,
-      out: opts.out ?? config.outputDir,
-      hash: opts.hash,
-      retryPost: opts.retryPost,
+      op,
+      input,
+      opts,
+      command: { kind: "http", method: op.method, path },
+      dryRunRequest: { method: op.method, path, input },
+      creditsEstimated: await estimateCredits(op, input, opts),
       requestPath: path,
       method: op.method,
-      // Normalize inline so pagination sees the data (computes `next`) or so --save-json
-      // can write the full result; spillIfLarge spills/saves afterward.
-      inline: isPaginated || opts.saveJson !== undefined,
     });
-    const paginatedEnv = addPaginationToEnvelope(env, op, input, {
-      command: { kind: "http", method: op.method, path },
-      limit: opts.limit,
-    });
-    return isPaginated || opts.saveJson !== undefined
-      ? await spillIfLarge(op, paginatedEnv, {
-          cmd,
-          out: opts.out ?? config.outputDir,
-          saveJson: opts.saveJson,
-          hash: opts.hash,
-        })
-      : paginatedEnv;
   } catch (error) {
     return envelopeForThrown(cmd, "http", error);
   }
@@ -156,7 +88,7 @@ function parseHttpInput(
     return { ok: false, env: validationError(cmd, "HTTP path must start with /") };
 
   try {
-    const input: AgentInput = {};
+    const input: AgentInput & Record<string, unknown> = {};
     addPairs(input, "query", options.query);
     if (options.bodyJson !== undefined) input.body = JSON.parse(options.bodyJson) as unknown;
     addFiles(input, options.file);
@@ -204,9 +136,13 @@ function httpOperation(method: HttpMethod, path: string, input: AgentInput): Ope
   };
 }
 
-function runOpts(options: HttpOptions): HttpRunOpts {
+function httpRunOpts(options: HttpOptions): HttpRunOpts {
   const limit =
     options.limit === undefined || options.limit === "" ? undefined : Number(options.limit);
+  const maxCredits =
+    options.maxCredits === undefined || options.maxCredits === ""
+      ? undefined
+      : Number(options.maxCredits);
   return {
     dryRun: options.dryRun,
     retryPost: options.retryPost,
@@ -215,49 +151,14 @@ function runOpts(options: HttpOptions): HttpRunOpts {
     baseUrl: options.baseUrl,
     apiKey: options.apiKey,
     profile: options.profile,
+    maxCredits: Number.isFinite(maxCredits) ? maxCredits : undefined,
+    yes: options.yes,
     saveJson: options.saveJson,
     all: options.all,
     // Raw parsed number; runOperation/runHttp validate it (positive integer) so all
     // call/http/alias paths reject an invalid --limit identically.
     limit,
   };
-}
-
-function addPairs(input: AgentInput, bucket: "query", pairs: string[] | undefined): void {
-  if (!pairs || pairs.length === 0) return;
-  const current = input[bucket] ?? {};
-  input[bucket] = current;
-  for (const pair of pairs) {
-    const { key, value } = parsePair(pair);
-    current[key] = value;
-  }
-}
-
-function addFiles(input: AgentInput, files: string[] | undefined): void {
-  if (!files || files.length === 0) return;
-  const current: Record<string, string | string[]> = input.files ?? {};
-  input.files = current;
-  for (const file of files) {
-    const { key, value } = parsePair(file);
-    const field = key.endsWith("[]") ? key.slice(0, -2) : key;
-    const path = resolve(value);
-    if (key.endsWith("[]")) {
-      const previous = current[field];
-      current[field] = Array.isArray(previous)
-        ? [...previous, path]
-        : previous
-          ? [previous, path]
-          : [path];
-    } else {
-      current[field] = path;
-    }
-  }
-}
-
-function parsePair(pair: string): { key: string; value: string } {
-  const index = pair.indexOf("=");
-  if (index <= 0) throw new Error(`Expected key=value, got "${pair}"`);
-  return { key: pair.slice(0, index), value: pair.slice(index + 1) };
 }
 
 function isHttpMethod(value: string): value is HttpMethod {

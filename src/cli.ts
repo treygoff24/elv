@@ -3,12 +3,19 @@ import { readFileSync, realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
 import { Command, CommanderError } from "commander";
-import { configDoctor, loadConfig } from "./core/config";
-import { emitAndExit, validationError } from "./core/errors";
+import { ConfigFileError, configDoctor, loadConfig } from "./core/config";
+import { configFileError, emitAndExit, validationError } from "./core/errors";
 import { success } from "./core/envelope";
 import { ExitCode } from "./core/types";
 import { handleCall } from "./commands/call";
 import { handleHttp } from "./commands/http";
+import {
+  addCommonFlags,
+  collect,
+  mergedOptions,
+  optionString,
+  optionStrings,
+} from "./commands/options";
 import { handleWait } from "./commands/wait";
 import { runWs } from "./commands/ws";
 import { handleOpsGet, handleOpsSchema, handleOpsSearch } from "./commands/ops";
@@ -49,44 +56,12 @@ function buildProgram(version: string): Command {
     });
   addCommonFlags(program);
 
-  const ops = program
-    .command("ops")
-    .description("OpenAPI operation discovery")
-    .action((_options: Record<string, unknown>, command: Command) =>
-      emitAndExit(
-        success({ cmd: `elv ${command.name()}`, data: commandHelpData(command) }),
-        ExitCode.Success,
-      ),
-    );
-  addCommonFlags(
-    ops
-      .command("search <query>")
-      .description("Search operations by keyword")
-      .option("--limit <n>", "maximum results", "10")
-      .action((query: string, options: Record<string, unknown>) =>
-        handleOpsSearch(query, { limit: optionString(options.limit) }),
-      ),
-  );
-  addCommonFlags(
-    ops
-      .command("get <operation_id>")
-      .description("Show an operation card: params, risk, examples")
-      .action((id: string) => handleOpsGet(id)),
-  );
-  addCommonFlags(
-    ops
-      .command("schema <operation_id>")
-      .description("Show the input schema or a runnable example")
-      .option("--raw", "return raw JSON Schema for operation input")
-      .option("--example", "return a runnable elv call example command")
-      .action((id: string, options: Record<string, unknown>) =>
-        handleOpsSchema(id, { raw: Boolean(options.raw), example: Boolean(options.example) }),
-      ),
-  );
+  registerOpsCommands(program);
 
   const call = program
     .command("call <operation_id>")
     .description("Call an OpenAPI operation by id")
+    .option("--json <json>", "JSON input")
     .option("--json-file <path>", "read JSON input from a file")
     .option("--stdin-json", "read JSON input from stdin")
     .option("--query <key=value>", "add query parameter", collect, [])
@@ -135,6 +110,7 @@ function buildProgram(version: string): Command {
       .command("wait")
       .description("Poll an operation until a status condition is met")
       .option("--operation <id>", "operation to poll")
+      .option("--json <json>", "JSON input for operation polling")
       .option("--status-path <path>", "dotted status path, e.g. $.data.status")
       .option("--success <csv>", "success status values (comma-separated)")
       .option("--failure <csv>", "failure status values (comma-separated)")
@@ -156,15 +132,45 @@ function buildProgram(version: string): Command {
       ),
   );
 
-  const config = program
-    .command("config")
-    .description("Configuration")
-    .action((_options: Record<string, unknown>, command: Command) =>
-      emitAndExit(
-        success({ cmd: `elv ${command.name()}`, data: commandHelpData(command) }),
-        ExitCode.Success,
+  registerConfigCommands(program);
+  registerSpecCommands(program);
+
+  registerAliases(program, addCommonFlags);
+
+  return program;
+}
+
+function registerOpsCommands(program: Command): void {
+  const ops = parentCommand(program, "ops", "OpenAPI operation discovery");
+  addCommonFlags(
+    ops
+      .command("search <query>")
+      .description("Search operations by keyword")
+      .option("--limit <n>", "maximum results", "10")
+      .action((query: string, options: Record<string, unknown>) =>
+        handleOpsSearch(query, { limit: optionString(options.limit) }),
       ),
-    );
+  );
+  addCommonFlags(
+    ops
+      .command("get <operation_id>")
+      .description("Show an operation card: params, risk, examples")
+      .action((id: string) => handleOpsGet(id)),
+  );
+  addCommonFlags(
+    ops
+      .command("schema <operation_id>")
+      .description("Show the input schema or a runnable example")
+      .option("--raw", "return raw JSON Schema for operation input")
+      .option("--example", "return a runnable elv call example command")
+      .action((id: string, options: Record<string, unknown>) =>
+        handleOpsSchema(id, { raw: Boolean(options.raw), example: Boolean(options.example) }),
+      ),
+  );
+}
+
+function registerConfigCommands(program: Command): void {
+  const config = parentCommand(program, "config", "Configuration");
   addCommonFlags(
     config
       .command("get")
@@ -185,16 +191,10 @@ function buildProgram(version: string): Command {
         emitAndExit(result.env, result.exitCode);
       }),
   );
+}
 
-  const spec = program
-    .command("spec")
-    .description("OpenAPI spec cache")
-    .action((_options: Record<string, unknown>, command: Command) =>
-      emitAndExit(
-        success({ cmd: `elv ${command.name()}`, data: commandHelpData(command) }),
-        ExitCode.Success,
-      ),
-    );
+function registerSpecCommands(program: Command): void {
+  const spec = parentCommand(program, "spec", "OpenAPI spec cache");
   addCommonFlags(
     spec
       .command("update")
@@ -210,38 +210,26 @@ function buildProgram(version: string): Command {
         emitAndExit(result.env, result.exitCode);
       }),
   );
-
-  registerAliases(program, addCommonFlags);
-
-  return program;
 }
 
-interface CommonOptions {
-  baseUrl?: string;
-  profile?: string;
-  maxCredits?: string;
-  debug?: boolean;
-}
-
-function addCommonFlags(command: Command): Command {
-  return command
-    .option("--dry-run", "preview without network")
-    .option("--yes", "confirm gated operations")
-    .option("--max-credits <credits>", "credit ceiling")
-    .option("--out <path>", "output file or directory")
-    .option("--base-url <url>", "override API base URL")
-    .option("--profile <name>", "config profile")
-    .option("--debug", "debug logs to stderr")
-    .option("--retry-post", "retry POST requests")
-    .option("--json <json>", "JSON input");
+function parentCommand(program: Command, name: string, description: string): Command {
+  return program
+    .command(name)
+    .description(description)
+    .action((_options: Record<string, unknown>, command: Command) =>
+      emitAndExit(
+        success({ cmd: `elv ${command.name()}`, data: commandHelpData(command) }),
+        ExitCode.Success,
+      ),
+    );
 }
 
 function httpOptions(command: Command): Parameters<typeof handleHttp>[2] {
   const opts = mergedOptions(command);
   return {
-    query: opts.query as string[] | undefined,
+    query: optionStrings(opts.query),
     bodyJson: optionString(opts.bodyJson),
-    file: opts.file as string[] | undefined,
+    file: optionStrings(opts.file),
     out: optionString(opts.out),
     saveJson: optionString(opts.saveJson),
     all: Boolean(opts.all),
@@ -251,6 +239,8 @@ function httpOptions(command: Command): Parameters<typeof handleHttp>[2] {
     hash: Boolean(opts.hash),
     baseUrl: optionString(opts.baseUrl),
     profile: optionString(opts.profile),
+    maxCredits: optionString(opts.maxCredits),
+    yes: Boolean(opts.yes),
   };
 }
 
@@ -259,7 +249,7 @@ function wsArgs(target: string | undefined, command: Command): string[] {
   const args: string[] = [];
   if (target) args.push(target);
   if (opts.list) args.push("--list");
-  for (const pair of (opts.query as string[] | undefined) ?? []) args.push("--query", pair);
+  for (const pair of optionStrings(opts.query) ?? []) args.push("--query", pair);
   if (typeof opts.send === "string") args.push("--send", opts.send);
   if (typeof opts.out === "string") args.push("--out", opts.out);
   return args;
@@ -285,33 +275,19 @@ function waitOptions(command: Command): Parameters<typeof handleWait>[0] {
 }
 
 function configOverrides(command: Command): ConfigOverrides {
-  const opts = mergedOptions(command) as CommonOptions;
-  const parsedMaxCredits = opts.maxCredits === undefined ? undefined : Number(opts.maxCredits);
+  const opts = mergedOptions(command);
+  const maxCredits = optionString(opts.maxCredits);
+  const parsedMaxCredits = maxCredits === undefined ? undefined : Number(maxCredits);
   return {
-    profile: opts.profile,
-    baseUrl: opts.baseUrl,
+    profile: optionString(opts.profile),
+    baseUrl: optionString(opts.baseUrl),
     maxCredits: Number.isFinite(parsedMaxCredits) ? parsedMaxCredits : undefined,
-    debug: opts.debug,
+    debug: Boolean(opts.debug),
   };
 }
 
 function lastCommand(args: unknown[]): Command {
   return args[args.length - 1] as Command;
-}
-
-function optionString(value: unknown): string | undefined {
-  return typeof value === "string" ? value : undefined;
-}
-
-function collect(value: string, previous: string[]): string[] {
-  return [...previous, value];
-}
-
-function mergedOptions(command: Command): Record<string, unknown> {
-  const chain: Command[] = [];
-  for (let current: Command | null = command; current; current = current.parent)
-    chain.unshift(current);
-  return Object.assign({}, ...chain.map((current) => current.opts()));
 }
 
 function commandHelpData(node: Command): Record<string, unknown> {
@@ -397,6 +373,12 @@ function envelopeForError(
     }
     return { env: validationError(cmd, error.message), exitCode: ExitCode.InputValidation };
   }
+  if (error instanceof ConfigFileError) {
+    return {
+      env: configFileError(cmd, error.message, { raw: { path: error.path } }),
+      exitCode: ExitCode.InputValidation,
+    };
+  }
 
   return {
     env: {
@@ -445,8 +427,13 @@ function realEntry(path: string): string {
     return resolve(path);
   }
 }
-const entryPath = process.argv[1] ? realEntry(process.argv[1]) : undefined;
-if (entryPath && realEntry(fileURLToPath(import.meta.url)) === entryPath) {
+
+function isDirectCliEntry(argv = process.argv): boolean {
+  const entry = argv[1];
+  return entry ? realEntry(fileURLToPath(import.meta.url)) === realEntry(entry) : false;
+}
+
+if (isDirectCliEntry()) {
   void main().catch((error: unknown) => {
     const { env, exitCode } = envelopeForError(error, process.argv, "0.0.0", buildProgram("0.0.0"));
     emitAndExit(env, exitCode);

@@ -2,20 +2,18 @@ import { resolve } from "node:path";
 import type { Command } from "commander";
 import { runOperation } from "../../core/client";
 import { emitAndExit, validationError } from "../../core/errors";
-import { waitForOperation } from "../wait";
+import { waitForOperation } from "../../core/wait-operation";
 import { ExitCode } from "../../core/types";
 import type { AgentInput, Envelope, RunOpts } from "../../core/types";
 import {
   addPaginationFlags,
-  commandName,
   compact,
   compactInput,
   emit,
-  message,
-  projectFields,
   required,
-  resolveListOpts,
-  runOpts,
+  runListAlias,
+  aliasRunOpts,
+  validationOrExit,
 } from "./shared";
 
 export interface DubbingCreateFlags {
@@ -91,18 +89,11 @@ export function registerDubbingCommand(
       .option("--name <name>", "dubbing project name")
       .option("--wait", "poll until dubbing completes")
       .action(async (options: DubbingCreateFlags, command: Command) => {
-        try {
-          const opts = runOpts(command);
-          const built = buildDubbingCreateInput(options);
-          const env = await runOperation(built.operationId, built.input, opts);
-          if (!options.wait || !env.ok) emit(env);
-          await waitForDubbing(env, opts);
-        } catch (error) {
-          emitAndExit(
-            validationError(commandName(command), message(error)),
-            ExitCode.InputValidation,
-          );
-        }
+        const opts = aliasRunOpts(command);
+        const built = validationOrExit(command, () => buildDubbingCreateInput(options));
+        const env = await runOperation(built.operationId, built.input, opts);
+        if (!options.wait || !env.ok) emit(env);
+        await waitForDubbing(env, opts);
       }),
   );
   addCommonFlags(
@@ -158,22 +149,16 @@ async function runBuilt<T>(
   flags: T,
   command: Command,
 ): Promise<never> {
-  try {
-    const built = builder(flags);
-    const { fields, fetch } = resolveListOpts(command);
-    const env = await runOperation(built.operationId, built.input, {
-      ...runOpts(command),
-      ...fetch,
-    });
-    emit(fields && env.ok ? projectFields(env, fields) : env);
-  } catch (error) {
-    emitAndExit(validationError(commandName(command), message(error)), ExitCode.InputValidation);
-  }
+  return runListAlias(builder, flags, command);
 }
 
 function stringAt(env: Envelope, keys: string[]): string | null {
-  if (!env.ok || !env.data || typeof env.data !== "object") return null;
-  const data = env.data as Record<string, unknown>;
+  if (!env.ok || !isRecord(env.data)) return null;
+  const data = env.data;
   for (const key of keys) if (typeof data[key] === "string") return data[key];
   return null;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
 }

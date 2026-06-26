@@ -1,5 +1,4 @@
 import { normalizeProviderError } from "./error-normalizer";
-import { invocationSemaphore } from "./concurrency";
 import type { HttpRequest } from "./request-builder";
 import type { NormalizedError, OperationCard, RetryInfo } from "./types";
 
@@ -82,7 +81,6 @@ async function retryDecision(
   if (res.status === 429) {
     const code = await responseCode(res);
     if (CONCURRENT_429.has(code)) {
-      invocationSemaphore.setLimit(1);
       return { retry: true, afterMs: retryAfter ?? 250 };
     }
     if (BACKOFF_429.has(code) || code === "rate_limit_exceeded") {

@@ -1,10 +1,8 @@
 import { readFileSync } from "node:fs";
 import type { Command } from "commander";
-import { runOperation } from "../../core/client";
-import { emitAndExit, validationError } from "../../core/errors";
-import { ExitCode } from "../../core/types";
 import type { AgentInput } from "../../core/types";
-import { commandName, compact, compactInput, emit, message, numberValue, runOpts } from "./shared";
+import { numberValue } from "../options";
+import { compact, compactInput, runAlias } from "./shared";
 
 export interface MusicFlags {
   prompt?: string;
@@ -51,13 +49,7 @@ export function registerMusicCommand(
 }
 
 async function runBuilt(flags: MusicFlags, command: Command): Promise<never> {
-  try {
-    const built = buildMusicInput(flags);
-    const env = await runOperation(built.operationId, built.input, runOpts(command));
-    emit(env);
-  } catch (error) {
-    emitAndExit(validationError(commandName(command), message(error)), ExitCode.InputValidation);
-  }
+  return runAlias(buildMusicInput, flags, command);
 }
 
 function readPrompt(prompt: string | undefined, file: string | undefined): string | undefined {
