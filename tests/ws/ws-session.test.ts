@@ -23,16 +23,29 @@ afterEach(async () => {
 describe("ws session", () => {
   it("plays a send script, auto-pongs, drains audio after script close, and redacts files", async () => {
     const server = await startServer((socket, received) => {
+      let sawPong = false;
+      let finalAudioSent = false;
+      const closeWhenReady = (): void => {
+        if (sawPong && finalAudioSent) socket.close(1000, "done");
+      };
       socket.send(
         JSON.stringify({ type: "ping", event_id: "evt-secret", single_use_token: "tok_secret" }),
       );
       socket.send(JSON.stringify({ audio: Buffer.from("one").toString("base64") }));
       socket.on("message", () => {
         const payload = JSON.parse(received.at(-1)!) as { type?: string; text?: string };
-        if (payload.type === "pong") socket.send(JSON.stringify({ type: "pong_ack" }));
+        if (payload.type === "pong") {
+          sawPong = true;
+          socket.send(JSON.stringify({ type: "pong_ack" }));
+          closeWhenReady();
+        }
         if (payload.text === "") {
-          socket.send(JSON.stringify({ audio_base64: Buffer.from("two").toString("base64") }), () =>
-            socket.close(1000, "done"),
+          socket.send(
+            JSON.stringify({ audio_base64: Buffer.from("two").toString("base64") }),
+            () => {
+              finalAudioSent = true;
+              closeWhenReady();
+            },
           );
         }
       });
