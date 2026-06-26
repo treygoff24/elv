@@ -64,4 +64,16 @@ describe("risk classifier", () => {
       expect(classifyRisk(op(operationId, "POST")), operationId).toBe("external_side_effect");
     }
   });
+
+  it("uses naming and path heuristics for newly added side-effect operations", () => {
+    expect(classifyRisk(op("rotate_service_account_api_key", "POST"))).toBe("external_side_effect");
+    expect(classifyRisk(op("future_member_invite", "POST"))).toBe("external_side_effect");
+    expect(
+      classifyRisk({
+        ...op("http", "POST"),
+        pathTemplate: "/v1/private/outbound-message",
+      }),
+    ).toBe("external_side_effect");
+    expect(classifyRisk(op("delete_legacy_token", "POST"))).toBe("destructive");
+  });
 });

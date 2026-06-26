@@ -106,15 +106,46 @@ const COST_HINTS = new Map<string, CostHint>([
   ["video_to_music", "per_generation"],
 ]);
 
-export function classifyRisk(op: Pick<OperationCard, "method" | "operationId">): Risk {
+const DESTRUCTIVE_PATTERNS = [/^delete_/u, /(^|_)disable(_|$)/u, /disabling_policy/u];
+
+const EXTERNAL_SIDE_EFFECT_PATTERNS = [
+  /(^|_)outbound(_|$)/u,
+  /(^|_)invite(s|d)?(_|$)/u,
+  /(^|_)member(s)?(_|$)/u,
+  /api_?key/u,
+  /service_?account/u,
+  /secret/u,
+  /webhook/u,
+  /auth_?connection/u,
+  /(^|_)mcp(_|$)/u,
+  /phone_?number/u,
+  /whatsapp/u,
+  /twilio/u,
+  /sip_?trunk/u,
+  /exotel/u,
+  /(^|_)share_resource(_|$)/u,
+  /(^|_)unshare_resource(_|$)/u,
+];
+
+export function classifyRisk(
+  op: Pick<OperationCard, "method" | "operationId"> & Partial<Pick<OperationCard, "pathTemplate">>,
+): Risk {
   if (op.method === "GET" || op.method === "HEAD") return "read";
   if (op.method === "DELETE") return "destructive";
   if (DESTRUCTIVE_OP_IDS.has(op.operationId)) return "destructive";
   if (EXTERNAL_SIDE_EFFECT_OP_IDS.has(op.operationId)) return "external_side_effect";
+  const riskKey = riskText(op);
+  if (DESTRUCTIVE_PATTERNS.some((pattern) => pattern.test(riskKey))) return "destructive";
+  if (EXTERNAL_SIDE_EFFECT_PATTERNS.some((pattern) => pattern.test(riskKey)))
+    return "external_side_effect";
   if (GENERATE_OP_IDS.has(op.operationId)) return "generate";
   return "mutate";
 }
 
 export function costHintForOperationId(operationId: string): CostHint {
   return COST_HINTS.get(operationId) ?? "unknown";
+}
+
+function riskText(op: { operationId: string; pathTemplate?: string }): string {
+  return `${op.operationId} ${op.pathTemplate ?? ""}`.toLowerCase().replace(/[^a-z0-9]+/gu, "_");
 }

@@ -3,6 +3,7 @@ import { envelopeForThrown, runPreparedOperation } from "../core/client";
 import { applyPaginationDefaults, type PaginationOptions } from "../core/pagination";
 import { estimateCredits } from "../core/budget";
 import { loadRegistry } from "../openapi/registry";
+import { classifyRisk } from "../openapi/risk";
 import { parseJson } from "../util/json";
 import type { AgentInput, Envelope, RunOpts } from "../core/types";
 import type { HttpMethod, OperationCard } from "../openapi/types";
@@ -124,7 +125,7 @@ async function httpOperation(
     pathTemplate: path,
     group: ["http"],
     tags: [],
-    risk: registryOp?.risk ?? fallbackRisk(method),
+    risk: registryOp?.risk ?? fallbackRisk(method, path),
     pathParams: [],
     queryParams: [],
     headerParams: [],
@@ -173,10 +174,8 @@ function pathParts(path: string): string[] {
   return path.split("/").filter(Boolean);
 }
 
-function fallbackRisk(method: HttpMethod): OperationCard["risk"] {
-  if (method === "GET" || method === "HEAD") return "read";
-  if (method === "DELETE") return "destructive";
-  return "mutate";
+function fallbackRisk(method: HttpMethod, path: string): OperationCard["risk"] {
+  return classifyRisk({ operationId: "http", method, pathTemplate: path });
 }
 
 function httpRunOpts(options: HttpOptions): HttpRunOpts {

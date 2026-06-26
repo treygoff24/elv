@@ -71,6 +71,24 @@ describe("http command", () => {
     });
   });
 
+  it("requires --yes for off-registry raw outbound paths", async () => {
+    const fetch = vi.fn();
+    vi.stubGlobal("fetch", fetch);
+
+    const env = await runHttp("POST", "/v1/private/outbound-message", {
+      bodyJson: "{}",
+      baseUrl: "https://api.test",
+      apiKey: "sk_test_secret",
+    });
+
+    expect(fetch).not.toHaveBeenCalled();
+    expect(env).toMatchObject({
+      ok: false,
+      operation_id: "http",
+      error: { code: "confirmation" },
+    });
+  });
+
   it("keeps large --all pages inline for collection", async () => {
     const out = mkdtempSync(join(tmpdir(), "elv-http-pages-"));
     try {
