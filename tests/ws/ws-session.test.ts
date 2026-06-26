@@ -29,8 +29,9 @@ describe("ws session", () => {
         const payload = JSON.parse(received.at(-1)!) as { type?: string; text?: string };
         if (payload.type === "pong") socket.send(JSON.stringify({ type: "pong_ack" }));
         if (payload.text === "") {
-          socket.send(JSON.stringify({ audio_base64: Buffer.from("two").toString("base64") }));
-          setTimeout(() => socket.close(1000, "done"), 10);
+          socket.send(JSON.stringify({ audio_base64: Buffer.from("two").toString("base64") }), () =>
+            socket.close(1000, "done"),
+          );
         }
       });
     });

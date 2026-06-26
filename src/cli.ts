@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { readFileSync, realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { resolve } from "node:path";
+import { basename, resolve } from "node:path";
 import { Command, CommanderError } from "commander";
 import { ConfigFileError, configDoctor, loadConfig } from "./core/config";
 import { configFileError, emitAndExit, validationError } from "./core/errors";
@@ -73,9 +73,13 @@ function buildProgram(version: string): Command {
     .option("--all", "fetch and save all pages")
     .option("--limit <n>", "max items inlined in the envelope")
     .option("--save-json <path>", "write the full JSON result to a path")
-    .action((id: string, _options: Record<string, unknown>, command: Command) =>
-      handleCall(id, mergedOptions(command) as Parameters<typeof handleCall>[1]),
-    );
+    .action(async (id: string, _options: Record<string, unknown>, command: Command) => {
+      const result = await handleCall(
+        id,
+        mergedOptions(command) as Parameters<typeof handleCall>[1],
+      );
+      emitAndExit(result.env, result.exitCode);
+    });
   addCommonFlags(call);
   addCommonFlags(
     program
@@ -87,8 +91,16 @@ function buildProgram(version: string): Command {
       .option("--all", "fetch and save all pages")
       .option("--limit <n>", "max items inlined in the envelope")
       .option("--save-json <path>", "write the full JSON result to a path")
-      .action((method: string, path: string, _options: Record<string, unknown>, command: Command) =>
-        handleHttp(method, path, httpOptions(command)),
+      .action(
+        async (
+          method: string,
+          path: string,
+          _options: Record<string, unknown>,
+          command: Command,
+        ) => {
+          const result = await handleHttp(method, path, httpOptions(command));
+          emitAndExit(result.env, result.exitCode);
+        },
       ),
   );
   addCommonFlags(
@@ -120,9 +132,10 @@ function buildProgram(version: string): Command {
       .option("--interval-ms <ms>", "poll interval in milliseconds")
       .option("--timeout-ms <ms>", "overall timeout in milliseconds")
       .option("--cmd <json>", "JSON array command to poll instead of an operation")
-      .action((_options: Record<string, unknown>, command: Command) =>
-        handleWait(waitOptions(command)),
-      ),
+      .action(async (_options: Record<string, unknown>, command: Command) => {
+        const result = await handleWait(waitOptions(command));
+        emitAndExit(result.env, result.exitCode);
+      }),
   );
   addCommonFlags(
     program
@@ -441,9 +454,11 @@ function packageVersion(): string {
   return json.version ?? "0.0.0";
 }
 
-// Resolve symlinks on both sides: when installed via `npm link`/`-g`, argv[1] is
-// the bin symlink (e.g. /opt/homebrew/bin/elv), not the real module path, so a
-// plain resolve() comparison would never match and main() would silently skip.
+const DIRECT_ENTRY_NAMES = new Set(["cli.ts", "cli.js", "elv"]);
+
+// Resolve symlinks only after cheap checks. When installed via `npm link`/`-g`,
+// argv[1] is the bin symlink (e.g. /opt/homebrew/bin/elv), not the real module
+// path; ordinary imports should not realpath ambient process.argv at all.
 function realEntry(path: string): string {
   try {
     return realpathSync(path);
@@ -454,7 +469,11 @@ function realEntry(path: string): string {
 
 function isDirectCliEntry(argv = process.argv): boolean {
   const entry = argv[1];
-  return entry ? realEntry(fileURLToPath(import.meta.url)) === realEntry(entry) : false;
+  if (!entry) return false;
+  const modulePath = fileURLToPath(import.meta.url);
+  if (resolve(entry) === modulePath) return true;
+  if (!DIRECT_ENTRY_NAMES.has(basename(entry))) return false;
+  return realEntry(modulePath) === realEntry(entry);
 }
 
 if (isDirectCliEntry()) {

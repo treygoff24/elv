@@ -89,7 +89,7 @@ export function registerDubbingCommand(
       .option("--name <name>", "dubbing project name")
       .option("--wait", "poll until dubbing completes")
       .action(async (options: DubbingCreateFlags, command: Command) => {
-        const opts = aliasRunOpts(command);
+        const opts = validationOrExit(command, () => aliasRunOpts(command));
         const built = validationOrExit(command, () => buildDubbingCreateInput(options));
         const env = await runOperation(built.operationId, built.input, opts);
         if (!options.wait || !env.ok) emit(env);

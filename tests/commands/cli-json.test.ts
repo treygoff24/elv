@@ -120,7 +120,7 @@ describe("CLI JSON output contract", () => {
     expect(envelope.ok).toBe(false);
     const error = envelope.error as Record<string, unknown>;
     expect(error.code).toBe("validation_error");
-    expect(String(error.message)).toMatch(/--voice/);
+    expect(String(error.message)).toMatch(/--text or --text-file/);
   });
 
   it("voice-change with no voice also classifies as validation_error (exit 2)", () => {
@@ -129,6 +129,42 @@ describe("CLI JSON output contract", () => {
     const envelope = parseStdoutEnvelope(stdout);
     expect(envelope.ok).toBe(false);
     expect((envelope.error as Record<string, unknown>).code).toBe("validation_error");
+  });
+
+  it("tts validates local text input before resolving --voice by network lookup", () => {
+    const { stdout, code } = runCli(["tts", "--voice", "Rachel"]);
+    expect(code).toBe(2);
+    const envelope = parseStdoutEnvelope(stdout);
+    expect(envelope.ok).toBe(false);
+    const error = envelope.error as Record<string, unknown>;
+    expect(error.code).toBe("validation_error");
+    expect(String(error.message)).toContain("--text or --text-file");
+  });
+
+  it("rejects invalid --max-credits consistently on call, http, and alias paths", () => {
+    for (const args of [
+      ["call", "get_voices", "--max-credits", "not-a-number", "--dry-run"],
+      ["http", "GET", "/v1/voices", "--max-credits", "not-a-number", "--dry-run"],
+      [
+        "tts",
+        "--voice-id",
+        "voice",
+        "--text",
+        "hello",
+        "--max-credits",
+        "not-a-number",
+        "--dry-run",
+      ],
+    ]) {
+      const { stdout, code } = runCli(args);
+      expect(code, args.join(" ")).toBe(2);
+      const envelope = parseStdoutEnvelope(stdout);
+      expect(envelope.ok).toBe(false);
+      expect((envelope.error as Record<string, unknown>).code).toBe("validation_error");
+      expect(String((envelope.error as Record<string, unknown>).message)).toContain(
+        "Expected number",
+      );
+    }
   });
 
   it("voices get accepts the voice id as a positional argument", () => {

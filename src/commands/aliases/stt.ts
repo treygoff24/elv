@@ -49,7 +49,7 @@ export function registerSttCommand(
       .option("--webhook <url>", "webhook URL for async completion")
       .option("--wait", "poll until transcription completes")
       .action(async (options: SttFlags, command: Command) => {
-        const opts = aliasRunOpts(command);
+        const opts = validationOrExit(command, () => aliasRunOpts(command));
         const built = validationOrExit(command, () => buildSttInput(options));
         const env = await runOperation(built.operationId, built.input, opts);
         if (!options.wait || !env.ok) emit(env);

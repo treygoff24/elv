@@ -10,7 +10,7 @@ import type {
   ParamCard,
   ResponseCard,
   StreamKind,
-} from "../core/types";
+} from "./types";
 
 const METHODS = ["get", "post", "put", "patch", "delete", "head"] as const;
 const METHOD_SET = new Set<string>(METHODS);

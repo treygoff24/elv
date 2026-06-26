@@ -1,10 +1,12 @@
-import { emitAndExit, exitCodeForError, validationError } from "../core/errors";
+import { exitCodeForError, validationError } from "../core/errors";
 import { envelopeForThrown, runPreparedOperation } from "../core/client";
 import { applyPaginationDefaults, type PaginationOptions } from "../core/pagination";
 import { estimateCredits } from "../core/budget";
-import type { AgentInput, Envelope, HttpMethod, OperationCard, RunOpts } from "../core/types";
+import type { AgentInput, Envelope, RunOpts } from "../core/types";
+import type { HttpMethod, OperationCard } from "../openapi/types";
 import { ExitCode as Codes } from "../core/types";
 import { addFiles, addPairs } from "./input";
+import { paginationOptionsFromOptions, runOptsFromOptions } from "./options";
 
 export interface HttpOptions {
   query?: string[];
@@ -30,12 +32,12 @@ export async function handleHttp(
   method: string,
   path: string,
   options: HttpOptions,
-): Promise<never> {
+): Promise<{ env: Envelope; exitCode: Codes }> {
   const env = await runHttp(method, path, options);
-  emitAndExit(
+  return {
     env,
-    env.ok ? Codes.Success : exitCodeForError(env.error, env.http?.status ?? undefined),
-  );
+    exitCode: env.ok ? Codes.Success : exitCodeForError(env.error, env.http?.status ?? undefined),
+  };
 }
 
 export async function runHttp(
@@ -47,9 +49,15 @@ export async function runHttp(
   const parsed = parseHttpInput(method, path, options);
   if (!parsed.ok) return parsed.env;
 
+  let opts: HttpRunOpts;
+  try {
+    opts = httpRunOpts(options);
+  } catch (error) {
+    return validationError(cmd, error instanceof Error ? error.message : String(error));
+  }
+
   try {
     const op = httpOperation(parsed.method, path, parsed.input);
-    const opts = httpRunOpts(options);
     if (opts.limit !== undefined && (!Number.isInteger(opts.limit) || opts.limit <= 0)) {
       return validationError(cmd, "--limit must be a positive integer", {
         operationId: op.operationId,
@@ -137,27 +145,10 @@ function httpOperation(method: HttpMethod, path: string, input: AgentInput): Ope
 }
 
 function httpRunOpts(options: HttpOptions): HttpRunOpts {
-  const limit =
-    options.limit === undefined || options.limit === "" ? undefined : Number(options.limit);
-  const maxCredits =
-    options.maxCredits === undefined || options.maxCredits === ""
-      ? undefined
-      : Number(options.maxCredits);
   return {
-    dryRun: options.dryRun,
-    retryPost: options.retryPost,
-    hash: options.hash,
-    out: options.out,
-    baseUrl: options.baseUrl,
+    ...runOptsFromOptions(options as Record<string, unknown>),
     apiKey: options.apiKey,
-    profile: options.profile,
-    maxCredits: Number.isFinite(maxCredits) ? maxCredits : undefined,
-    yes: options.yes,
-    saveJson: options.saveJson,
-    all: options.all,
-    // Raw parsed number; runOperation/runHttp validate it (positive integer) so all
-    // call/http/alias paths reject an invalid --limit identically.
-    limit,
+    ...paginationOptionsFromOptions(options as Record<string, unknown>),
   };
 }
 

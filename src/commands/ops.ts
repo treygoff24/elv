@@ -8,7 +8,7 @@ import {
 } from "../openapi/compact-schema";
 import { readRegistryCache, loadRegistry } from "../openapi/registry";
 import type { OpenApiDocument } from "../openapi/compile-spec";
-import type { OperationCard, Risk } from "../core/types";
+import type { OperationCard, Risk } from "../openapi/types";
 
 export interface SearchResult {
   operation_id: string;

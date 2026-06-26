@@ -1,10 +1,11 @@
 import { readFileSync } from "node:fs";
-import { emitAndExit, exitCodeForError, validationError } from "../core/errors";
+import { exitCodeForError, validationError } from "../core/errors";
 import { runOperation } from "../core/client";
 import { ExitCode } from "../core/types";
-import type { AgentInput, RunOpts } from "../core/types";
+import type { AgentInput, Envelope, RunOpts } from "../core/types";
 import type { PaginationOptions } from "../core/pagination";
 import { addFiles, addPairs } from "./input";
+import { paginationOptionsFromOptions, runOptsFromOptions } from "./options";
 
 export interface CallOptions {
   json?: string;
@@ -28,15 +29,30 @@ export interface CallOptions {
   saveJson?: PaginationOptions["saveJson"];
 }
 
-export async function handleCall(operationId: string, options: CallOptions): Promise<never> {
+export async function handleCall(
+  operationId: string,
+  options: CallOptions,
+): Promise<{ env: Envelope; exitCode: ExitCode }> {
+  const cmd = `elv call ${operationId}`;
   const parsed = parseCallInput(operationId, options);
-  if (!parsed.ok) emitAndExit(parsed.env, ExitCode.InputValidation);
+  if (!parsed.ok) return { env: parsed.env, exitCode: ExitCode.InputValidation };
 
-  const env = await runOperation(operationId, parsed.input, callRunOpts(options));
-  emitAndExit(
+  let opts: RunOpts & PaginationOptions;
+  try {
+    opts = callRunOpts(options);
+  } catch (error) {
+    return {
+      env: validationError(cmd, error instanceof Error ? error.message : String(error)),
+      exitCode: ExitCode.InputValidation,
+    };
+  }
+  const env = await runOperation(operationId, parsed.input, opts);
+  return {
     env,
-    env.ok ? ExitCode.Success : exitCodeForError(env.error, env.http?.status ?? undefined),
-  );
+    exitCode: env.ok
+      ? ExitCode.Success
+      : exitCodeForError(env.error, env.http?.status ?? undefined),
+  };
 }
 
 function parseCallInput(
@@ -85,28 +101,11 @@ function parseCallInput(
 }
 
 function callRunOpts(options: CallOptions): RunOpts & PaginationOptions {
-  const maxCredits =
-    options.maxCredits === undefined || options.maxCredits === ""
-      ? undefined
-      : Number(options.maxCredits);
-  const limit =
-    options.limit === undefined || options.limit === "" ? undefined : Number(options.limit);
   return {
-    dryRun: options.dryRun,
-    yes: options.yes,
-    retryPost: options.retryPost,
+    ...runOptsFromOptions(options as Record<string, unknown>),
     allowUnknown: options.allowUnknown,
     unpack: options.unpack,
-    hash: options.hash,
-    out: options.out,
-    baseUrl: options.baseUrl,
-    profile: options.profile,
-    maxCredits: Number.isFinite(maxCredits) ? maxCredits : undefined,
-    all: options.all,
-    saveJson: options.saveJson,
-    // Pass the raw parsed number through; runOperation validates it (positive integer)
-    // so call/http/aliases reject invalid --limit identically instead of silently coercing.
-    limit,
+    ...paginationOptionsFromOptions(options as Record<string, unknown>),
   };
 }
 

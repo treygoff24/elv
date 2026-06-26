@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { compileSpec } from "./compile-spec";
 import type { CompileSpecResult } from "./compile-spec";
-import type { OperationCard } from "../core/types";
+import type { OperationCard } from "./types";
 
 export interface RegistryOptions {
   cacheDir?: string;

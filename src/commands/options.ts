@@ -1,5 +1,6 @@
 import type { Command } from "commander";
 import type { RunOpts } from "../core/types";
+import type { PaginationOptions } from "../core/pagination";
 
 export function addCommonFlags(command: Command): Command {
   return command
@@ -21,7 +22,10 @@ export function mergedOptions(command: Command): Record<string, unknown> {
 }
 
 export function runOptsFromCommand(command: Command): RunOpts {
-  const opts = mergedOptions(command);
+  return runOptsFromOptions(mergedOptions(command));
+}
+
+export function runOptsFromOptions(opts: Record<string, unknown>): RunOpts {
   return {
     dryRun: Boolean(opts.dryRun),
     yes: Boolean(opts.yes),
@@ -30,7 +34,19 @@ export function runOptsFromCommand(command: Command): RunOpts {
     out: optionString(opts.out),
     baseUrl: optionString(opts.baseUrl),
     profile: optionString(opts.profile),
-    maxCredits: numberValue(optionString(opts.maxCredits)),
+    maxCredits: numberValue(opts.maxCredits),
+  };
+}
+
+export function paginationOptionsFromCommand(command: Command): PaginationOptions {
+  return paginationOptionsFromOptions(mergedOptions(command));
+}
+
+export function paginationOptionsFromOptions(opts: Record<string, unknown>): PaginationOptions {
+  return {
+    all: opts.all ? true : undefined,
+    limit: numberValue(opts.limit),
+    saveJson: optionString(opts.saveJson),
   };
 }
 
@@ -48,8 +64,9 @@ export function collect(value: string, previous: string[]): string[] {
   return [...previous, value];
 }
 
-export function numberValue(value: string | number | undefined): number | undefined {
+export function numberValue(value: unknown): number | undefined {
   if (value === undefined || value === "") return undefined;
+  if (typeof value !== "string" && typeof value !== "number") return undefined;
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) throw new Error(`Expected number, got ${value}`);
   return parsed;

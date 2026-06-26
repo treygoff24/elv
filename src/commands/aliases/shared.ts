@@ -2,7 +2,12 @@ import type { Command } from "commander";
 import { runOperation } from "../../core/client";
 import { emitAndExit, exitCodeForError, validationError } from "../../core/errors";
 import { ExitCode } from "../../core/types";
-import { mergedOptions, numberValue, optionString, runOptsFromCommand } from "../options";
+import {
+  mergedOptions,
+  optionString,
+  paginationOptionsFromCommand,
+  runOptsFromCommand,
+} from "../options";
 import type { AgentInput, Envelope, RunOpts, SuccessEnvelope } from "../../core/types";
 
 export type OperationBuilder<T> = (flags: T) => { operationId: string; input: AgentInput };
@@ -16,12 +21,7 @@ function paginationOpts(command: Command): {
   limit?: number;
   saveJson?: string;
 } {
-  const opts = mergedOptions(command);
-  return {
-    all: opts.all ? true : undefined,
-    limit: numberValue(optionString(opts.limit)),
-    saveJson: optionString(opts.saveJson),
-  };
+  return paginationOptionsFromCommand(command);
 }
 
 export function addPaginationFlags(command: Command): Command {
@@ -130,8 +130,11 @@ export async function runAlias<T>(
   flags: T,
   command: Command,
 ): Promise<never> {
-  const built = validationOrExit(command, () => builder(flags));
-  const env = await runOperation(built.operationId, built.input, aliasRunOpts(command));
+  const { built, opts } = validationOrExit(command, () => ({
+    built: builder(flags),
+    opts: aliasRunOpts(command),
+  }));
+  const env = await runOperation(built.operationId, built.input, opts);
   emit(env);
 }
 
@@ -144,12 +147,13 @@ export async function runListAlias<T>(
   const inputFlags = options.mergeOptions
     ? ({ ...(mergedOptions(command) as T), ...flags } as T)
     : flags;
-  const { built, fields, fetch } = validationOrExit(command, () => ({
+  const { built, fields, fetch, opts } = validationOrExit(command, () => ({
     built: builder(inputFlags),
+    opts: aliasRunOpts(command),
     ...resolveListOpts(command),
   }));
   const env = await runOperation(built.operationId, built.input, {
-    ...aliasRunOpts(command),
+    ...opts,
     ...fetch,
   });
   emit(fields && env.ok ? projectFields(env, fields) : env);

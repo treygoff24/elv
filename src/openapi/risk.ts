@@ -1,4 +1,4 @@
-import type { CostHint, OperationCard, Risk } from "../core/types";
+import type { CostHint, OperationCard, Risk } from "./types";
 
 // P7: curated lists reviewed against full 320-op set.
 const DESTRUCTIVE_OP_IDS = new Set(["disable", "set_third_party_disabling_policy"]);
@@ -6,11 +6,16 @@ const DESTRUCTIVE_OP_IDS = new Set(["disable", "set_third_party_disabling_policy
 // P7: curated lists reviewed against full 320-op set.
 const EXTERNAL_SIDE_EFFECT_OP_IDS = new Set([
   "add_member",
+  "add_mcp_server_tool_approval_route",
   "cancel_batch_call",
+  "create_auth_connection",
   "create_batch_call",
+  "create_secret_route",
   "create_service_account_api_key",
+  "create_workspace_webhook_route",
   "delete_service_account_api_key",
   "edit_service_account_api_key",
+  "edit_workspace_webhook_route",
   "handle_exotel_outbound_call",
   "handle_sip_trunk_outbound_call",
   "handle_twilio_outbound_call",
@@ -19,6 +24,12 @@ const EXTERNAL_SIDE_EFFECT_OP_IDS = new Set([
   "register_twilio_call",
   "remove_member",
   "retry_batch_call",
+  "share_resource_endpoint",
+  "unshare_resource_endpoint",
+  "update_auth_connection",
+  "update_mcp_server_approval_policy_route",
+  "update_secret_route",
+  "update_whatsapp_account",
   "update_workspace_member",
   "whatsapp_outbound_call",
   "whatsapp_outbound_message",

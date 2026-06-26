@@ -69,7 +69,7 @@ export function registerVoiceChangeCommand(
 }
 
 async function runBuilt(flags: VoiceChangeFlags, command: Command): Promise<never> {
-  const opts = aliasRunOpts(command);
+  const opts = validationOrExit(command, () => aliasRunOpts(command));
   const voiceId = await resolveVoiceId(flags, opts, commandName(command));
   const built = validationOrExit(command, () => buildVoiceChangeInput({ ...flags, voiceId }));
   const env = await runOperation(built.operationId, built.input, opts);

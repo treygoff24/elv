@@ -199,8 +199,9 @@ export function registerVoicesCommand(
 async function runFind(flags: VoicesFlags, command: Command): Promise<never> {
   const query = validationOrExit(command, () => required(flags.query, "query"));
   const built = buildVoicesFindInput(flags);
+  const opts = validationOrExit(command, () => aliasRunOpts(command));
   const env = await runOperation(built.operationId, built.input, {
-    ...aliasRunOpts(command),
+    ...opts,
     inline: true,
     limit: RESOLVER_PAGE_SIZE,
   });

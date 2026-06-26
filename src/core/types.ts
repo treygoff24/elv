@@ -1,9 +1,9 @@
 /**
- * Shared contract types for elv. Hand-authored from spec v2: §4 (envelope/exit codes),
- * §5 (input model), §7 (OperationCard), §13 (risk), §14 (cost). Both delegate lanes
- * import from here — this file IS the integration contract. Change only with coordinator
- * sign-off; lanes add module-internal types in their own files, not here.
+ * Shared runtime contract types for elv. Operation-card/OpenAPI types live in
+ * src/openapi/types and are re-exported here only for compatibility.
  */
+
+import type { HttpMethod } from "../openapi/types";
 
 export const ENVELOPE_VERSION = 1 as const;
 
@@ -20,78 +20,17 @@ export enum ExitCode {
   NotFound = 9, // 404, unknown operation_id
 }
 
-export type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "HEAD";
-
-export type Risk = "read" | "generate" | "mutate" | "destructive" | "external_side_effect";
-
-/** §6 — streaming is three different things; the runner branches on this. */
-export type StreamKind = "none" | "audio_bytes" | "json_events" | "text";
-
-/** §14 — budget guard keys on this (NOT the risk label). */
-export type CostHint =
-  | "characters"
-  | "audio_seconds"
-  | "per_generation"
-  | "per_source_minute"
-  | "slot"
-  | "unknown";
-
-export interface ParamCard {
-  name: string;
-  location: "path" | "query" | "header";
-  required: boolean;
-  /** JSON Schema fragment, bundled (internal $ref preserved). */
-  schema: unknown;
-  description?: string;
-}
-
-export interface BodyCard {
-  contentType: string; // application/json, multipart/form-data, ...
-  required: boolean;
-  /** $ref into components for Ajv validate-by-$ref (matches the bundle step). */
-  schemaRef?: string;
-  /** Inline schema when no top-level $ref is available. */
-  schema?: unknown;
-  multipart: boolean;
-  /** Multipart fields that are file/binary parts. */
-  fileFields?: string[];
-}
-
-export interface ResponseCard {
-  status: string; // "200", "default", ...
-  contentType?: string;
-  schema?: unknown;
-  binary: boolean;
-}
-
-export interface ExampleCard {
-  summary?: string;
-  value: unknown;
-}
-
-export interface OperationCard {
-  operationId: string;
-  method: HttpMethod;
-  pathTemplate: string;
-  /** from x-fern-sdk-group-name → tags → path */
-  group: string[];
-  summary?: string;
-  description?: string;
-  tags: string[];
-  risk: Risk;
-  pathParams: ParamCard[];
-  queryParams: ParamCard[];
-  headerParams: ParamCard[];
-  /** bound to the -Input schema */
-  requestBody?: BodyCard;
-  responses: ResponseCard[];
-  returnsBinary: boolean;
-  returnsJson: boolean;
-  streamKind: StreamKind;
-  costHint?: CostHint;
-  deprecated: boolean;
-  examples: ExampleCard[];
-}
+export type {
+  BodyCard,
+  CostHint,
+  ExampleCard,
+  HttpMethod,
+  OperationCard,
+  ParamCard,
+  ResponseCard,
+  Risk,
+  StreamKind,
+} from "../openapi/types";
 
 /** Canonical bucketed input to the runner. Flat JSON is normalized into this shape. */
 export interface AgentInput {

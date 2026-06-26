@@ -1,7 +1,7 @@
 import Ajv2020 from "ajv/dist/2020";
 import addFormats from "ajv-formats";
 import type { AnySchema, ValidateFunction } from "ajv";
-import type { OperationCard } from "../core/types";
+import type { OperationCard } from "./types";
 
 const OPENAPI_SCHEMA_BASE = "elv://openapi";
 

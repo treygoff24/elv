@@ -1,6 +1,6 @@
 import { resolveMaybeRef, resolveRef, schemaNameFromRef } from "./compile-spec";
 import type { JsonObject, OpenApiDocument } from "./compile-spec";
-import type { OperationCard, ParamCard } from "../core/types";
+import type { OperationCard, ParamCard } from "./types";
 
 type CompactValue = string | number | boolean | null | JsonObject;
 interface CompactBuckets {
