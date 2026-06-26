@@ -55,6 +55,12 @@ type ParsedWait =
       cmd: string[];
     });
 
+interface CommandRunState {
+  stdout: string;
+  stderr: string;
+  resolve: (env: Envelope) => void;
+}
+
 export async function waitForOperation(
   options: WaitOptions,
   deps: WaitDeps = {},
@@ -240,36 +246,48 @@ function isStringArray(value: unknown): value is string[] {
 }
 
 function runCommand(argv: string[]): Promise<Envelope> {
-  return new Promise((resolve, reject) => {
-    const [command, ...args] = argv;
-    if (!command) {
-      reject(new Error("--cmd must not be empty"));
-      return;
-    }
-    const child = spawn(command, args, { stdio: ["ignore", "pipe", "pipe"] });
-    let stdout = "";
-    let stderr = "";
-    child.stdout.on("data", (chunk: Buffer | string) => {
-      stdout += chunk.toString();
-    });
-    child.stderr.on("data", (chunk: Buffer | string) => {
-      stderr += chunk.toString();
-    });
-    child.on("error", reject);
-    child.on("close", (code) => {
-      try {
-        resolve(parseJson(stdout.trim(), "command stdout") as Envelope);
-      } catch {
-        resolve(
-          commandEnvelopeError("Command did not emit a JSON envelope", {
-            exit_code: code,
-            stdout: preview(stdout),
-            stderr: preview(stderr),
-          }),
-        );
-      }
-    });
-  });
+  return new Promise(runCommandExecutor.bind(null, argv));
+}
+
+function runCommandExecutor(
+  argv: string[],
+  resolve: (env: Envelope) => void,
+  reject: (reason?: unknown) => void,
+): void {
+  const [command, ...args] = argv;
+  if (!command) {
+    reject(new Error("--cmd must not be empty"));
+    return;
+  }
+
+  const child = spawn(command, args, { stdio: ["ignore", "pipe", "pipe"] });
+  const state: CommandRunState = { stdout: "", stderr: "", resolve };
+  child.stdout.on("data", appendStdout.bind(null, state));
+  child.stderr.on("data", appendStderr.bind(null, state));
+  child.on("error", reject);
+  child.on("close", finishCommand.bind(null, state));
+}
+
+function appendStdout(state: CommandRunState, chunk: Buffer | string): void {
+  state.stdout += chunk.toString();
+}
+
+function appendStderr(state: CommandRunState, chunk: Buffer | string): void {
+  state.stderr += chunk.toString();
+}
+
+function finishCommand(state: CommandRunState, code: number | null): void {
+  try {
+    state.resolve(parseJson(state.stdout.trim(), "command stdout") as Envelope);
+  } catch {
+    state.resolve(
+      commandEnvelopeError("Command did not emit a JSON envelope", {
+        exit_code: code,
+        stdout: preview(state.stdout),
+        stderr: preview(state.stderr),
+      }),
+    );
+  }
 }
 
 function commandEnvelopeError(message: string, raw?: unknown): Envelope {
