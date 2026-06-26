@@ -34,29 +34,93 @@ const NOT_FOUND_CODES = new Set([
   "unknown_operation",
   "unknown op",
 ]);
+const EXIT_CODE_RULES: Array<[Set<string>, ExitCode]> = [
+  [INPUT_CODES, ExitCode.InputValidation],
+  [AUTH_CODES, ExitCode.AuthPermission],
+  [CREDIT_CODES, ExitCode.CreditExhausted],
+  [TRANSIENT_CODES, ExitCode.TransientExhausted],
+  [NOT_FOUND_CODES, ExitCode.NotFound],
+];
+const EXACT_EXIT_CODES: Record<string, ExitCode> = {
+  confirmation: ExitCode.ConfirmationRequired,
+  budget: ExitCode.BudgetCeiling,
+};
+const TYPE_BY_STATUS: Record<number, string> = {
+  400: "validation_error",
+  401: "authentication_error",
+  403: "permission_error",
+  404: "not_found_error",
+  422: "validation_error",
+  429: "rate_limit_error",
+};
+
+interface HintContext {
+  operationId?: string;
+  cmd?: string;
+}
+
+interface HintRule {
+  codes: Set<string>;
+  hints: (context: HintContext) => Hint[];
+}
+
+const HINT_RULES: HintRule[] = [
+  {
+    codes: new Set(["voice_not_found"]),
+    hints: () => [{ cmd: "elv voices list", why: "List available voice ids." }],
+  },
+  {
+    codes: new Set(["not_found", "not-found"]),
+    hints: ({ operationId }) =>
+      operationId
+        ? [{ cmd: `elv ops get ${operationId}`, why: "Confirm the operation and required ids." }]
+        : [],
+  },
+  {
+    codes: new Set(["invalid_api_key", "missing_api_key"]),
+    hints: () => [{ cmd: "elv config doctor", why: "Verify ELEVENLABS_API_KEY is set and valid." }],
+  },
+  {
+    codes: new Set(["forbidden", "insufficient_permissions", "feature_not_available"]),
+    hints: () => [
+      {
+        cmd: "elv config doctor",
+        why: "Your key lacks permission or the feature isn't on your plan.",
+      },
+    ],
+  },
+  {
+    codes: new Set(["insufficient_credits", "quota_exceeded"]),
+    hints: () => [{ cmd: "elv usage", why: "Check remaining credits/quota." }],
+  },
+  {
+    codes: new Set([
+      "rate_limit_exceeded",
+      "system_busy",
+      "concurrent_limit_exceeded",
+      "too_many_concurrent_requests",
+    ]),
+    hints: ({ cmd }) => (cmd ? [{ cmd, why: "Transient; retry after the suggested delay." }] : []),
+  },
+];
 
 export function exitCodeForError(err: NormalizedError, httpStatus?: number): ExitCode {
   const code = err.code.toLowerCase();
-  if (INPUT_CODES.has(code)) return ExitCode.InputValidation;
-  if (AUTH_CODES.has(code)) return ExitCode.AuthPermission;
-  if (CREDIT_CODES.has(code)) return ExitCode.CreditExhausted;
-  if (TRANSIENT_CODES.has(code)) return ExitCode.TransientExhausted;
-  if (NOT_FOUND_CODES.has(code)) return ExitCode.NotFound;
-  if (code === "confirmation") return ExitCode.ConfirmationRequired;
-  if (code === "budget") return ExitCode.BudgetCeiling;
+  const codeExit = exitCodeFromCode(code);
+  if (codeExit) return codeExit;
   if (httpStatus === 404) return ExitCode.NotFound;
-  if (httpStatus && httpStatus >= 400 && httpStatus <= 599) return ExitCode.ProviderError;
   return ExitCode.ProviderError;
 }
 
+function exitCodeFromCode(code: string): ExitCode | undefined {
+  for (const [codes, exitCode] of EXIT_CODE_RULES) {
+    if (codes.has(code)) return exitCode;
+  }
+  return EXACT_EXIT_CODES[code];
+}
+
 export function classifyTypeFromStatus(status: number): string {
-  if (status === 400 || status === 422) return "validation_error";
-  if (status === 401) return "authentication_error";
-  if (status === 403) return "permission_error";
-  if (status === 404) return "not_found_error";
-  if (status === 429) return "rate_limit_error";
-  if (status >= 500) return "server_error";
-  return "provider_error";
+  return TYPE_BY_STATUS[status] ?? (status >= 500 ? "server_error" : "provider_error");
 }
 
 interface PreflightOptions {
@@ -155,40 +219,7 @@ export function budgetExceeded(
 
 export function hintsForError(err: NormalizedError, operationId?: string, cmd?: string): Hint[] {
   const code = err.code.toLowerCase();
-
-  if (code === "voice_not_found") {
-    return [{ cmd: "elv voices list", why: "List available voice ids." }];
-  }
-  if ((code === "not_found" || code === "not-found") && operationId) {
-    return [{ cmd: `elv ops get ${operationId}`, why: "Confirm the operation and required ids." }];
-  }
-  if (code === "invalid_api_key" || code === "missing_api_key") {
-    return [{ cmd: "elv config doctor", why: "Verify ELEVENLABS_API_KEY is set and valid." }];
-  }
-  if (
-    code === "forbidden" ||
-    code === "insufficient_permissions" ||
-    code === "feature_not_available"
-  ) {
-    return [
-      {
-        cmd: "elv config doctor",
-        why: "Your key lacks permission or the feature isn't on your plan.",
-      },
-    ];
-  }
-  if (code === "insufficient_credits" || code === "quota_exceeded") {
-    return [{ cmd: "elv usage", why: "Check remaining credits/quota." }];
-  }
-  if (
-    code === "rate_limit_exceeded" ||
-    code === "system_busy" ||
-    code === "concurrent_limit_exceeded" ||
-    code === "too_many_concurrent_requests"
-  ) {
-    return cmd ? [{ cmd, why: "Transient; retry after the suggested delay." }] : [];
-  }
-  return [];
+  return HINT_RULES.find((rule) => rule.codes.has(code))?.hints({ operationId, cmd }) ?? [];
 }
 
 export function mergeErrorHints(

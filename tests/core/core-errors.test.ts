@@ -5,6 +5,7 @@ import {
   classifyTypeFromStatus,
   confirmationRequired,
   exitCodeForError,
+  hintsForError,
   unknownOperation,
   validationError,
 } from "../../src/core/errors";
@@ -40,5 +41,24 @@ describe("errors", () => {
     expect(confirmationRequired("elv delete").error.code).toBe("confirmation");
     expect(budgetExceeded("elv tts", 10, 5).error.code).toBe("budget");
     expect(unknownOperation("missing_op")).toMatchObject({ ok: false, operation_id: "missing_op" });
+  });
+
+  it("returns actionable hints from normalized provider codes", () => {
+    expect(hintsForError({ type: "x", code: "voice_not_found", message: "missing" })).toEqual([
+      { cmd: "elv voices list", why: "List available voice ids." },
+    ]);
+    expect(
+      hintsForError({ type: "x", code: "not_found", message: "missing" }, "get_voice"),
+    ).toEqual([{ cmd: "elv ops get get_voice", why: "Confirm the operation and required ids." }]);
+    expect(hintsForError({ type: "x", code: "quota_exceeded", message: "pay" })).toEqual([
+      { cmd: "elv usage", why: "Check remaining credits/quota." },
+    ]);
+    expect(
+      hintsForError(
+        { type: "x", code: "rate_limit_exceeded", message: "wait" },
+        undefined,
+        "elv call",
+      ),
+    ).toEqual([{ cmd: "elv call", why: "Transient; retry after the suggested delay." }]);
   });
 });
