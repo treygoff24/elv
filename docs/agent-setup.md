@@ -17,7 +17,18 @@ git --version
 
 If `node --version` reports anything below v22, stop and install Node 22+ first. `elv` declares `"engines": { "node": ">=22" }` and `config doctor` will fail the Node check on older versions.
 
-## Step 1: Clone and build
+## Step 1: Install
+
+Install the published package globally:
+
+```bash
+npm install -g eleven-agent-cli
+elv --version
+```
+
+Confirm the binary responds before continuing. The version command prints a JSON envelope and exits 0.
+
+If you'd rather build from source (contributing, or pinning to an unreleased commit), clone and build instead:
 
 ```bash
 git clone https://github.com/treygoff24/elv.git
@@ -30,9 +41,9 @@ npm run build
 
 ## Step 2: Make `elv` runnable
 
-Pick one of two approaches.
+If you installed via `npm install -g`, `elv` is already on your PATH — skip to Step 3.
 
-To get a global `elv` command on your PATH, link the package:
+Building from source, pick one of two approaches. To get a global `elv` command on your PATH, link the package:
 
 ```bash
 npm link
@@ -44,8 +55,6 @@ If you cannot or do not want to link globally, invoke the built file directly. E
 ```bash
 node dist/cli.js --version
 ```
-
-Either way, confirm the binary responds before continuing. The version command prints a JSON envelope and exits 0.
 
 ## Step 3: Provide the API key
 

@@ -46,18 +46,20 @@ Safety is on by default. Destructive operations, outbound calls and messages, AP
 
 ## Install
 
-Not on npm yet. Publishing is planned; for now you clone and build. You need Node 22 or newer and git.
+Requires Node 22 or newer.
+
+```bash
+npm install -g eleven-agent-cli
+elv config doctor
+```
+
+That installs the `elv` command globally. If you'd rather build from source (or want to contribute), clone and build instead:
 
 ```bash
 git clone https://github.com/treygoff24/elv.git
 cd elv
 npm ci
 npm run build
-```
-
-That produces `dist/cli.js`. Make `elv` runnable one of two ways. Either link it onto your PATH:
-
-```bash
 npm link            # gives you a global `elv`
 elv config doctor
 ```

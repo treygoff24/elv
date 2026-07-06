@@ -6,8 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-07-06
+
 ### Added
 
+- Initial agent-first ElevenLabs CLI over the ElevenLabs OpenAPI spec.
+- Operation runner for the generated OpenAPI operation catalog.
+- Twelve workflow aliases for common text to speech, speech to text, music, sound effect, voice, agent, history, usage, and discovery tasks.
+- `http`, `ws`, and `wait` escape hatches for raw REST calls, scripted WebSocket sessions, and polling workflows.
+- Operation discovery commands for search, details, schemas, and runnable examples.
+- One-envelope command contract for success and error output.
+- Safety model for `--yes`, `--max-credits`, and `--dry-run`.
 - `elv view <path>` — inspect a spilled JSON/NDJSON result file without loading it into context, with an optional dotted `--path` (numeric array indices supported) and `--limit`. Small slices return inline; large ones return a `data_summary` plus a narrow-further hint. Spilled-result hints now point at this command.
 
 - `--fields <csv>` on the list aliases (`voices list`, `history list`, `agents list`, `dubbing list`) — project each item in the result down to a comma-separated set of fields and return it inline. Turns the common "id + name for each voice" lookup from a 97 KB spill (or one call per row) into a single sub-KB envelope.
@@ -58,15 +67,3 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - Internal build specs (`specv1.md`, `specv2.md`) that should not ship in a public repo.
 - The unused `notImplemented` error helper, dead once bare parent commands began printing help.
-
-## [0.1.0] - 2026-06-25
-
-### Added
-
-- Initial agent-first ElevenLabs CLI over the ElevenLabs OpenAPI spec.
-- Operation runner for the generated OpenAPI operation catalog.
-- Twelve workflow aliases for common text to speech, speech to text, music, sound effect, voice, agent, history, usage, and discovery tasks.
-- `http`, `ws`, and `wait` escape hatches for raw REST calls, scripted WebSocket sessions, and polling workflows.
-- Operation discovery commands for search, details, schemas, and runnable examples.
-- One-envelope command contract for success and error output.
-- Safety model for `--yes`, `--max-credits`, and `--dry-run`.
