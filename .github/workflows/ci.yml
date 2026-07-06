@@ -6,7 +6,10 @@ on:
 
 jobs:
   test:
-    runs-on: [self-hosted, macos, arm64]
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
 
     steps:
       - name: Checkout
