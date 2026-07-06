@@ -2,6 +2,8 @@
 
 An agent-first ElevenLabs CLI. One JSON envelope per command, the whole API behind it.
 
+Independent project; not affiliated with or endorsed by ElevenLabs.
+
 ## Why this exists
 
 The ElevenLabs MCP server sucks, and the official skills basically expect your agent to hand-roll raw API calls through brittle wrappers. Worse, the MCP exposes a thin slice of what ElevenLabs can actually do. The API has more than three hundred operations; the MCP surfaces a fraction of them.

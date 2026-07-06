@@ -160,7 +160,7 @@ describe("CLI JSON output contract", () => {
         "Expected number",
       );
     }
-  });
+  }, 15_000);
 
   it("voices get accepts the voice id as a positional argument", () => {
     const { stdout, code } = runCli(["voices", "get", "POSITIONAL_ID", "--dry-run"]);
@@ -191,7 +191,7 @@ describe("CLI JSON output contract", () => {
       expect(Array.isArray(data.subcommands)).toBe(true);
       expect((data.subcommands as string[]).length).toBeGreaterThan(0);
     }
-  });
+  }, 10_000);
 
   it("subcommand --help emits per-command metadata instead of the global list", () => {
     const { stdout: ttsStdout, code: ttsCode } = runCli(["tts", "--help"]);

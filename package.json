@@ -31,7 +31,7 @@
   "files": [
     "dist",
     "spec/openapi.snapshot.json",
-    "docs",
+    "docs/agent-setup.md",
     "skills",
     "AGENTS.md",
     "README.md"
