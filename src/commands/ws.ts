@@ -20,7 +20,8 @@ import {
   ttsCharacterEstimate,
   validateBinaryFiles,
 } from "../ws/events";
-import { runWsSession } from "../ws/session";
+import { runWsSession, WsSessionError } from "../ws/session";
+import { shellArg } from "../util/shell";
 import type { CommandResult, RunOpts } from "../core/types";
 import type { WsCatalogEntry, WsProtocol } from "../ws/catalog";
 import type { SendScriptAction } from "../ws/events";
@@ -427,6 +428,35 @@ function errorEnvelope(error: unknown): CommandResult {
         hints: [{ cmd: "elv ws --out <dir>", why: error.hint }],
       }),
       exitCode: ExitCode.InputValidation,
+    };
+  }
+  if (error instanceof WsSessionError) {
+    const partial = error.files.length > 0;
+    return {
+      env: failure({
+        cmd: "elv ws",
+        error: {
+          type: "network_error",
+          code: error.code,
+          message: error.message,
+          raw: partial ? { partial: true } : undefined,
+        },
+        retry: {
+          recommended: error.code === "ws_connect_timeout",
+          after_ms: error.code === "ws_connect_timeout" ? 1_000 : null,
+        },
+        files: partial ? error.files : undefined,
+        ws: error.ws,
+        hints: partial
+          ? [
+              {
+                cmd: `elv view ${shellArg(error.files[0]!.path)}`,
+                why: "Inspect preserved partial output; provider credits may already have been consumed.",
+              },
+            ]
+          : [],
+      }),
+      exitCode: ExitCode.ProviderError,
     };
   }
   const message = error instanceof Error ? error.message : String(error);

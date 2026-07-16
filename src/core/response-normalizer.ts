@@ -109,8 +109,7 @@ async function normalizeSuccessResponse(
   runtimeType: string,
 ): Promise<Envelope> {
   if (op.streamKind === "json_events") {
-    const files = await streamJsonEventsFiles(op, res, ctx);
-    return fileSuccess(base, files, warnings);
+    return streamJsonEventsResponse(op, res, ctx, base, warnings);
   }
 
   if (op.streamKind === "sse_events") {
@@ -461,9 +460,11 @@ async function streamSseEventsResponse(
           frame,
           ndjson,
           () => (audio ??= jsonEventsAudioWriter(op, ctx, target.dir)),
+          (bytes) => {
+            audioBytes += bytes;
+          },
         );
         if (written.event) eventCount += 1;
-        audioBytes += written.audioBytes;
       }
     }
 
@@ -473,9 +474,11 @@ async function streamSseEventsResponse(
         frame,
         ndjson,
         () => (audio ??= jsonEventsAudioWriter(op, ctx, target.dir)),
+        (bytes) => {
+          audioBytes += bytes;
+        },
       );
       if (written.event) eventCount += 1;
-      audioBytes += written.audioBytes;
     }
 
     const files = await closeSseFiles(ndjson, audio, ctx, false);
@@ -615,14 +618,18 @@ async function writeSseFrame(
   frame: SseFrame,
   ndjson: ReturnType<typeof tempFileWriter>,
   audioWriter: () => ReturnType<typeof tempFileWriter>,
-): Promise<{ event: boolean; audioBytes: number }> {
-  if (frame.data.trim() === "[DONE]") return { event: false, audioBytes: 0 };
+  recordAudioBytes: (bytes: number) => void,
+): Promise<{ event: boolean }> {
+  if (frame.data.trim() === "[DONE]") return { event: false };
   const payload =
     frame.event === "audio_chunk" && !frame.data.trimStart().startsWith("{")
       ? frame.data
       : parseSseData(frame.data);
   const { data, audio } = extractSseAudio(payload, frame.event);
-  if (audio) await audioWriter().write(audio);
+  if (audio) {
+    await audioWriter().write(audio);
+    recordAudioBytes(audio.byteLength);
+  }
   await ndjson.write(
     `${JSON.stringify({
       ...(frame.event !== undefined ? { event: frame.event } : {}),
@@ -631,7 +638,7 @@ async function writeSseFrame(
       data,
     })}\n`,
   );
-  return { event: true, audioBytes: audio?.byteLength ?? 0 };
+  return { event: true };
 }
 
 function parseSseData(data: string): unknown {
@@ -672,16 +679,18 @@ function decodeBase64(value: string): Buffer {
     unpadded.length % 4 === 1 ||
     (suffix.length > 0 && encoded.length % 4 !== 0)
   ) {
-    throw new Error("Invalid base64 audio in SSE event");
+    throw new Error("Invalid base64 audio in stream event");
   }
   return Buffer.from(encoded, "base64");
 }
 
-async function streamJsonEventsFiles(
+async function streamJsonEventsResponse(
   op: OperationCard,
   res: Response,
   ctx: ResponseContext,
-): Promise<FileRecord[]> {
+  base: Omit<SuccessEnvelope, "v" | "ok">,
+  warnings: Warning[],
+): Promise<Envelope> {
   const target = resolveOutTarget(ctx.out, true);
   const ndjson = tempFileWriter(
     join(target.dir, deriveFilename(op.operationId, undefined, "ndjson")),
@@ -689,29 +698,41 @@ async function streamJsonEventsFiles(
   let audio: ReturnType<typeof tempFileWriter> | undefined;
   const decoder = new TextDecoder();
   let pending = "";
+  let eventCount = 0;
+  let audioBytes = 0;
 
   try {
     for await (const chunk of toNodeReadable(res.body ?? Readable.from([]))) {
       pending += decoder.decode(chunkBuffer(chunk), { stream: true });
       const parsed = extractJsonObjects(pending);
       pending = parsed.rest;
-      for (const event of parsed.objects)
+      for (const event of parsed.objects) {
         await writeJsonEvent(
           event,
           ndjson,
           () => (audio ??= jsonEventsAudioWriter(op, ctx, target.dir)),
+          (bytes) => {
+            audioBytes += bytes;
+          },
         );
+        eventCount += 1;
+      }
     }
 
     pending += decoder.decode();
     const parsed = extractJsonObjects(pending);
     if (parsed.rest.trim()) throw new Error("Incomplete trailing JSON event");
-    for (const event of parsed.objects)
+    for (const event of parsed.objects) {
       await writeJsonEvent(
         event,
         ndjson,
         () => (audio ??= jsonEventsAudioWriter(op, ctx, target.dir)),
+        (bytes) => {
+          audioBytes += bytes;
+        },
       );
+      eventCount += 1;
+    }
 
     const ndjsonPath = await ndjson.close();
     const files: FileRecord[] = [
@@ -721,11 +742,54 @@ async function streamJsonEventsFiles(
       const audioPath = await audio.close();
       files.push(await fileRecord(audioPath, { hash: ctx.hash }));
     }
-    return files;
+    return fileSuccess(base, files, warnings);
   } catch (error) {
-    await ndjson.abort();
-    if (audio) await audio.abort();
-    throw error;
+    const files: FileRecord[] = [];
+    if (eventCount > 0) {
+      const path = await ndjson.close();
+      files.push({
+        ...(await fileRecord(path, { hash: ctx.hash })),
+        mime: "application/x-ndjson",
+        partial: true,
+      });
+    } else {
+      await ndjson.abort();
+    }
+    if (audio) {
+      if (audioBytes > 0) {
+        const path = await audio.close();
+        files.push({ ...(await fileRecord(path, { hash: ctx.hash })), partial: true });
+      } else {
+        await audio.abort();
+      }
+    }
+    const parseError = error instanceof Error ? error.message : String(error);
+    return failure({
+      cmd: ctx.cmd,
+      operation_id: op.operationId,
+      http: base.http,
+      error: {
+        type: "provider_error",
+        code: "invalid_json_events_stream",
+        message: "Provider returned a malformed JSON events stream",
+        raw: { parse_error: parseError },
+      },
+      retry: { recommended: false, after_ms: null },
+      cost: base.cost,
+      files: files.length > 0 ? files : undefined,
+      warnings: optional(warnings),
+      hints: [
+        files.length > 0
+          ? {
+              cmd: `elv view ${shellArg(files[0]!.path)}`,
+              why: "Inspect preserved partial output; provider credits may already have been consumed.",
+            }
+          : {
+              cmd: ctx.cmd,
+              why: "Retry only if needed; provider credits may already have been consumed.",
+            },
+      ],
+    });
   }
 }
 
@@ -742,12 +806,20 @@ async function writeJsonEvent(
   event: unknown,
   ndjson: ReturnType<typeof tempFileWriter>,
   audioWriter: () => ReturnType<typeof tempFileWriter>,
+  recordAudioBytes: (bytes: number) => void,
 ): Promise<void> {
+  const encoded = isRecord(event)
+    ? typeof event.audio_base64 === "string"
+      ? event.audio_base64
+      : event.audio
+    : undefined;
+  const audio =
+    typeof encoded === "string" && encoded.length > 0 ? decodeBase64(encoded) : undefined;
   await ndjson.write(`${JSON.stringify(event)}\n`);
-  if (!isRecord(event)) return;
-  const audio = typeof event.audio_base64 === "string" ? event.audio_base64 : event.audio;
-  if (typeof audio === "string" && audio.length > 0)
-    await audioWriter().write(Buffer.from(audio, "base64"));
+  if (audio) {
+    await audioWriter().write(audio);
+    recordAudioBytes(audio.byteLength);
+  }
 }
 
 function extractJsonObjects(text: string): { objects: unknown[]; rest: string } {

@@ -82,9 +82,8 @@ export function buildHttpRequest(
   const path = resolvePath(op, normalized.path ?? {});
   const url = requestUrl(path, normalized, ctx.baseUrl);
   const headers = requestHeaders(normalized, ctx);
-  if (hasBodyPayload(op, normalized))
-    return buildBodyRequest(op, normalized, ctx, url, headers, path);
-  return Promise.resolve(baseRequest(op, url, headers, path));
+  if (hasBodyPayload(op, normalized)) return buildBodyRequest(op, normalized, ctx, url, headers);
+  return Promise.resolve(baseRequest(op, url, headers));
 }
 
 function requestUrl(path: string, normalized: AgentInput, baseUrl = DEFAULT_BASE_URL): URL {
@@ -117,17 +116,21 @@ function buildBodyRequest(
   ctx: BuildRequestContext,
   url: URL,
   headers: Record<string, string>,
-  path: string,
 ): Promise<HttpRequest> {
   const contentType = op.requestBody?.contentType ?? "application/json";
   if (isMultipartRequest(op, contentType)) {
     // Do NOT set content-type: fetch derives multipart/form-data + boundary from the FormData body.
-    return buildMultipartRequest(op, normalized, ctx, url, headers, path);
+    return buildMultipartRequest(op, normalized, ctx, url, headers);
   }
   return Promise.resolve(
-    baseRequest(op, url, { ...headers, "content-type": contentType }, path, {
-      body: serializeBody(contentType, normalized.body ?? {}),
-    }),
+    baseRequest(
+      op,
+      url,
+      { ...headers, "content-type": contentType },
+      {
+        body: serializeBody(contentType, normalized.body ?? {}),
+      },
+    ),
   );
 }
 
@@ -141,10 +144,15 @@ function baseRequest(
   op: OperationCard,
   url: URL,
   headers: Record<string, string>,
-  path: string,
   extra: Pick<HttpRequest, "body"> = {},
 ): HttpRequest {
-  return { url: url.toString(), method: op.method, headers, path, ...extra };
+  return {
+    url: url.toString(),
+    method: op.method,
+    headers,
+    path: `${url.pathname}${url.search}`,
+    ...extra,
+  };
 }
 
 async function buildMultipartRequest(
@@ -153,14 +161,13 @@ async function buildMultipartRequest(
   ctx: BuildRequestContext,
   url: URL,
   headers: Record<string, string>,
-  path: string,
 ): Promise<HttpRequest> {
   return {
     url: url.toString(),
     method: op.method,
     headers,
     body: await buildMultipartBody(op, normalized, ctx),
-    path,
+    path: `${url.pathname}${url.search}`,
   };
 }
 

@@ -35,6 +35,16 @@ describe("AudioWriter", () => {
     await expect(writer.writeFromEvent({ text: "no audio" })).resolves.toBe(false);
     await expect(writer.close()).resolves.toBeNull();
   });
+
+  it("rejects invalid base64 instead of writing decoded garbage", async () => {
+    const dir = await tempDir();
+    const writer = new AudioWriter(dir, "mp3_44100_128");
+
+    await expect(writer.writeFromEvent({ audio: "not!!valid" })).rejects.toThrow(
+      "Invalid base64 audio",
+    );
+    await writer.abort();
+  });
 });
 
 async function tempDir(): Promise<string> {

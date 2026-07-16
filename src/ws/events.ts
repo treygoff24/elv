@@ -17,6 +17,7 @@ export type SendScriptAction =
 export class NdjsonEventWriter {
   readonly path: string;
   private readonly writer: TempFileWriter;
+  private wroteEvent = false;
 
   constructor(dir: string) {
     this.path = join(dir, "events.received.ndjson");
@@ -25,6 +26,11 @@ export class NdjsonEventWriter {
 
   async writeRaw(raw: string): Promise<void> {
     await this.writer.write(`${redactedEventLine(raw)}\n`);
+    this.wroteEvent = true;
+  }
+
+  get hasData(): boolean {
+    return this.wroteEvent;
   }
 
   async close(): Promise<string> {

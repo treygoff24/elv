@@ -25,6 +25,21 @@ interface WsSessionResult {
   files: FileRecord[];
 }
 
+export class WsSessionError extends Error {
+  constructor(
+    readonly code: string,
+    message: string,
+    readonly ws: WsInfo,
+    readonly files: FileRecord[],
+  ) {
+    super(message);
+    this.name = "WsSessionError";
+  }
+}
+
+class WsConnectTimeoutError extends Error {}
+class WsInactivityTimeoutError extends Error {}
+
 interface WsSessionState {
   eventsSent: number;
   eventsReceived: number;
@@ -54,7 +69,7 @@ export async function runWsSession(options: WsSessionOptions): Promise<WsSession
     const closedPromise = waitForClose(socket, state);
     void closedPromise.catch(() => undefined);
     trackMessages(socket, state, inactivity, events, audio);
-    await waitForOpen(socket, state);
+    await waitForOpen(socket, state, timeoutMs);
 
     inactivity.reset();
     state.eventsSent = await playScript(socket, options.script);
@@ -63,10 +78,35 @@ export async function runWsSession(options: WsSessionOptions): Promise<WsSession
 
     inactivity.clear();
     await state.messageChain;
+    if (inactivity.timedOut()) throw new WsInactivityTimeoutError();
     return await finishSession(options, state, events, audio, inactivity);
   } catch (error) {
-    await abortSession(socket, events, audio, inactivity);
-    throw error;
+    inactivity.clear();
+    terminateSocket(socket);
+    await state.messageChain.catch(() => undefined);
+    const files = await preserveFailedSession(options, state, events, audio, inactivity);
+    const timedOut =
+      error instanceof WsConnectTimeoutError || error instanceof WsInactivityTimeoutError;
+    const code =
+      error instanceof WsConnectTimeoutError
+        ? "ws_connect_timeout"
+        : error instanceof WsInactivityTimeoutError
+          ? "ws_inactivity_timeout"
+          : "ws_session_failed";
+    const message =
+      error instanceof WsConnectTimeoutError
+        ? `WebSocket did not open within ${timeoutMs}ms`
+        : error instanceof WsInactivityTimeoutError
+          ? `WebSocket was inactive for ${timeoutMs}ms`
+          : error instanceof Error
+            ? error.message
+            : String(error);
+    throw new WsSessionError(
+      code,
+      message,
+      wsInfo(options, state, timedOut, files.length > 0),
+      files,
+    );
   }
 }
 
@@ -127,15 +167,30 @@ async function processSessionMessage(
   await processMessage(data, socket, events, audio);
 }
 
-function waitForOpen(socket: WebSocket, state: WsSessionState): Promise<void> {
+function waitForOpen(socket: WebSocket, state: WsSessionState, timeoutMs: number): Promise<void> {
   return new Promise((resolve, reject) => {
-    const failBeforeOpen = (error: Error): void => reject(error);
-    socket.once("open", () => {
+    const cleanup = (): void => {
+      clearTimeout(timer);
+      socket.off("open", opened);
+      socket.off("error", failed);
+    };
+    const opened = (): void => {
       state.opened = true;
-      socket.off("error", failBeforeOpen);
+      cleanup();
       resolve();
-    });
-    socket.once("error", failBeforeOpen);
+    };
+    const failed = (error: Error): void => {
+      cleanup();
+      reject(error);
+    };
+    const timer = setTimeout(() => {
+      cleanup();
+      reject(new WsConnectTimeoutError());
+      terminateSocket(socket);
+    }, timeoutMs);
+    timer.unref();
+    socket.once("open", opened);
+    socket.once("error", failed);
   });
 }
 
@@ -169,27 +224,80 @@ async function finishSession(
   files.push(await fileRecord(manifestPath, { hash: true }));
 
   return {
-    ws: {
-      catalog: options.catalog,
-      path: options.path,
-      events_sent: state.eventsSent,
-      events_received: state.eventsReceived,
-      closed: state.closed,
-    },
+    ws: wsInfo(options, state, inactivity.timedOut(), false),
     files,
   };
 }
 
-async function abortSession(
-  socket: WebSocket,
+async function preserveFailedSession(
+  options: WsSessionOptions,
+  state: WsSessionState,
   events: NdjsonEventWriter,
   audio: AudioWriter,
   inactivity: ReturnType<typeof createInactivityTimer>,
-): Promise<void> {
-  inactivity.clear();
-  await Promise.allSettled([events.abort(), audio.abort()]);
-  if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)
+): Promise<FileRecord[]> {
+  const hasOutput = events.hasData || audio.hasData || state.binaryPaths.length > 0;
+  if (!hasOutput) {
+    await Promise.allSettled([events.abort(), audio.abort()]);
+    return [];
+  }
+
+  const paths = [...state.binaryPaths];
+  const closed = await Promise.allSettled([
+    events.hasData ? events.close() : events.abort().then(() => null),
+    audio.hasData ? audio.close() : audio.abort().then(() => null),
+  ]);
+  for (const result of closed) {
+    if (result.status === "fulfilled" && result.value) paths.push(result.value);
+  }
+  try {
+    paths.push(
+      await writeManifest(
+        options.outDir,
+        redactWs({
+          catalog: options.catalog,
+          path: options.path,
+          connection_url: redactWsString(options.url.toString()),
+          headers: options.headers ?? {},
+          events_sent: state.eventsSent,
+          events_received: state.eventsReceived,
+          binary_frames_received: state.binaryPaths.length,
+          closed: state.closed,
+          timed_out: inactivity.timedOut(),
+          partial: true,
+        }),
+      ),
+    );
+  } catch {
+    // The received payload files remain recoverable even if the diagnostic manifest cannot be written.
+  }
+  const records = await Promise.allSettled(
+    paths.map(async (path) => ({ ...(await fileRecord(path, { hash: true })), partial: true })),
+  );
+  return records.flatMap((result) => (result.status === "fulfilled" ? [result.value] : []));
+}
+
+function wsInfo(
+  options: WsSessionOptions,
+  state: WsSessionState,
+  timedOut: boolean,
+  partial: boolean,
+): WsInfo {
+  return {
+    catalog: options.catalog,
+    path: options.path,
+    events_sent: state.eventsSent,
+    events_received: state.eventsReceived,
+    closed: state.closed,
+    timed_out: timedOut,
+    ...(partial ? { partial: true } : {}),
+  };
+}
+
+function terminateSocket(socket: WebSocket): void {
+  if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING) {
     socket.terminate();
+  }
 }
 
 class InactivityTimer {

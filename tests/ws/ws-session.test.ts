@@ -1,6 +1,7 @@
 import { readFileSync, rmSync, truncateSync, writeFileSync } from "node:fs";
 import { mkdtemp } from "node:fs/promises";
 import type { IncomingHttpHeaders } from "node:http";
+import { createServer as createTcpServer, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import WebSocket, { WebSocketServer } from "ws";
@@ -497,6 +498,97 @@ describe("ws session", () => {
       type: "network_error",
       code: "ws_session_failed",
     });
+  });
+
+  it("bounds the WebSocket handshake with the configured timeout", async () => {
+    const connections = new Set<Socket>();
+    const blackhole = createTcpServer((socket) => {
+      connections.add(socket);
+      socket.once("close", () => connections.delete(socket));
+    });
+    await new Promise<void>((resolve) => blackhole.listen(0, "127.0.0.1", resolve));
+    const address = blackhole.address();
+    if (!address || typeof address === "string") throw new Error("missing TCP server address");
+    const dir = await tempDir();
+    const script = join(dir, "script.ndjson");
+    writeFileSync(script, JSON.stringify({ type: "send", data: { text: " " } }));
+
+    try {
+      const result = await runWs(
+        {
+          target: `ws://127.0.0.1:${address.port}/never-upgrades`,
+          send: script,
+          out: dir,
+          query: {},
+        },
+        { timeoutMs: 25 },
+      );
+
+      expect(result.exitCode).toBe(8);
+      expect(result.env.ok).toBe(false);
+      if (result.env.ok) throw new Error("expected connect timeout");
+      expect(result.env.error.code).toBe("ws_connect_timeout");
+      expect(result.env.ws).toMatchObject({ timed_out: true });
+      expect(result.env.ws).not.toHaveProperty("partial");
+      expect(result.env.files).toBeUndefined();
+    } finally {
+      for (const socket of connections) socket.destroy();
+      await new Promise<void>((resolve, reject) =>
+        blackhole.close((error) => (error ? reject(error) : resolve())),
+      );
+    }
+  });
+
+  it("reports inactivity timeout as a non-successful partial session", async () => {
+    const server = await startServer(() => undefined);
+    const dir = await tempDir();
+    const script = join(dir, "script.ndjson");
+    writeFileSync(script, JSON.stringify({ type: "send", data: { text: " " } }));
+
+    const result = await runWs(
+      { target: server.url, send: script, out: dir, query: {} },
+      { timeoutMs: 25 },
+    );
+
+    expect(result.exitCode).toBe(8);
+    expect(result.env.ok).toBe(false);
+    if (result.env.ok) throw new Error("expected inactivity timeout");
+    expect(result.env.error.code).toBe("ws_inactivity_timeout");
+    expect(result.env.ws).toMatchObject({ timed_out: true, closed: true });
+  });
+
+  it("rejects invalid base64 and preserves prior event, audio, and binary files", async () => {
+    const server = await startServer((socket) => {
+      socket.send(Buffer.from([0, 1, 2]), { binary: true });
+      socket.send(JSON.stringify({ audio: Buffer.from("kept").toString("base64") }));
+      socket.send(JSON.stringify({ audio: "not!!valid" }));
+    });
+    const dir = await tempDir();
+    const script = join(dir, "script.ndjson");
+    writeFileSync(script, JSON.stringify({ type: "send", data: { text: " " } }));
+
+    const result = await runWs(
+      { target: server.url, send: script, out: dir, query: {} },
+      { timeoutMs: 500 },
+    );
+
+    expect(result.exitCode).toBe(8);
+    expect(result.env.ok).toBe(false);
+    if (result.env.ok) throw new Error("expected session failure");
+    expect(result.env.error).toMatchObject({
+      code: "ws_session_failed",
+      message: "Invalid base64 audio in WebSocket event",
+      raw: { partial: true },
+    });
+    expect(result.env.ws).toMatchObject({ partial: true, timed_out: false });
+    expect(result.env.files?.every((file) => file.partial)).toBe(true);
+    const audio = result.env.files?.find((file) => file.path.includes("audio."));
+    const binary = result.env.files?.find((file) => file.path.includes("binary.received"));
+    const events = result.env.files?.find((file) => file.path.includes("events.received"));
+    expect(audio && readFileSync(audio.path, "utf8")).toBe("kept");
+    expect(binary && readFileSync(binary.path)).toEqual(Buffer.from([0, 1, 2]));
+    expect(events && readFileSync(events.path, "utf8")).toContain("not!!valid");
+    expect(result.env.hints?.[0]?.why).toContain("credits may already have been consumed");
   });
 
   it("runs a scripted WS session directly and writes event, audio, and manifest files", async () => {

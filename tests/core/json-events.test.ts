@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Readable } from "node:stream";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { buildHttpRequest } from "../../src/core/request-builder";
 import { normalizeResponse } from "../../src/core/response-normalizer";
 import type { OperationCard } from "../../src/openapi/types";
 
@@ -116,21 +117,86 @@ describe("json_events response parsing", () => {
     });
   });
 
-  it("rejects incomplete trailing JSON events", async () => {
-    const stream = Readable.from([Buffer.from('{"audio_base64":"')]);
+  it("preserves valid paid output before an incomplete trailing JSON event", async () => {
+    const audioBytes = Buffer.from("paid-output");
+    const valid = JSON.stringify({
+      audio_base64: audioBytes.toString("base64"),
+      alignment: { chars: ["a"] },
+    });
+    const stream = Readable.from([Buffer.from(valid), Buffer.from('{"audio_base64":"')]);
 
-    await expect(
-      normalizeResponse(
-        op(),
-        new Response(Readable.toWeb(stream) as ConstructorParameters<typeof Response>[0], {
-          headers: { "content-type": "application/json" },
-        }),
-        {
-          cmd: "elv call text_to_speech_stream_with_timestamps",
-          out,
-          requestPath: "/v1/text-to-speech/v1/stream/with-timestamps?output_format=mp3_44100_128",
-        },
-      ),
-    ).rejects.toThrow(/Incomplete trailing JSON event/u);
+    const env = await normalizeResponse(
+      op(),
+      new Response(Readable.toWeb(stream) as ConstructorParameters<typeof Response>[0], {
+        headers: { "content-type": "application/json" },
+      }),
+      {
+        cmd: "elv call text_to_speech_stream_with_timestamps",
+        out,
+        requestPath: "/v1/text-to-speech/v1/stream/with-timestamps?output_format=mp3_44100_128",
+      },
+    );
+
+    expect(env.ok).toBe(false);
+    if (env.ok) throw new Error("expected failure");
+    expect(env.error).toMatchObject({
+      type: "provider_error",
+      code: "invalid_json_events_stream",
+      message: "Provider returned a malformed JSON events stream",
+    });
+    expect(env.files).toHaveLength(2);
+    expect(env.files?.every((file) => file.partial)).toBe(true);
+    const ndjson = env.files?.find((file) => file.path.endsWith(".ndjson"));
+    const audio = env.files?.find((file) => file.path.endsWith(".mp3"));
+    expect(readFileSync(ndjson!.path, "utf8").trim()).toBe(valid);
+    expect(readFileSync(audio!.path)).toEqual(audioBytes);
+    expect(env.hints?.[0]?.why).toContain("credits may already have been consumed");
+  });
+
+  it("rejects invalid base64 without preserving corrupt output", async () => {
+    const env = await normalizeResponse(
+      op(),
+      new Response(JSON.stringify({ audio_base64: "not!!valid" }), {
+        headers: { "content-type": "application/json" },
+      }),
+      { cmd: "elv call text_to_speech_stream_with_timestamps", out },
+    );
+
+    expect(env.ok).toBe(false);
+    if (env.ok) throw new Error("expected failure");
+    expect(env.error.code).toBe("invalid_json_events_stream");
+    expect(env.files).toBeUndefined();
+    expect(JSON.stringify(env.error.raw)).toContain("Invalid base64 audio");
+  });
+
+  it("uses the final built request query to choose the audio extension", async () => {
+    const operation = op();
+    const request = await buildHttpRequest(
+      operation,
+      {
+        path: { voice_id: "voice" },
+        query: { output_format: "pcm_44100" },
+        body: { text: "hello" },
+      },
+      { baseUrl: "https://api.test" },
+    );
+    const env = await normalizeResponse(
+      operation,
+      new Response(JSON.stringify({ audio_base64: Buffer.from("pcm").toString("base64") }), {
+        headers: { "content-type": "application/json" },
+      }),
+      {
+        cmd: "elv call text_to_speech_stream_with_timestamps",
+        out,
+        requestPath: request.path,
+      },
+    );
+
+    expect(request.path).toBe(
+      "/v1/text-to-speech/voice/stream/with-timestamps?output_format=pcm_44100",
+    );
+    expect(env.ok).toBe(true);
+    if (!env.ok) throw new Error("expected success");
+    expect(env.files?.some((file) => file.path.endsWith(".pcm"))).toBe(true);
   });
 });

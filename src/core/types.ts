@@ -102,6 +102,8 @@ export interface WsInfo {
   events_sent: number;
   events_received: number;
   closed: boolean;
+  timed_out: boolean;
+  partial?: boolean;
 }
 
 export interface SuccessEnvelope {
@@ -150,6 +152,7 @@ export interface ErrorEnvelope {
   files?: FileRecord[];
   warnings?: Warning[];
   hints?: Hint[];
+  ws?: WsInfo;
 }
 
 export type Envelope = SuccessEnvelope | ErrorEnvelope;
