@@ -1,12 +1,15 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   loadRegistry,
   rawSpecCachePath,
   readRegistryCache,
   registryCachePath,
+  vendoredSpecMetaPath,
+  vendoredSpecPath,
 } from "../../src/openapi/registry";
 
 let cacheDir: string;
@@ -16,6 +19,32 @@ afterEach(() => {
 });
 
 describe("OpenAPI registry cache", () => {
+  it("loads package-relative snapshots from an encoded install path outside the cwd", () => {
+    cacheDir = mkdtempSync(join(tmpdir(), "elv package "));
+    const packageRoot = join(cacheDir, "node_modules", "eleven-agent-cli");
+    const specPath = join(packageRoot, "spec", "openapi.snapshot.json");
+    const metaPath = join(packageRoot, "spec", "openapi.snapshot.meta.json");
+    const moduleUrl = pathToFileURL(join(packageRoot, "dist", "cli.js"));
+    const otherCwd = join(cacheDir, "other-cwd");
+    mkdirSync(dirname(specPath), { recursive: true });
+    mkdirSync(otherCwd);
+    writeFileSync(specPath, '{"openapi":"3.1.0"}');
+    writeFileSync(metaPath, '{"sha256":"test"}');
+
+    const originalCwd = process.cwd();
+    try {
+      process.chdir(otherCwd);
+      expect(JSON.parse(readFileSync(vendoredSpecPath(moduleUrl), "utf8"))).toEqual({
+        openapi: "3.1.0",
+      });
+      expect(JSON.parse(readFileSync(vendoredSpecMetaPath(moduleUrl), "utf8"))).toEqual({
+        sha256: "test",
+      });
+    } finally {
+      process.chdir(originalCwd);
+    }
+  });
+
   it("cold-starts from the vendored snapshot and writes a version-stamped cache", async () => {
     cacheDir = mkdtempSync(join(tmpdir(), "elv-cache-"));
     const registry = await loadRegistry({ cacheDir });

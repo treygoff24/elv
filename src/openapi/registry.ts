@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "
 import { createHash, randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { compileSpec } from "./compile-spec";
 import { parseJson } from "../util/json";
 import type { CompileSpecResult, OpenApiDocument } from "./compile-spec";
@@ -169,13 +170,13 @@ function packageVersion(override?: string): string {
   return "0.0.0";
 }
 
-export function vendoredSpecPath(): string {
-  for (const path of vendoredSpecCandidates()) if (existsSync(path)) return path;
+export function vendoredSpecPath(moduleUrl: string | URL = import.meta.url): string {
+  for (const path of vendoredSpecCandidates(moduleUrl)) if (existsSync(path)) return path;
   return resolve("spec/openapi.snapshot.json");
 }
 
-export function vendoredSpecMetaPath(): string {
-  for (const path of vendoredSpecMetaCandidates()) if (existsSync(path)) return path;
+export function vendoredSpecMetaPath(moduleUrl: string | URL = import.meta.url): string {
+  for (const path of vendoredSpecMetaCandidates(moduleUrl)) if (existsSync(path)) return path;
   return resolve("spec/openapi.snapshot.meta.json");
 }
 
@@ -184,25 +185,21 @@ function mapOperations(operations: OperationCard[]): Map<string, OperationCard> 
 }
 
 function packageJsonCandidates(): string[] {
-  return [
-    resolve(new URL("../../package.json", import.meta.url).pathname),
-    resolve(new URL("../package.json", import.meta.url).pathname),
-    resolve("package.json"),
-  ];
+  return packageFileCandidates("package.json");
 }
 
-function vendoredSpecCandidates(): string[] {
-  return [
-    resolve(new URL("../../spec/openapi.snapshot.json", import.meta.url).pathname),
-    resolve(new URL("../spec/openapi.snapshot.json", import.meta.url).pathname),
-    resolve("spec/openapi.snapshot.json"),
-  ];
+function vendoredSpecCandidates(moduleUrl: string | URL): string[] {
+  return packageFileCandidates("spec/openapi.snapshot.json", moduleUrl);
 }
 
-function vendoredSpecMetaCandidates(): string[] {
+function vendoredSpecMetaCandidates(moduleUrl: string | URL): string[] {
+  return packageFileCandidates("spec/openapi.snapshot.meta.json", moduleUrl);
+}
+
+function packageFileCandidates(path: string, moduleUrl: string | URL = import.meta.url): string[] {
   return [
-    resolve(new URL("../../spec/openapi.snapshot.meta.json", import.meta.url).pathname),
-    resolve(new URL("../spec/openapi.snapshot.meta.json", import.meta.url).pathname),
-    resolve("spec/openapi.snapshot.meta.json"),
+    fileURLToPath(new URL(`../../${path}`, moduleUrl)),
+    fileURLToPath(new URL(`../${path}`, moduleUrl)),
+    resolve(path),
   ];
 }

@@ -1,10 +1,13 @@
-import { resolve } from "node:path";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { runHttp } from "../../src/commands/http";
 import { runOperation } from "../../src/core/client";
 import type { OperationCard } from "../../src/openapi/types";
 
 const registry = vi.hoisted(() => new Map<string, OperationCard>());
+let outputDir: string | undefined;
 
 vi.mock("../../src/openapi/registry", () => ({
   loadRegistry: async () => registry,
@@ -67,6 +70,8 @@ describe("raw HTTP registry metadata and budget policy", () => {
   });
 
   afterEach(() => {
+    if (outputDir) rmSync(outputDir, { recursive: true, force: true });
+    outputDir = undefined;
     vi.unstubAllEnvs();
     vi.unstubAllGlobals();
   });
@@ -179,6 +184,50 @@ describe("raw HTTP registry metadata and budget policy", () => {
         expect.objectContaining({ code: "http_metadata_matched" }),
       ]),
     });
+  });
+
+  it("inherits Music SSE normalization through raw HTTP metadata", async () => {
+    registry.set(
+      "compose_detailed_stream",
+      op({
+        operationId: "compose_detailed_stream",
+        method: "POST",
+        pathTemplate: "/v1/music/detailed/stream",
+        risk: "generate",
+        costHint: "per_generation",
+        streamKind: "sse_events",
+      }),
+    );
+    outputDir = mkdtempSync(join(tmpdir(), "elv-http-sse-"));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response('event: progress\ndata: {"status":"composing"}\n\ndata: [DONE]\n\n', {
+          headers: { "content-type": "text/event-stream" },
+        }),
+      ),
+    );
+
+    const env = await runHttp("POST", "/v1/music/detailed/stream", {
+      apiKey: "test-key",
+      baseUrl: "https://api.test",
+      bodyJson: '{"prompt":"piano"}',
+      maxCredits: 5_000,
+      out: outputDir,
+    });
+
+    expect(env).toMatchObject({
+      ok: true,
+      operation_id: "compose_detailed_stream",
+      files: [{ mime: "application/x-ndjson" }],
+      warnings: expect.arrayContaining([
+        expect.objectContaining({ code: "http_metadata_matched" }),
+      ]),
+    });
+    if (!env.ok) throw new Error("expected successful SSE response");
+    expect(readFileSync(env.files![0]!.path, "utf8")).toBe(
+      '{"event":"progress","data":{"status":"composing"}}\n',
+    );
   });
 
   it("fails closed when a generation estimate is unavailable", async () => {
