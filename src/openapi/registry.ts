@@ -32,7 +32,7 @@ export interface SpecProvenance extends SpecCounts {
 }
 
 export interface RegistryCache {
-  schema?: "elv.openapi.cache.v2";
+  schema: "elv.openapi.cache.v3";
   version: string;
   generated_at: string;
   totalOperations: number;
@@ -81,6 +81,7 @@ export function readRegistryCache(options: RegistryOptions = {}): RegistryCache 
   } catch {
     return null;
   }
+  if (parsed.schema !== "elv.openapi.cache.v3") return null;
   if (parsed.version !== packageVersion(options.version)) return null;
   if (!Array.isArray(parsed.operations)) return null;
   return parsed as RegistryCache;
@@ -98,7 +99,7 @@ export function writeRegistryCache(
   writeFileSync(
     temporaryPath,
     `${JSON.stringify({
-      schema: "elv.openapi.cache.v2",
+      schema: "elv.openapi.cache.v3",
       version: packageVersion(options.version),
       generated_at: new Date().toISOString(),
       totalOperations: compiled.totalOperations,

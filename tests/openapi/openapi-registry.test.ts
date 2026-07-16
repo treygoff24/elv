@@ -34,7 +34,7 @@ describe("OpenAPI registry cache", () => {
     expect(() => JSON.stringify(cached.bundledSpec)).not.toThrow();
   });
 
-  it("loads legacy cache envelopes without provenance", async () => {
+  it("invalidates legacy cache envelopes when compiler metadata changes", async () => {
     cacheDir = mkdtempSync(join(tmpdir(), "elv-cache-"));
     const cachePath = registryCachePath({ cacheDir });
     mkdirSync(dirname(cachePath), { recursive: true });
@@ -52,8 +52,13 @@ describe("OpenAPI registry cache", () => {
     const cached = readRegistryCache({ cacheDir });
     const registry = await loadRegistry({ cacheDir });
 
-    expect(cached?.provenance).toBeUndefined();
-    expect(registry.has("legacy")).toBe(true);
+    expect(cached).toBeNull();
+    expect(registry.has("legacy")).toBe(false);
+    expect(registry.get("compose_detailed_stream")).toMatchObject({
+      streamKind: "sse_events",
+      risk: "generate",
+      costHint: "per_generation",
+    });
   });
 
   it("migrates the legacy raw spec through the authoritative atomic writer", async () => {
@@ -65,7 +70,7 @@ describe("OpenAPI registry cache", () => {
     const registry = await loadRegistry({ cacheDir });
 
     expect(registry.size).toBe(4);
-    expect(readRegistryCache({ cacheDir })?.schema).toBe("elv.openapi.cache.v2");
+    expect(readRegistryCache({ cacheDir })?.schema).toBe("elv.openapi.cache.v3");
   });
 
   it("uses the atomic writer on cold start", async () => {

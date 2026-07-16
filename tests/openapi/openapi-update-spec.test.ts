@@ -28,7 +28,7 @@ describe("spec update", () => {
     expect(result.operations).toBe(338);
     expect(result.totalOperations).toBe(339);
     expect(result.skippedOperations).toBe(1);
-    expect(cache.schema).toBe("elv.openapi.cache.v2");
+    expect(cache.schema).toBe("elv.openapi.cache.v3");
     expect(cache.operations).toHaveLength(338);
     expect(cache.provenance).toMatchObject({
       sha256: "de0476611805f3ee4e6a6c76dcdd6cc9686b8daee5757e6465d2974094c844ce",
@@ -204,7 +204,7 @@ describe("spec update", () => {
     });
   });
 
-  it("reports unknown provenance for a legacy cache envelope", async () => {
+  it("reports legacy cache envelopes as inactive so they are recompiled", async () => {
     cacheDir = mkdtempSync(join(tmpdir(), "elv-spec-update-"));
     const updated = await updateSpecCache({ from: "fixtures/fake-openapi.json", cacheDir });
     const legacy = JSON.parse(readFileSync(updated.cachePath, "utf8")) as {
@@ -221,7 +221,7 @@ describe("spec update", () => {
     expect(result.env.ok).toBe(true);
     if (!result.env.ok) throw new Error("expected success");
     expect(result.env.data).toMatchObject({
-      active: { present: true, provenance: "unknown" },
+      active: { present: false, provenance: "unknown", counts: null },
       active_differs_from_vendored: null,
     });
   });
