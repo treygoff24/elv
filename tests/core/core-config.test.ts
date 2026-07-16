@@ -60,7 +60,7 @@ describe("config", () => {
       baseUrl: "https://api.example.test",
       apiKeyPresent: true,
       outputDir: join(cwd, "out"),
-      defaultModelId: "eleven_v3",
+      defaultTtsModelId: "eleven_v3",
       maxCredits: 123,
       profile: "prod",
       cacheDir: join(home, ".cache", "elv"),

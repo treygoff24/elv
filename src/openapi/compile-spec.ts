@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { bundle } from "@apidevtools/json-schema-ref-parser";
-import { classifyRisk, costHintForOperationId } from "./risk";
+import { classifyRisk, costHintForOperationId, riskCurationInputs } from "./risk";
 import { parseJson } from "../util/json";
 import type {
   BodyCard,
@@ -198,6 +198,13 @@ const SECRET_RESULT_OP_IDS = new Set([
   "get_livekit_token",
   "get_conversation_signed_link",
 ]);
+
+export function curationInputs(): Record<string, unknown> {
+  return {
+    risk: riskCurationInputs(),
+    secretResultOperationIds: [...SECRET_RESULT_OP_IDS].sort(),
+  };
+}
 
 function groupForOperation(operation: JsonObject, pathTemplate: string): string[] {
   const fernGroup = operation["x-fern-sdk-group-name"];

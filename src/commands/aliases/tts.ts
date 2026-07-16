@@ -42,13 +42,6 @@ export function buildTtsInput(flags: TtsFlags): BuiltOperation {
   };
 }
 
-export function resolveTtsModel(
-  explicit: string | undefined,
-  profileDefault: string | undefined,
-): string | undefined {
-  return explicit ?? profileDefault;
-}
-
 export function registerTtsCommand(
   program: Command,
   addCommonFlags: (command: Command) => Command,
@@ -82,9 +75,7 @@ export function registerTtsCommand(
 async function runTts(flags: TtsFlags, command: Command): Promise<never> {
   const opts = validationOrExit(command, () => aliasRunOpts(command));
   const model = validationOrExit(command, () => {
-    const profileDefault =
-      flags.model === undefined ? loadConfig({ profile: opts.profile }).defaultModelId : undefined;
-    return resolveTtsModel(flags.model, profileDefault);
+    return flags.model ?? loadConfig({ profile: opts.profile }).defaultTtsModelId;
   });
   const text = validationOrExit(command, () => readText(flags.text, flags.textFile, "tts"));
   const voiceId = await resolveVoiceId(flags, opts, commandName(command));

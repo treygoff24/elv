@@ -129,6 +129,24 @@ const EXTERNAL_SIDE_EFFECT_PATTERNS = [
   /(^|_)unshare_resource(_|$)/u,
 ];
 
+export function riskCurationInputs(): Record<string, unknown> {
+  return {
+    destructiveOperationIds: [...DESTRUCTIVE_OP_IDS].sort(),
+    externalSideEffectOperationIds: [...EXTERNAL_SIDE_EFFECT_OP_IDS].sort(),
+    readOperationIds: [...READ_OP_IDS].sort(),
+    generateOperationIds: [...GENERATE_OP_IDS].sort(),
+    costHints: [...COST_HINTS.entries()].sort(([a], [b]) => a.localeCompare(b)),
+    destructivePatterns: DESTRUCTIVE_PATTERNS.map((pattern) => ({
+      source: pattern.source,
+      flags: pattern.flags,
+    })),
+    externalSideEffectPatterns: EXTERNAL_SIDE_EFFECT_PATTERNS.map((pattern) => ({
+      source: pattern.source,
+      flags: pattern.flags,
+    })),
+  };
+}
+
 export function classifyRisk(
   op: Pick<OperationCard, "method" | "operationId"> & Partial<Pick<OperationCard, "pathTemplate">>,
 ): Risk {

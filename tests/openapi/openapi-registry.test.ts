@@ -123,16 +123,44 @@ describe("OpenAPI registry cache", () => {
   it("recompiles instead of using a stale version cache", async () => {
     cacheDir = mkdtempSync(join(tmpdir(), "elv-cache-"));
     const cachePath = registryCachePath({ cacheDir });
-    mkdirSync(dirname(cachePath), { recursive: true });
-    writeFileSync(
-      cachePath,
-      JSON.stringify({ version: "stale", operations: [{ operationId: "wrong" }] }),
-    );
+    await loadRegistry({ cacheDir });
+    const cache = JSON.parse(readFileSync(cachePath, "utf8")) as Record<string, unknown>;
+    cache.version = "stale";
+    cache.operations = [{ operationId: "wrong" }];
+    writeFileSync(cachePath, JSON.stringify(cache));
 
     const registry = await loadRegistry({ cacheDir });
 
     expect(registry.has("wrong")).toBe(false);
     expect(registry.has("text_to_speech_full")).toBe(true);
+  });
+
+  it("recompiles when curation changes without a schema or package version change", async () => {
+    cacheDir = mkdtempSync(join(tmpdir(), "elv-cache-"));
+    const cachePath = registryCachePath({ cacheDir });
+    await loadRegistry({ cacheDir });
+    const cache = JSON.parse(readFileSync(cachePath, "utf8")) as {
+      schema: string;
+      version: string;
+      fingerprint: string;
+      operations: { operationId: string; risk?: string }[];
+    };
+    const rag = cache.operations.find(
+      (operation) => operation.operationId === "query_agent_knowledge_base_rag_route",
+    );
+    if (!rag) throw new Error("expected RAG operation in compiled cache");
+    rag.risk = "mutate";
+    cache.fingerprint = "stale-curation-fingerprint";
+    writeFileSync(cachePath, JSON.stringify(cache));
+
+    expect(cache.schema).toBe("elv.openapi.cache.v3");
+    expect(cache.version).toBe("0.1.0");
+    const registry = await loadRegistry({ cacheDir });
+
+    expect(registry.get("query_agent_knowledge_base_rag_route")?.risk).toBe("read");
+    expect(JSON.parse(readFileSync(cachePath, "utf8")).fingerprint).not.toBe(
+      "stale-curation-fingerprint",
+    );
   });
 
   it("recompiles instead of crashing on malformed cache JSON", async () => {

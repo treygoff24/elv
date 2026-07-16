@@ -23,7 +23,6 @@ import {
 } from "../../src/commands/aliases/dubbing-project";
 import { registerAliases } from "../../src/commands/aliases/index";
 import { buildMusicInput } from "../../src/commands/aliases/music";
-import { resolveTtsModel } from "../../src/commands/aliases/tts";
 import {
   buildServiceAccountCreateInput,
   buildServiceAccountsListInput,
@@ -243,11 +242,6 @@ describe("current API workflow aliases", () => {
     ]) {
       expect(registry.has(operationId), operationId).toBe(true);
     }
-  });
-
-  it("uses the TTS profile default only when no explicit model is present", () => {
-    expect(resolveTtsModel(undefined, "eleven_flash_v2_5")).toBe("eleven_flash_v2_5");
-    expect(resolveTtsModel("eleven_v3", "eleven_flash_v2_5")).toBe("eleven_v3");
   });
 
   it("keeps new mutations gated and command errors in one JSON envelope", async () => {

@@ -23,7 +23,7 @@ interface ResolvedConfig {
   baseUrl: string;
   apiKeyPresent: boolean;
   outputDir: string;
-  defaultModelId?: string;
+  defaultTtsModelId?: string;
   maxCredits?: number;
   profile: string;
   residency?: string;
@@ -87,7 +87,7 @@ export function loadConfig(overrides: ConfigOverrides = {}): ResolvedConfig {
     baseUrl: configuredBaseUrl(activeProfile, residency, overrides),
     apiKeyPresent: Boolean(process.env[apiKeyEnv]),
     outputDir: configuredOutputDir(activeProfile, cacheDir),
-    defaultModelId: activeProfile.default_model_id,
+    defaultTtsModelId: activeProfile.default_model_id,
     maxCredits: configuredMaxCredits(activeProfile, overrides),
     profile,
     residency,

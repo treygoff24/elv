@@ -95,7 +95,7 @@ async function runScriptedWs(
     return inputError("Missing --send script.ndjson");
   }
   const baseQuery = namedEntry ? input.query : { ...entry?.defaultQuery, ...input.query };
-  const query = withConfiguredTtsModel(baseQuery, entry, config.defaultModelId);
+  const query = withConfiguredTtsModel(baseQuery, entry, config.defaultTtsModelId);
   const script = input.send ? parseScriptFile(input.send, protocol) : [];
   validateScriptFiles(script);
   const resolved = resolveTargetForInput(input.target, namedEntry, query, config.baseUrl);
@@ -251,10 +251,10 @@ interface WsPreflight {
 function withConfiguredTtsModel(
   query: Record<string, string>,
   entry: WsCatalogEntry | undefined,
-  defaultModelId: string | undefined,
+  defaultTtsModelId: string | undefined,
 ): Record<string, string> {
-  if (entry?.protocol !== "tts" || query.model_id || !defaultModelId) return query;
-  return { ...query, model_id: defaultModelId };
+  if (entry?.protocol !== "tts" || query.model_id || !defaultTtsModelId) return query;
+  return { ...query, model_id: defaultTtsModelId };
 }
 
 function wsPreflight(

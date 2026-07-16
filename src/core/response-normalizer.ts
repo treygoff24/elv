@@ -2,6 +2,7 @@ import { extname, join } from "node:path";
 import { Readable } from "node:stream";
 import { extension } from "mime-types";
 import { GUARDED_HINTS } from "./budget";
+import { decodeBase64 } from "./encoding";
 import { failure, success } from "./envelope";
 import { mergeErrorHints } from "./errors";
 import { normalizeProviderError } from "./error-normalizer";
@@ -484,43 +485,16 @@ async function streamSseEventsResponse(
     const files = await closeSseFiles(ndjson, audio, ctx, false);
     return fileSuccess(base, files, warnings);
   } catch (error) {
-    const files: FileRecord[] = [];
-    if (eventCount > 0) {
-      files.push(...(await closeSseFiles(ndjson, undefined, ctx, true)));
-    } else {
-      await ndjson.abort();
-    }
-    if (audio) {
-      if (audioBytes > 0) {
-        files.push(...(await closeSseFiles(undefined, audio, ctx, true)));
-      } else {
-        await audio.abort();
-      }
-    }
-    const parseError = error instanceof Error ? error.message : String(error);
-    return failure({
-      cmd: ctx.cmd,
-      operation_id: op.operationId,
-      http: base.http,
-      error: {
-        type: "provider_error",
-        code: "invalid_sse_stream",
-        message: "Provider returned a malformed SSE stream",
-        raw: { parse_error: parseError },
-      },
-      retry: { recommended: false, after_ms: null },
-      cost: base.cost,
-      files: files.length > 0 ? files : undefined,
-      warnings: optional(warnings),
-      hints:
-        files.length > 0
-          ? [
-              {
-                cmd: `elv view ${shellArg(files[0]!.path)}`,
-                why: "Inspect preserved partial output; provider credits may already have been consumed.",
-              },
-            ]
-          : [],
+    return streamFailure(ctx, op, base, warnings, error, {
+      ndjson,
+      audio,
+      eventCount,
+      audioBytes,
+      closeNdjson: () => closeSseFiles(ndjson, undefined, ctx, true),
+      closeAudio: () => closeSseFiles(undefined, audio!, ctx, true),
+      code: "invalid_sse_stream",
+      message: "Provider returned a malformed SSE stream",
+      noFilesHints: [],
     });
   }
 }
@@ -548,6 +522,66 @@ async function closeSseFiles(
     });
   }
   return files;
+}
+
+interface StreamFailureOptions {
+  ndjson: ReturnType<typeof tempFileWriter>;
+  audio: ReturnType<typeof tempFileWriter> | undefined;
+  eventCount: number;
+  audioBytes: number;
+  closeNdjson: () => Promise<FileRecord[]>;
+  closeAudio: () => Promise<FileRecord[]>;
+  code: string;
+  message: string;
+  noFilesHints: Hint[];
+}
+
+async function streamFailure(
+  ctx: ResponseContext,
+  op: OperationCard,
+  base: Omit<SuccessEnvelope, "v" | "ok">,
+  warnings: Warning[],
+  error: unknown,
+  options: StreamFailureOptions,
+): Promise<Envelope> {
+  const files: FileRecord[] = [];
+  if (options.eventCount > 0) {
+    files.push(...(await options.closeNdjson()));
+  } else {
+    await options.ndjson.abort();
+  }
+  if (options.audio) {
+    if (options.audioBytes > 0) {
+      files.push(...(await options.closeAudio()));
+    } else {
+      await options.audio.abort();
+    }
+  }
+  const parseError = error instanceof Error ? error.message : String(error);
+  return failure({
+    cmd: ctx.cmd,
+    operation_id: op.operationId,
+    http: base.http,
+    error: {
+      type: "provider_error",
+      code: options.code,
+      message: options.message,
+      raw: { parse_error: parseError },
+    },
+    retry: { recommended: false, after_ms: null },
+    cost: base.cost,
+    files: files.length > 0 ? files : undefined,
+    warnings: optional(warnings),
+    hints:
+      files.length > 0
+        ? [
+            {
+              cmd: `elv view ${shellArg(files[0]!.path)}`,
+              why: "Inspect preserved partial output; provider credits may already have been consumed.",
+            },
+          ]
+        : options.noFilesHints,
+  });
 }
 
 function feedSse(state: SseParserState, text: string, final: boolean): SseFrame[] {
@@ -654,7 +688,7 @@ function extractSseAudio(
   event: string | undefined,
 ): { data: unknown; audio?: Buffer } {
   if (event === "audio_chunk" && typeof payload === "string") {
-    return { data: null, audio: decodeBase64(payload) };
+    return { data: null, audio: decodeBase64(payload, "stream event") };
   }
   if (!isRecord(payload)) return { data: payload };
   const output = { ...payload };
@@ -664,24 +698,9 @@ function extractSseAudio(
     encoded ??= output[key];
     delete output[key];
   }
-  return encoded === undefined ? { data: output } : { data: output, audio: decodeBase64(encoded) };
-}
-
-function decodeBase64(value: string): Buffer {
-  const encoded = value.trim();
-  const padding = encoded.indexOf("=");
-  const unpadded = padding === -1 ? encoded : encoded.slice(0, padding);
-  const suffix = padding === -1 ? "" : encoded.slice(padding);
-  if (
-    encoded.length === 0 ||
-    !/^[A-Za-z0-9+/]+$/u.test(unpadded) ||
-    !/^={0,2}$/u.test(suffix) ||
-    unpadded.length % 4 === 1 ||
-    (suffix.length > 0 && encoded.length % 4 !== 0)
-  ) {
-    throw new Error("Invalid base64 audio in stream event");
-  }
-  return Buffer.from(encoded, "base64");
+  return encoded === undefined
+    ? { data: output }
+    : { data: output, audio: decodeBase64(encoded, "stream event") };
 }
 
 async function streamJsonEventsResponse(
@@ -744,50 +763,32 @@ async function streamJsonEventsResponse(
     }
     return fileSuccess(base, files, warnings);
   } catch (error) {
-    const files: FileRecord[] = [];
-    if (eventCount > 0) {
-      const path = await ndjson.close();
-      files.push({
-        ...(await fileRecord(path, { hash: ctx.hash })),
-        mime: "application/x-ndjson",
-        partial: true,
-      });
-    } else {
-      await ndjson.abort();
-    }
-    if (audio) {
-      if (audioBytes > 0) {
-        const path = await audio.close();
-        files.push({ ...(await fileRecord(path, { hash: ctx.hash })), partial: true });
-      } else {
-        await audio.abort();
-      }
-    }
-    const parseError = error instanceof Error ? error.message : String(error);
-    return failure({
-      cmd: ctx.cmd,
-      operation_id: op.operationId,
-      http: base.http,
-      error: {
-        type: "provider_error",
-        code: "invalid_json_events_stream",
-        message: "Provider returned a malformed JSON events stream",
-        raw: { parse_error: parseError },
+    return streamFailure(ctx, op, base, warnings, error, {
+      ndjson,
+      audio,
+      eventCount,
+      audioBytes,
+      closeNdjson: async () => {
+        const path = await ndjson.close();
+        return [
+          {
+            ...(await fileRecord(path, { hash: ctx.hash })),
+            mime: "application/x-ndjson",
+            partial: true,
+          },
+        ];
       },
-      retry: { recommended: false, after_ms: null },
-      cost: base.cost,
-      files: files.length > 0 ? files : undefined,
-      warnings: optional(warnings),
-      hints: [
-        files.length > 0
-          ? {
-              cmd: `elv view ${shellArg(files[0]!.path)}`,
-              why: "Inspect preserved partial output; provider credits may already have been consumed.",
-            }
-          : {
-              cmd: ctx.cmd,
-              why: "Retry only if needed; provider credits may already have been consumed.",
-            },
+      closeAudio: async () => {
+        const path = await audio!.close();
+        return [{ ...(await fileRecord(path, { hash: ctx.hash })), partial: true }];
+      },
+      code: "invalid_json_events_stream",
+      message: "Provider returned a malformed JSON events stream",
+      noFilesHints: [
+        {
+          cmd: ctx.cmd,
+          why: "Retry only if needed; provider credits may already have been consumed.",
+        },
       ],
     });
   }
@@ -814,7 +815,9 @@ async function writeJsonEvent(
       : event.audio
     : undefined;
   const audio =
-    typeof encoded === "string" && encoded.length > 0 ? decodeBase64(encoded) : undefined;
+    typeof encoded === "string" && encoded.length > 0
+      ? decodeBase64(encoded, "stream event")
+      : undefined;
   await ndjson.write(`${JSON.stringify(event)}\n`);
   if (audio) {
     await audioWriter().write(audio);

@@ -299,37 +299,40 @@ const COST_HINTS = [
 
 function normalizeListOptions(options: OpsListOptions): NormalizedListOptions | string {
   const method = normalizeEnum(options.method?.toUpperCase(), HTTP_METHODS, "--method");
-  if (typeof method === "string" && !HTTP_METHODS.includes(method as HttpMethod)) return method;
+  if (!method.ok) return method.error;
   const risk = normalizeEnum(options.risk?.toLowerCase(), RISKS, "--risk");
-  if (typeof risk === "string" && !RISKS.includes(risk as Risk)) return risk;
+  if (!risk.ok) return risk.error;
   const stream = normalizeEnum(options.stream?.toLowerCase(), STREAM_KINDS, "--stream");
-  if (typeof stream === "string" && !STREAM_KINDS.includes(stream as (typeof STREAM_KINDS)[number]))
-    return stream;
+  if (!stream.ok) return stream.error;
   const cost = normalizeEnum(options.cost?.toLowerCase(), COST_HINTS, "--cost");
-  if (typeof cost === "string" && !COST_HINTS.includes(cost as CostHint)) return cost;
+  if (!cost.ok) return cost.error;
   const limit = options.limit === undefined ? 100 : parseLimit(options.limit);
   if (limit === null || limit > 500) return "--limit must be an integer from 1 to 500";
 
   return {
     group: options.group?.trim().toLowerCase() || undefined,
-    method: method as HttpMethod | undefined,
-    risk: risk as Risk | undefined,
-    stream: stream as StreamKind | undefined,
-    cost: cost as CostHint | undefined,
+    method: method.value,
+    risk: risk.value,
+    stream: stream.value,
+    cost: cost.value,
     deprecated: options.deprecated ?? false,
     uploads: options.uploads ?? false,
     limit,
   };
 }
 
+type EnumResult<T extends string> =
+  | { ok: true; value: T | undefined }
+  | { ok: false; error: string };
+
 function normalizeEnum<T extends string>(
   value: string | undefined,
   allowed: readonly T[],
   flag: string,
-): T | undefined | string {
-  if (value === undefined) return undefined;
-  if (allowed.includes(value as T)) return value as T;
-  return `${flag} must be one of: ${allowed.join(", ")}`;
+): EnumResult<T> {
+  if (value === undefined) return { ok: true, value: undefined };
+  if (allowed.includes(value as T)) return { ok: true, value: value as T };
+  return { ok: false, error: `${flag} must be one of: ${allowed.join(", ")}` };
 }
 
 function matchesListFilters(op: OperationCard, options: NormalizedListOptions): boolean {

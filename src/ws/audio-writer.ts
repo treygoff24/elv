@@ -1,4 +1,5 @@
 import { join } from "node:path";
+import { decodeBase64 } from "../core/encoding";
 import { tempFileWriter } from "../core/files";
 import { isRecord } from "../util/json";
 import type { TempFileWriter } from "../core/files";
@@ -24,7 +25,7 @@ export class AudioWriter {
     const audio = audioBase64(event);
     if (!audio) return false;
     this.writer ??= tempFileWriter(this.path);
-    await this.writer.write(decodeBase64(audio));
+    await this.writer.write(decodeBase64(audio, "WebSocket event"));
     this.wroteAudio = true;
     return true;
   }
@@ -52,21 +53,4 @@ function audioBase64(event: unknown): string | null {
   if (!isRecord(event)) return null;
   const value = event.audio ?? event.audio_base64;
   return typeof value === "string" && value.length > 0 ? value : null;
-}
-
-function decodeBase64(value: string): Buffer {
-  const encoded = value.trim();
-  const padding = encoded.indexOf("=");
-  const unpadded = padding === -1 ? encoded : encoded.slice(0, padding);
-  const suffix = padding === -1 ? "" : encoded.slice(padding);
-  if (
-    encoded.length === 0 ||
-    !/^[A-Za-z0-9+/]+$/u.test(unpadded) ||
-    !/^={0,2}$/u.test(suffix) ||
-    unpadded.length % 4 === 1 ||
-    (suffix.length > 0 && encoded.length % 4 !== 0)
-  ) {
-    throw new Error("Invalid base64 audio in WebSocket event");
-  }
-  return Buffer.from(encoded, "base64");
 }

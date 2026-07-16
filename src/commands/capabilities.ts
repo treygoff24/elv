@@ -3,6 +3,7 @@ import { ENVELOPE_VERSION, ExitCode } from "../core/types";
 import { loadRegistry, readRegistryCache } from "../openapi/registry";
 import { listWsCatalog } from "../ws/catalog";
 import type { CommandResult } from "../core/types";
+import type { RegistryCache } from "../openapi/registry";
 import type { OperationCard } from "../openapi/types";
 
 interface CapabilitiesOptions {
@@ -237,34 +238,17 @@ function serviceGroups(
     .map(([name, operations]) => ({ name, operations }));
 }
 
-function specSummary(cache: unknown, operations: number): Record<string, unknown> {
-  const record = asRecord(cache);
-  const provenance = asRecord(record.provenance);
+function specSummary(cache: RegistryCache | null, operations: number): Record<string, unknown> {
+  const provenance = cache?.provenance;
   return {
-    source: stringValue(provenance.source) ?? stringValue(record.source) ?? "registry_cache",
-    retrieved_at: stringValue(provenance.retrieved_at) ?? stringValue(record.retrieved_at) ?? null,
-    sha256: stringValue(provenance.sha256) ?? stringValue(record.sha256) ?? null,
-    paths: numberValue(provenance.paths) ?? null,
-    total_operations:
-      numberValue(provenance.total_operations) ?? numberValue(record.totalOperations) ?? operations,
-    callable_operations: numberValue(provenance.callable_operations) ?? operations,
-    skipped_operations:
-      numberValue(provenance.skipped_operations) ?? numberValue(record.skippedOperations) ?? 0,
-    schemas: numberValue(provenance.schemas) ?? null,
-    generated_at: stringValue(record.generated_at) ?? null,
+    source: provenance?.source ?? "registry_cache",
+    retrieved_at: provenance?.retrieved_at ?? null,
+    sha256: provenance?.sha256 ?? null,
+    paths: provenance?.paths ?? null,
+    total_operations: provenance?.total_operations ?? cache?.totalOperations ?? operations,
+    callable_operations: provenance?.callable_operations ?? operations,
+    skipped_operations: provenance?.skipped_operations ?? cache?.skippedOperations ?? 0,
+    schemas: provenance?.schemas ?? null,
+    generated_at: cache?.generated_at ?? null,
   };
-}
-
-function asRecord(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
-}
-
-function stringValue(value: unknown): string | undefined {
-  return typeof value === "string" ? value : undefined;
-}
-
-function numberValue(value: unknown): number | undefined {
-  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }

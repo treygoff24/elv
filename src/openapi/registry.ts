@@ -3,7 +3,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { compileSpec } from "./compile-spec";
+import { compileSpec, curationInputs } from "./compile-spec";
 import { parseJson } from "../util/json";
 import type { CompileSpecResult, OpenApiDocument } from "./compile-spec";
 import type { OperationCard } from "./types";
@@ -35,6 +35,7 @@ export interface SpecProvenance extends SpecCounts {
 export interface RegistryCache {
   schema: "elv.openapi.cache.v3";
   version: string;
+  fingerprint: string;
   generated_at: string;
   totalOperations: number;
   skippedOperations: number;
@@ -85,6 +86,8 @@ export function readRegistryCache(options: RegistryOptions = {}): RegistryCache 
   if (parsed.schema !== "elv.openapi.cache.v3") return null;
   if (parsed.version !== packageVersion(options.version)) return null;
   if (!Array.isArray(parsed.operations)) return null;
+  const sourceSha256 = cacheSourceSha256(options, parsed);
+  if (!sourceSha256 || parsed.fingerprint !== registryFingerprint(sourceSha256)) return null;
   return parsed as RegistryCache;
 }
 
@@ -102,6 +105,7 @@ export function writeRegistryCache(
     `${JSON.stringify({
       schema: "elv.openapi.cache.v3",
       version: packageVersion(options.version),
+      fingerprint: registryFingerprint(provenance.sha256),
       generated_at: new Date().toISOString(),
       totalOperations: compiled.totalOperations,
       skippedOperations: compiled.skippedOperations,
@@ -168,6 +172,57 @@ function packageVersion(override?: string): string {
     }
   }
   return "0.0.0";
+}
+
+function cacheSourceSha256(options: RegistryOptions, cache: Partial<RegistryCache>): string | null {
+  const cachedSourceSha256 = cache.provenance?.sha256;
+  if (!cachedSourceSha256) return null;
+
+  if (options.specDocument !== undefined) {
+    return cache.provenance?.source === "memory"
+      ? hashText(JSON.stringify(options.specDocument))
+      : null;
+  }
+  if (cache.provenance?.source === "memory") return null;
+
+  const sourcePath = registrySourcePath(options);
+  if (cache.provenance?.source !== sourcePath) return cachedSourceSha256;
+  try {
+    return hashText(readFileSync(sourcePath));
+  } catch {
+    return null;
+  }
+}
+
+function registrySourcePath(options: RegistryOptions): string {
+  return (
+    options.specPath ??
+    (existsSync(rawSpecCachePath(options)) ? rawSpecCachePath(options) : vendoredSpecPath())
+  );
+}
+
+function registryFingerprint(sourceSha256: string): string {
+  return hashText(
+    canonicalJson({
+      source_sha256: sourceSha256,
+      curation: curationInputs(),
+    }),
+  );
+}
+
+function hashText(value: string | Buffer): string {
+  return createHash("sha256").update(value).digest("hex");
+}
+
+function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+  if (value && typeof value === "object") {
+    return `{${Object.entries(value as Record<string, unknown>)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([key, entry]) => `${JSON.stringify(key)}:${canonicalJson(entry)}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value) ?? "null";
 }
 
 export function vendoredSpecPath(moduleUrl: string | URL = import.meta.url): string {
