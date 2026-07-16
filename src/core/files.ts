@@ -98,6 +98,11 @@ export function deriveFilename(
   return `${stem}.${cleanExt}`;
 }
 
+/** Matches names produced by deriveFilename(op, "sensitive", "json") — keep in sync. */
+export function isSensitiveSpillFilename(name: string): boolean {
+  return name.endsWith("-sensitive.json") || name.endsWith(".sensitive.json");
+}
+
 export function resolveOutTarget(
   out: string | undefined,
   multiFile: boolean,

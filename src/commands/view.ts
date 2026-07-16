@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { basename, resolve } from "node:path";
 import { failure, success } from "../core/envelope";
 import { validationError } from "../core/errors";
+import { isSensitiveSpillFilename } from "../core/files";
 import { SMALL_JSON_LIMIT, summarizeData } from "../core/response-normalizer";
 import { containsCredential } from "../core/redaction";
 import { ExitCode } from "../core/types";
@@ -53,7 +54,7 @@ export function buildViewResult(path: string, options: ViewOptions = {}): Comman
     return { env: validationError(cmd, message), exitCode: ExitCode.InputValidation };
   }
 
-  if (basename(resolved).endsWith(".sensitive.json") || containsCredential(parsed)) {
+  if (isSensitiveSpillFilename(basename(resolved)) || containsCredential(parsed)) {
     return {
       env: validationError(cmd, `Refusing to render sensitive provider response: ${resolved}`, {
         hints: [

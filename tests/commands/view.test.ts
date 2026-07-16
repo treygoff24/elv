@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { buildViewResult } from "../../src/commands/view";
+import { deriveFilename } from "../../src/core/files";
 import { ExitCode } from "../../src/core/types";
 
 let dir: string;
@@ -149,16 +150,24 @@ describe("view command", () => {
   });
 
   it("refuses sensitive spill files even when credential heuristics miss the body", () => {
-    const file = join(dir, "foo.sensitive.json");
-    writeFileSync(file, JSON.stringify({ jwt: "x" }), "utf8");
+    // The real spill name comes from deriveFilename(op, "sensitive", "json") — test that, not a hand-written guess.
+    for (const name of [
+      deriveFilename("get_livekit_token", "sensitive", "json"),
+      "foo.sensitive.json",
+    ]) {
+      const file = join(dir, name);
+      writeFileSync(file, JSON.stringify({ jwt: "x" }), "utf8");
 
-    const { env, exitCode } = buildViewResult(file);
+      const { env, exitCode } = buildViewResult(file);
 
-    expect(exitCode).toBe(ExitCode.InputValidation);
-    expect(env).toMatchObject({
-      ok: false,
-      error: { message: expect.stringContaining("Refusing to render sensitive provider response") },
-    });
+      expect(exitCode).toBe(ExitCode.InputValidation);
+      expect(env).toMatchObject({
+        ok: false,
+        error: {
+          message: expect.stringContaining("Refusing to render sensitive provider response"),
+        },
+      });
+    }
   });
 
   it("renders the same unrecognized credential key from a normal response spill", () => {
