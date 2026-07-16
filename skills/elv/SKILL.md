@@ -3,9 +3,11 @@ name: elv
 description: >-
   Use the elv CLI for ElevenLabs audio and voice work from the command line:
   generate speech (TTS), transcribe audio (STT), create sound effects or music,
-  clone, convert, or isolate voices, dub video/audio, and manage ElevenLabs
-  voices, models, conversational agents, history, and usage. elv also invokes ANY
-  of the ~320 ElevenLabs API operations by id, plus raw REST and WebSocket calls.
+  clone, convert, or isolate voices, dub video/audio, edit Dubbing Project
+  transcripts, and manage ElevenLabs voices, account-visible models,
+  conversational agents, workspaces, history, and usage. elv invokes all 338
+  operations compiled from its pinned ElevenLabs OpenAPI document, plus raw REST
+  and protocol-aware WebSocket calls.
   It is agent-first: every command is non-interactive and prints exactly one JSON
   envelope to stdout, with binary and large output written to disk. Reach for elv
   whenever the user wants ElevenLabs text-to-speech, speech-to-text, voice
@@ -46,19 +48,22 @@ entry with a suggested next command (e.g. `elv config doctor` on an auth failure
 
 ## Three ways to act
 
-1. Aliases for the common workflows. Twelve thin commands that build the request
+1. Aliases for the common workflows. Fourteen thin commands that build the request
    and call the same core runner as `call`: `tts`, `stt`, `music`, `sfx`,
-   `voice-change`, `voice-isolate`, `dubbing`, `voices`, `models`, `agents`,
-   `history`, `usage`. Use these first when one fits.
-2. `elv call <operation_id> --json '{...}'` for full coverage of every operation
-   in the spec. Use this when no alias fits.
+   `voice-change`, `voice-isolate`, `dubbing`, `dubbing-project`, `voices`,
+   `models`, `agents`, `history`, `usage`, `workspace`. Use these first when one
+   fits.
+2. `elv call <operation_id> --json '{...}'` for all 338 callable operations in
+   the pinned spec. Use this when no alias fits.
 3. Escape hatches when the registry is not enough: `elv http <METHOD> <path>`
-   for raw REST, `elv ws <catalog|url>` for scripted WebSocket sessions (requires
-   a `--send` NDJSON script; run `elv ws --list` for the catalog), and `elv wait`
-   to poll an operation until a status field resolves.
+   for forward-compatible REST, `elv ws <catalog|url>` for protocol-aware
+   WebSocket sessions (run `elv ws --list` for the catalog), and `elv wait` to
+   poll an operation until a status field resolves.
 
-All three share the same auth, envelope, retries, redaction, budget guard, and
-file output.
+They share the envelope and configuration contract. Known raw REST paths inherit
+registry safety and cost metadata. WebSocket safety and cost behavior is based
+on the selected protocol; an unknown raw target cannot inherit metadata that the
+CLI does not have.
 
 Parent alias commands need a subcommand. `elv voices` alone exits 2 and lists
 the valid subcommands; run `elv voices list`. (`elv ops`, `elv config`, and
@@ -69,14 +74,21 @@ the valid subcommands; run `elv voices list`. (`elv ops`, `elv config`, and
 When you do not know the operation id or its shape:
 
 ```bash
+elv capabilities                           # bounded machine contract + service map
+elv ops list --risk generate --limit 20    # filter the operation inventory
 elv ops search "text to speech"          # find operation ids by keyword
 elv ops get text_to_speech_full          # method, path, params, risk
 elv ops schema text_to_speech_full --example   # runnable elv call skeleton
+elv spec status                           # active spec provenance
 ```
 
 `--example` prints a ready-to-run `call` with the input buckets filled in. Add
 `--raw` to `ops schema` for the raw JSON Schema. `elv <command> --help` prints
-that command's own flags and arguments.
+that command's own flags and arguments. The pinned July 16, 2026 document has
+339 published operations at SHA-256
+`de0476611805f3ee4e6a6c76dcdd6cc9686b8daee5757e6465d2974094c844ce`;
+338 are callable and one deprecated signed-URL route is skipped. Use `spec diff`
+to inspect current drift and `spec update` to refresh the validated cache.
 
 ## Safety gates
 
@@ -84,13 +96,14 @@ No interactive prompts ever. Destructive operations (DELETE), outbound
 calls/messages, API-key mutation, and member changes require `--yes`. GET reads
 are never gated.
 
-Without `--yes`, a gated op exits 4:
+### Confirmation failure
 
 ```bash
 elv call delete_voice --path voice_id=VOICE_ID
 # exit 4, {"ok":false,"error":{"type":"confirmation_required","code":"confirmation",...}}
-elv call delete_voice --path voice_id=VOICE_ID --yes   # proceeds
 ```
+
+Add `--yes` only after confirming the deletion is intended.
 
 `--max-credits N` (or `ELV_MAX_CREDITS`) blocks a credit-consuming op pre-flight,
 before any network call, when the estimate exceeds the ceiling:
@@ -101,7 +114,10 @@ elv tts --voice-id VOICE --text "Long script..." --max-credits 5
 ```
 
 Estimates are calibrated: TTS Flash/Turbo about 0.5 credits/char, standard TTS
-about 1.0/char, STT about 27 credits/min.
+about 1.0/char, STT about 27 credits/min. A configured ceiling fails closed for
+generation and STT/agent WebSocket sessions whose cost cannot be estimated. Raw
+or non-generation operations with unknown cost report `unknown_unbounded`; the
+ceiling is not a guarantee there.
 
 `--dry-run` validates and returns a redacted request preview without touching the
 network. It runs before the `--yes` and budget gates, so the preview tells you
@@ -115,6 +131,10 @@ elv tts --voice-id VOICE --text "Hello" --dry-run
 
 Do not `--dry-run` secret-create ops with real secret values; redaction keys on
 field names and may echo a secret passed as a plain value.
+
+Provider responses containing tokens, signed URLs, API keys, or similar
+credentials are file-only: the file mode is `0600`, the envelope marks it
+`sensitive: true`, and `elv view` refuses to display it.
 
 ## Output handling
 
@@ -151,14 +171,36 @@ but still returns the `next` page command inline so you can keep paging.
 When you only need a couple of fields per row, skip the spill: the list aliases
 take `--fields <csv>` and return the whole list projected and inline.
 `elv voices list --fields voice_id,name` is a sub-KB envelope instead of a ~100 KB
-spill — the fastest way to get an id/name table to pick from.
+spill, which is the fastest way to get an id/name table to pick from.
 
 ## Auth
 
 Set `ELEVENLABS_API_KEY` in the environment; elv sends it as the `xi-api-key`
-header. Never pass the key as a CLI argument. It never appears in output, logs,
-dry-run previews, or files. Check setup with `elv config get` and
+header. Never pass the key as a CLI argument. Request credentials are redacted
+from envelopes and logs. Credential-producing provider responses follow the
+restrictive file-only contract above. Check setup with `elv config get` and
 `elv config doctor`.
+
+## Models
+
+`elv models list` returns the account-visible `/v1/models` response. It is not
+an exhaustive catalog of STT, realtime STT, Sound Effects, Text to Voice, Music,
+or other product model IDs. Alias model values pass through as strings. A
+profile's `default_model_id` applies to TTS REST and named TTS WebSocket calls
+when no model is supplied.
+
+Current documented families are:
+
+- TTS: `eleven_v3`, `eleven_multilingual_v2`, `eleven_flash_v2_5`, `eleven_flash_v2`
+- Text to Voice: `eleven_ttv_v3`, `eleven_multilingual_ttv_v2`
+- Speech to Speech: `eleven_multilingual_sts_v2`, `eleven_english_sts_v2`
+- STT: `scribe_v2`, `scribe_v2_realtime`
+- Sound Effects: `eleven_text_to_sound_v2`
+- Music: `music_v2`, `music_v1`
+
+Deprecated: replace `eleven_turbo_v2_5` with `eleven_flash_v2_5`,
+`eleven_turbo_v2` with `eleven_flash_v2`, and `scribe_v1` with `scribe_v2`.
+Actual availability depends on the account and rollout.
 
 ## Recipes
 
@@ -175,21 +217,42 @@ dry-run previews, or files. Check setup with `elv config get` and
 | Text to speech | `elv tts --voice-id VOICE_ID --text "Hello" --model eleven_flash_v2_5 --out out.mp3` |
 | TTS by voice name | `elv tts --voice "Rachel" --text "Hello" --out out.mp3` |
 | TTS with timestamps | `elv tts --voice-id VOICE_ID --text "Hello" --timestamps --out out.mp3` (writes `out.mp3` plus a sidecar `out.timestamps.json` with the alignment data) |
-| Speech to text | `elv stt --file note.m4a --model scribe_v1` |
+| Speech to text | `elv stt --file note.m4a --model scribe_v2` |
 | Sound effect | `elv sfx --prompt "thunderclap" --duration 5 --out sfx.mp3` |
-| Music | `elv music --prompt "lofi beat" --length-ms 30000 --out track.mp3` |
+| Music | `elv music --prompt "lofi beat" --model music_v2 --length-ms 30000 --out track.mp3` |
+| Music detailed SSE | `elv music detailed-stream --prompt "lofi beat" --model music_v2 --out ./music-session` (audio + metadata NDJSON in `files[]`) |
 | Convert voice (speech to speech) | `elv voice-change --voice-id VOICE_ID --file in.mp3 --out out.mp3` |
 | Isolate voice from noise | `elv voice-isolate --file in.mp3 --out clean.mp3` |
 | Clone a voice (instant) | `elv voices clone-instant --name "My Voice" --file sample.mp3` |
 | Create a dub, wait for it | `elv dubbing create --file in.mp4 --source en --target es --wait` |
 | Get dubbed audio | `elv dubbing audio --id DUB_ID --language es --out dubbed.mp3` |
 | List agents | `elv agents list` |
+| Create agent test | `elv agents tests create --json-file test.json` |
+| Run agent tests | `elv agents tests run --agent-id AGENT_ID --json-file run.json` |
+| Agent RAG diagnostic | `elv agents rag-query --agent-id AGENT_ID --query "refund policy"` |
+| List workspace members | `elv workspace members list` |
+| Create service account | `elv workspace service-accounts create --name deployer --yes` (credential response is file-only) |
+| Get Dubbing Project transcript | `elv dubbing-project transcript get --project-id PROJECT_ID` |
 | Speech history | `elv history list --limit 20` |
 | Any operation by id | `elv call <operation_id> --json '{"path":{...},"query":{...},"body":{...}}'` |
 | Inspect a spilled JSON result | `elv view <path> --path data.voices.0` |
 | Raw REST call | `elv http GET /v1/user` |
 | Scripted WebSocket session | `elv ws tts-realtime --query voice_id=VOICE --send script.ndjson --out ./session` |
+| Realtime STT WebSocket | `elv ws stt-realtime --send transcribe.ndjson --out ./session` (supports `send_binary_file`) |
+| Receive conversation monitor | `elv ws convai-monitor --query conversation_id=ID --out ./monitor` |
 | Poll a long job | `elv wait --operation get_dubbed_metadata --json '{"path":{"dubbing_id":"abc"}}' --status-path '$.data.status' --success 'dubbed' --failure 'failed' --interval-ms 2000 --timeout-ms 600000` (`--failure` is optional; success-only polling works) |
+
+`agents simulate` remains for compatibility but invokes an operation ElevenLabs
+marks deprecated. Prefer `agents tests create` followed by `agents tests run`.
+
+The WebSocket catalog is `tts-realtime`, `tts-multi`, `stt-realtime`, `convai`,
+and `convai-monitor`. TTS, STT, agent, and monitor scripts have protocol-specific
+validation. Outbound agent or monitor actions require `--yes`; receive-only
+monitoring does not. Use `--dry-run` before connecting. Speech Engine upstream
+is not a client target because ElevenLabs connects to a server you host.
+
+The public API does not expose ElevenCreative's UI-only Image & Video, Avatars,
+Ads, Flows, or editor workflows. Do not reverse-engineer private endpoints.
 
 ### call input shape
 

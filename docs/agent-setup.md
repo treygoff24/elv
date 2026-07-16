@@ -41,7 +41,7 @@ npm run build
 
 ## Step 2: Make `elv` runnable
 
-If you installed via `npm install -g`, `elv` is already on your PATH — skip to Step 3.
+If you installed via `npm install -g`, `elv` is already on your PATH. Skip to Step 3.
 
 Building from source, pick one of two approaches. To get a global `elv` command on your PATH, link the package:
 
@@ -60,7 +60,7 @@ node dist/cli.js --version
 
 `elv` reads the key from the environment and sends it as the `xi-api-key` header. Two rules are absolute:
 
-1. Never pass the key as a command-line argument. It is read only from the environment (or a profile that names an environment variable). Passing it as an arg would risk leaking it into shell history and process listings. The key never appears in `elv` output, dry-run previews, debug logs, or written files, and keeping it out of argv keeps it that way.
+1. Never pass the key as a command-line argument. It is read only from the environment (or a profile that names an environment variable). Passing it as an arg would risk leaking it into shell history and process listings. Request credentials are redacted from envelopes and logs. Provider responses that create credentials are written to restrictive files by design, as described below.
 2. Never commit the key. Do not write it into any tracked file. The repo's `.gitignore` already excludes the `.elv/` directory, and by default `elv` writes its output outside the repo under `~/.cache/elv/out`, so nothing it produces lands in a tracked file.
 
 The simplest setup is a single environment variable:
@@ -122,17 +122,22 @@ A read that costs nothing is another good smoke test:
 elv usage
 ```
 
-## Step 6: Discover operations
+## Step 6: Discover capabilities and operations
 
-`elv` exposes all 320 operations in the ElevenLabs OpenAPI spec. Find them by searching the registry, inspect one, then copy a runnable skeleton:
+The pinned July 16, 2026 ElevenLabs OpenAPI document contains 339 operations. `elv` compiles 338 and skips one deprecated signed-URL operation whose current replacement is available. Start with the service map, then search the registry, inspect an operation, and copy a runnable skeleton:
 
 ```bash
+elv capabilities
+elv ops list --group text_to_speech --limit 20
 elv ops search "text to speech"
 elv ops get text_to_speech_full
 elv ops schema text_to_speech_full --example
+elv spec status
 ```
 
-The `--example` output is a ready-to-run `elv call` skeleton. For common workflows there are twelve aliases (`tts`, `stt`, `music`, `sfx`, `voice-change`, `voice-isolate`, `dubbing`, `voices`, `agents`, `models`, `history`, `usage`) that build the input for you and call the same runner. For everything else, use `elv call <operation_id> --json '{...}'`, or the `http`, `ws`, and `wait` escape hatches.
+The `--example` output is a ready-to-run `elv call` skeleton. Fourteen common workflow aliases include `tts`, `stt`, `music`, `dubbing-project`, `agents`, and `workspace`; they build input and call the same runner. For the rest of the pinned REST surface, use `elv call <operation_id> --json '{...}'`. Use `http` for a published REST path newer than the snapshot, `ws` for the named client-side realtime protocols, and `wait` for polling.
+
+`elv models list` is account-visible state from `/v1/models`, not a complete cross-product model catalog. Use documented model IDs for each service; current STT examples should use `scribe_v2` rather than deprecated `scribe_v1`.
 
 ## Troubleshooting
 
@@ -144,7 +149,9 @@ Discovery reads a compiled registry cached under `~/.cache/elv` (override the lo
 elv spec update --offline
 ```
 
-That recompiles the registry from the bundled snapshot. To instead pull the latest spec live from ElevenLabs, run `elv spec update` (no flag), or `elv spec update --from <url-or-file>` for a specific source.
+That recompiles the registry from the bundled snapshot. Cache-format upgrades invalidate and rebuild older compiled registries automatically. To instead pull the latest spec live from ElevenLabs, run `elv spec update` (no flag), or `elv spec update --from <url-or-file>` for a specific source.
+
+Use `elv spec diff` first when you want to inspect added, removed, changed, or newly deprecated operations without writing the cache. `elv spec update --dry-run` performs the same validated comparison. A real update atomically replaces one authoritative envelope containing the bundled spec, compiled registry, and provenance only after compilation succeeds.
 
 ### A command failed: read the exit code first
 
@@ -166,10 +173,16 @@ That recompiles the registry from the bundled snapshot. To instead pull the late
 
 Binary and large payloads are not printed to stdout; they are written to disk and referenced as `files[]` in the envelope. By default they land in `~/.cache/elv/out`. Change the destination per command with `--out <file-or-dir>`, or globally with `ELV_OUTPUT_DIR` or a profile's `output_dir`.
 
+Music detailed streaming writes two files: decoded audio and metadata as NDJSON. Credential-producing responses also go to disk, but their envelope entry is marked `sensitive: true` and the file mode is `0600`. `elv view` refuses to render those sensitive responses; read one directly only when you intend to reveal and use the credential.
+
+### A credit ceiling rejected an operation without an estimate
+
+`--max-credits` fails closed for generation operations and STT or agent WebSocket sessions whose cost cannot be bounded before the request. Remove the ceiling only after inspecting `--dry-run` and deliberately accepting that risk. Raw and non-generation operations can instead report `unknown_unbounded`; their ceiling is not a guarantee.
+
 ### The build or typecheck fails
 
 Confirm Node is 22 or newer, delete `node_modules` and reinstall with `npm ci`, then `npm run build`. Run `npm run typecheck` for the detailed TypeScript output and `npm test` to confirm the suite passes.
 
 ## You're done
 
-When `elv config doctor` exits 0 and the dry-run in Step 5 returns a success envelope, the install is verified. For the runtime contract (envelope shape, safety flags, budget caps), read [AGENTS.md](../AGENTS.md). For day-to-day usage, the shipped skill is at [skills/elv/SKILL.md](../skills/elv/SKILL.md).
+When `elv config doctor` exits 0 and the dry-run in Step 5 returns a success envelope, the install is verified. For the runtime contract (envelope shape, safety flags, budget caps), read [AGENTS.md](../AGENTS.md). [API coverage](./api-coverage.md) records the pinned contract and deliberate exclusions. For day-to-day usage, the shipped skill is at [skills/elv/SKILL.md](../skills/elv/SKILL.md).

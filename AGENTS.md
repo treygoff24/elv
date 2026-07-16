@@ -1,6 +1,6 @@
 # elv agent usage
 
-Agent-first ElevenLabs CLI. Every command is non-interactive and prints **exactly one JSON object** to stdout — success or error. Branch on exit code first; parse the envelope when you need details.
+Agent-first ElevenLabs CLI. Every command is non-interactive and prints **exactly one JSON object** to stdout: success or error. Branch on exit code first; parse the envelope when you need details.
 
 ## One envelope per command
 
@@ -13,8 +13,8 @@ Stdout is always a single `SuccessEnvelope` or `ErrorEnvelope` (`v: 1`, `ok: tru
 | 0    | Success                                                     |
 | 2    | Input / validation                                          |
 | 3    | Auth / permission                                           |
-| 4    | Confirmation required — add `--yes`                         |
-| 5    | Budget ceiling — raise `--max-credits` or lower the op cost |
+| 4    | Confirmation required: add `--yes`                         |
+| 5    | Budget ceiling: raise `--max-credits` or lower the op cost |
 | 6    | Out of credits at provider                                  |
 | 7    | Transient / retryable exhausted                             |
 | 8    | Provider error                                              |
@@ -23,12 +23,17 @@ Stdout is always a single `SuccessEnvelope` or `ErrorEnvelope` (`v: 1`, `ok: tru
 ## Discovery
 
 ```bash
+elv capabilities
+elv ops get compose_detailed_stream
 elv ops search "text to speech"
 elv ops get text_to_speech_full
 elv ops schema text_to_speech_full --example   # runnable skeleton
+elv spec status
 ```
 
-Use `elv call <operation_id> --json …` for full OpenAPI coverage. Use aliases (`tts`, `stt`, `music`, `sfx`, `voice-isolate`, `voices`, `models`, `agents`, `history`, `usage`, …) for common workflows — they call the same runner as `call`.
+The pinned July 16, 2026 spec contains 339 documented operations at SHA-256 `de0476611805f3ee4e6a6c76dcdd6cc9686b8daee5757e6465d2974094c844ce`; 338 are callable and one deprecated signed-URL route is skipped. Use `elv call <operation_id> --json …` for that compiled REST surface. Use aliases (`tts`, `stt`, `music`, `sfx`, `voice-isolate`, `dubbing-project`, `voices`, `models`, `agents`, `workspace`, …) for common workflows. `elv http` is the forward-compatible REST escape hatch.
+
+`elv models list` reports account-visible `/v1/models` results, not every model across every product. Current examples should prefer `scribe_v2` over deprecated `scribe_v1`, Flash over deprecated Turbo, and `agents tests create` plus `agents tests run` over deprecated `agents simulate`.
 
 ## Safety: `--yes`
 
@@ -48,21 +53,29 @@ export ELV_MAX_CREDITS=1000
 elv usage   # check balance / usage stats
 ```
 
+When a configured ceiling cannot bound a generation or STT/agent WebSocket session, the CLI fails closed. Raw or non-generation operations with unknown cost report `unknown_unbounded`; do not treat that ceiling as a guarantee.
+
 ## Dry-run
 
 `--dry-run` validates and returns a redacted request preview **without** calling the network. It runs **before** `--yes` and budget gates; the envelope includes `would_require_yes` and `would_exceed_budget` when applicable.
 
-**Do not** `--dry-run` secret-create ops with real secret values — redaction is key-name based and may echo secret body values.
+**Do not** `--dry-run` secret-create ops with real secret values. Redaction is key-name based and may echo secret body values.
+
+Provider responses containing tokens, signed URLs, API keys, or similar credentials are never returned inline. They are written to a mode `0600` file marked `sensitive: true`; `elv view` refuses to render it.
 
 ## Escape hatches
 
 When the registry is not enough:
 
-- `elv http <method> <path>` — arbitrary REST
-- `elv ws <catalog-name|url>` — scripted WebSocket sessions
-- `elv wait` — poll an operation until a JSONPath status resolves
+- `elv http <method> <path>`: arbitrary REST; known paths inherit registry safety/cost metadata
+- `elv ws <catalog-name|url>`: protocol-aware scripted WebSocket sessions
+- `elv wait`: poll an operation until a JSONPath status resolves
 
-Same auth, envelope, retries, redaction, and `--yes`/`--max-credits` gating as `call`.
+The WebSocket catalog includes `tts-realtime`, `tts-multi`, `stt-realtime`, `convai`, and `convai-monitor`. Realtime STT scripts may use binary file actions. Monitoring is receive-only without `--send`; outbound agent or monitor actions require `--yes`. Use `--dry-run` before a session. Speech Engine upstream is excluded because ElevenLabs connects to a server you host rather than accepting an outbound client connection.
+
+`elv music detailed-stream` parses the Music SSE response into audio plus metadata NDJSON files. `dubbing-project` edits source and target transcripts; `workspace` lists members and manages service accounts.
+
+The public API contract does not include ElevenCreative's UI-only Image & Video, Avatars, Ads, Flows, or editor workflows. `elv` does not reverse-engineer private endpoints.
 
 ## Auth and config
 

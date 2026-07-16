@@ -6,6 +6,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- Refreshed the vendored ElevenLabs OpenAPI document to the July 16, 2026 revision: 339 documented operations, 338 callable operations, 268 paths, and 1,345 schemas at SHA-256 `de0476611805f3ee4e6a6c76dcdd6cc9686b8daee5757e6465d2974094c844ce`.
+- Added `elv capabilities`, filtered `ops list`, deprecation warnings, and `spec status` / `spec diff`. Spec updates now compile before atomically replacing one authoritative bundled-spec, registry, and provenance cache.
+- Added `music detailed-stream`, which decodes Music SSE audio, writes metadata as NDJSON, and preserves valid partial output after malformed events.
+- Added aliases for agent tests and test runs, read-only agent RAG diagnostics, workspace members and service accounts, and Dubbing Project source and target transcript editing.
+- Added `convai-monitor` to the WebSocket catalog, binary file sends for realtime STT, protocol-specific script validation, and WebSocket `--dry-run`, `--yes`, `--max-credits`, profile, residency, and configured-model behavior.
+- Added file-only handling for credential-producing responses. Tokens, signed URLs, API keys, and similar values are written to mode `0600` files marked `sensitive: true`; `elv view` refuses to render them.
+
+### Changed
+
+- `elv call` covers the compiled public REST document. Matching `elv http` requests inherit registry metadata; unmatched paths remain forward-compatible.
+- Budget ceilings fail closed when generation or STT/agent WebSocket costs cannot be estimated. Other unknown costs report `unknown_unbounded`.
+- `models list` is documented as the account-visible `/v1/models` response, not an exhaustive cross-product catalog. Examples now use `scribe_v2`; Turbo and Scribe v1 deprecations and current model families are documented.
+- `agents simulate` now emits a deprecation warning. The preferred workflow is `agents tests create` followed by `agents tests run`.
+
+### Scope
+
+- Speech Engine upstream remains outside the outbound WebSocket client because ElevenLabs connects to a server hosted by the customer.
+- ElevenCreative UI-only Image & Video, Avatars, Ads, Flows, and editor workflows have no published API contract in the pinned sources and are not reverse-engineered.
+
 ## [0.1.0] - 2026-07-06
 
 ### Added
