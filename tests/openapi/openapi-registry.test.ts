@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -11,8 +12,37 @@ import {
   vendoredSpecMetaPath,
   vendoredSpecPath,
 } from "../../src/openapi/registry";
+import { compilerSemanticsInputs, curationInputs } from "../../src/openapi/compile-spec";
 
 let cacheDir: string;
+
+function registryFingerprintWithCompiler(
+  sourceSha256: string,
+  sourceSelector: string,
+  compiler: Record<string, unknown>,
+): string {
+  return createHash("sha256")
+    .update(
+      canonicalJson({
+        source_sha256: sourceSha256,
+        source_selector: sourceSelector,
+        curation: curationInputs(),
+        compiler,
+      }),
+    )
+    .digest("hex");
+}
+
+function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+  if (value && typeof value === "object") {
+    return `{${Object.entries(value as Record<string, unknown>)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([key, entry]) => `${JSON.stringify(key)}:${canonicalJson(entry)}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value) ?? "null";
+}
 
 afterEach(() => {
   if (cacheDir) rmSync(cacheDir, { recursive: true, force: true });
@@ -161,6 +191,74 @@ describe("OpenAPI registry cache", () => {
     expect(JSON.parse(readFileSync(cachePath, "utf8")).fingerprint).not.toBe(
       "stale-curation-fingerprint",
     );
+  });
+
+  it("recompiles when the serialized risk classifier changes", async () => {
+    cacheDir = mkdtempSync(join(tmpdir(), "elv-cache-"));
+    const options = { cacheDir, specPath: "fixtures/fake-openapi.json" };
+    const cachePath = registryCachePath(options);
+    await loadRegistry(options);
+    const cache = JSON.parse(readFileSync(cachePath, "utf8")) as {
+      fingerprint: string;
+      sourceSelector: string;
+      provenance: { sha256: string };
+      operations: { operationId: string; risk?: string }[];
+    };
+    const item = cache.operations.find((operation) => operation.operationId === "create_item");
+    if (!item) throw new Error("expected create_item in compiled cache");
+    item.risk = "destructive";
+    const compiler = compilerSemanticsInputs() as { risk: Record<string, string> };
+    expect(compiler.risk.classifyRisk).toEqual(expect.any(String));
+    compiler.risk.classifyRisk = `${compiler.risk.classifyRisk}\n// previous classifier`;
+    cache.fingerprint = registryFingerprintWithCompiler(
+      cache.provenance.sha256,
+      cache.sourceSelector,
+      compiler,
+    );
+    writeFileSync(cachePath, JSON.stringify(cache));
+
+    expect(readRegistryCache(options)).toBeNull();
+    const registry = await loadRegistry(options);
+
+    expect(registry.get("create_item")?.risk).toBe("mutate");
+  });
+
+  it("recompiles when an explicit spec path differs from the cached source", async () => {
+    cacheDir = mkdtempSync(join(tmpdir(), "elv-cache-"));
+    const sourceA = join(cacheDir, "source-a.json");
+    const sourceB = join(cacheDir, "source-b.json");
+    writeFileSync(sourceA, readFileSync("fixtures/fake-openapi.json"));
+    writeFileSync(
+      sourceB,
+      readFileSync("fixtures/fake-openapi.json", "utf8").replace(
+        '"list_voices"',
+        '"list_voices_from_b"',
+      ),
+    );
+
+    const fromA = await loadRegistry({ cacheDir, specPath: sourceA });
+    const fromB = await loadRegistry({ cacheDir, specPath: sourceB });
+
+    expect(fromA.has("list_voices")).toBe(true);
+    expect(fromB.has("list_voices")).toBe(false);
+    expect(fromB.has("list_voices_from_b")).toBe(true);
+  });
+
+  it("rejects fingerprint-valid caches with malformed provenance counts", async () => {
+    cacheDir = mkdtempSync(join(tmpdir(), "elv-cache-"));
+    const options = { cacheDir, specPath: "fixtures/fake-openapi.json" };
+    const cachePath = registryCachePath(options);
+    await loadRegistry(options);
+    const cache = JSON.parse(readFileSync(cachePath, "utf8")) as {
+      provenance: { paths: unknown };
+    };
+    cache.provenance.paths = "corrupt";
+    writeFileSync(cachePath, JSON.stringify(cache));
+
+    expect(readRegistryCache(options)).toBeNull();
+    await loadRegistry(options);
+
+    expect(typeof readRegistryCache(options)?.provenance?.paths).toBe("number");
   });
 
   it("recompiles instead of crashing on malformed cache JSON", async () => {

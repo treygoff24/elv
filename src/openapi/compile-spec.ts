@@ -1,7 +1,12 @@
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { bundle } from "@apidevtools/json-schema-ref-parser";
-import { classifyRisk, costHintForOperationId, riskCurationInputs } from "./risk";
+import {
+  classifyRisk,
+  costHintForOperationId,
+  riskCompilerSemanticsInputs,
+  riskCurationInputs,
+} from "./risk";
 import { parseJson } from "../util/json";
 import type {
   BodyCard,
@@ -204,6 +209,43 @@ export function curationInputs(): Record<string, unknown> {
     risk: riskCurationInputs(),
     secretResultOperationIds: [...SECRET_RESULT_OP_IDS].sort(),
   };
+}
+
+export function compilerSemanticsInputs(): Record<string, unknown> {
+  return {
+    functions: functionSources({
+      bundle,
+      compileSpec,
+      sourceForBundle,
+      extractParameters,
+      extractRequestBody,
+      extractResponses,
+      preferredContentEntry,
+      streamKindForOperation,
+      groupForOperation,
+      extractExamples,
+      fileFieldsForSchema,
+      isBinarySchema,
+      isBinaryContentType,
+      isJsonContentType,
+      resolveMaybeRef,
+      resolveRef,
+      refValue,
+      asObject,
+      asArray,
+      stringArray,
+      stringValue,
+    }),
+    methods: METHODS,
+    bodyTypePreference: BODY_TYPE_PREFERENCE,
+    risk: riskCompilerSemanticsInputs(),
+  };
+}
+
+function functionSources(functions: Record<string, Function>): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(functions).map(([name, fn]) => [name, Function.prototype.toString.call(fn)]),
+  );
 }
 
 function groupForOperation(operation: JsonObject, pathTemplate: string): string[] {

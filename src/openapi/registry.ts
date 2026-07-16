@@ -3,8 +3,8 @@ import { createHash, randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { compileSpec, curationInputs } from "./compile-spec";
-import { parseJson } from "../util/json";
+import { compileSpec, compilerSemanticsInputs, curationInputs } from "./compile-spec";
+import { isRecord, parseJson } from "../util/json";
 import type { CompileSpecResult, OpenApiDocument } from "./compile-spec";
 import type { OperationCard } from "./types";
 
@@ -36,12 +36,13 @@ export interface RegistryCache {
   schema: "elv.openapi.cache.v3";
   version: string;
   fingerprint: string;
+  sourceSelector: string;
   generated_at: string;
   totalOperations: number;
   skippedOperations: number;
   operations: OperationCard[];
   bundledSpec?: OpenApiDocument;
-  provenance?: SpecProvenance;
+  provenance: SpecProvenance;
 }
 
 export async function loadRegistry(
@@ -77,18 +78,21 @@ export async function loadRegistry(
 export function readRegistryCache(options: RegistryOptions = {}): RegistryCache | null {
   const path = registryCachePath(options);
   if (!existsSync(path)) return null;
-  let parsed: Partial<RegistryCache>;
+  let parsed: unknown;
   try {
-    parsed = parseJson(readFileSync(path, "utf8"), path) as Partial<RegistryCache>;
+    parsed = parseJson(readFileSync(path, "utf8"), path);
   } catch {
     return null;
   }
-  if (parsed.schema !== "elv.openapi.cache.v3") return null;
+  if (!isRegistryCache(parsed)) return null;
   if (parsed.version !== packageVersion(options.version)) return null;
-  if (!Array.isArray(parsed.operations)) return null;
   const sourceSha256 = cacheSourceSha256(options, parsed);
-  if (!sourceSha256 || parsed.fingerprint !== registryFingerprint(sourceSha256)) return null;
-  return parsed as RegistryCache;
+  if (
+    !sourceSha256 ||
+    parsed.fingerprint !== registryFingerprint(sourceSha256, parsed.sourceSelector)
+  )
+    return null;
+  return parsed;
 }
 
 /** Write the one authoritative cache artifact using a same-directory atomic rename. */
@@ -98,6 +102,7 @@ export function writeRegistryCache(
   options: RegistryOptions = {},
 ): string {
   const path = registryCachePath(options);
+  const sourceSelector = registrySourceSelector(options);
   mkdirSync(dirname(path), { recursive: true });
   const temporaryPath = `${path}.tmp-${process.pid}-${randomUUID()}`;
   writeFileSync(
@@ -105,7 +110,8 @@ export function writeRegistryCache(
     `${JSON.stringify({
       schema: "elv.openapi.cache.v3",
       version: packageVersion(options.version),
-      fingerprint: registryFingerprint(provenance.sha256),
+      fingerprint: registryFingerprint(provenance.sha256, sourceSelector),
+      sourceSelector,
       generated_at: new Date().toISOString(),
       totalOperations: compiled.totalOperations,
       skippedOperations: compiled.skippedOperations,
@@ -174,21 +180,18 @@ function packageVersion(override?: string): string {
   return "0.0.0";
 }
 
-function cacheSourceSha256(options: RegistryOptions, cache: Partial<RegistryCache>): string | null {
-  const cachedSourceSha256 = cache.provenance?.sha256;
-  if (!cachedSourceSha256) return null;
+function cacheSourceSha256(options: RegistryOptions, cache: RegistryCache): string | null {
+  const sourceSelector = registrySourceSelector(options);
+  if (cache.sourceSelector !== sourceSelector) return null;
 
   if (options.specDocument !== undefined) {
-    return cache.provenance?.source === "memory"
+    return cache.provenance.source === "memory"
       ? hashText(JSON.stringify(options.specDocument))
       : null;
   }
-  if (cache.provenance?.source === "memory") return null;
-
-  const sourcePath = registrySourcePath(options);
-  if (cache.provenance?.source !== sourcePath) return cachedSourceSha256;
+  if (cache.provenance.source !== sourceSelector) return cache.provenance.sha256;
   try {
-    return hashText(readFileSync(sourcePath));
+    return hashText(readFileSync(sourceSelector));
   } catch {
     return null;
   }
@@ -201,13 +204,53 @@ function registrySourcePath(options: RegistryOptions): string {
   );
 }
 
-function registryFingerprint(sourceSha256: string): string {
+function registrySourceSelector(options: RegistryOptions): string {
+  return options.specDocument === undefined ? registrySourcePath(options) : "memory";
+}
+
+function registryFingerprint(sourceSha256: string, sourceSelector: string): string {
+  // The fingerprint must change whenever compiled output could change; over-invalidation is safe.
   return hashText(
     canonicalJson({
       source_sha256: sourceSha256,
+      source_selector: sourceSelector,
       curation: curationInputs(),
+      compiler: compilerSemanticsInputs(),
     }),
   );
+}
+
+function isRegistryCache(value: unknown): value is RegistryCache {
+  return (
+    isRecord(value) &&
+    value.schema === "elv.openapi.cache.v3" &&
+    typeof value.version === "string" &&
+    typeof value.fingerprint === "string" &&
+    typeof value.sourceSelector === "string" &&
+    typeof value.generated_at === "string" &&
+    isNonNegativeInteger(value.totalOperations) &&
+    isNonNegativeInteger(value.skippedOperations) &&
+    Array.isArray(value.operations) &&
+    isSpecProvenance(value.provenance)
+  );
+}
+
+function isSpecProvenance(value: unknown): value is SpecProvenance {
+  return (
+    isRecord(value) &&
+    typeof value.source === "string" &&
+    typeof value.retrieved_at === "string" &&
+    typeof value.sha256 === "string" &&
+    isNonNegativeInteger(value.paths) &&
+    isNonNegativeInteger(value.total_operations) &&
+    isNonNegativeInteger(value.callable_operations) &&
+    isNonNegativeInteger(value.skipped_operations) &&
+    isNonNegativeInteger(value.schemas)
+  );
+}
+
+function isNonNegativeInteger(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
 }
 
 function hashText(value: string | Buffer): string {

@@ -147,6 +147,14 @@ export function riskCurationInputs(): Record<string, unknown> {
   };
 }
 
+export function riskCompilerSemanticsInputs(): Record<string, string> {
+  return {
+    classifyRisk: Function.prototype.toString.call(classifyRisk),
+    costHintForOperationId: Function.prototype.toString.call(costHintForOperationId),
+    riskText: Function.prototype.toString.call(riskText),
+  };
+}
+
 export function classifyRisk(
   op: Pick<OperationCard, "method" | "operationId"> & Partial<Pick<OperationCard, "pathTemplate">>,
 ): Risk {

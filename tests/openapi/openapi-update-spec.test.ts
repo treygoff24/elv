@@ -132,7 +132,7 @@ describe("spec update", () => {
     if (!diff.env.ok || !dryRunCommand.env.ok) throw new Error("expected success");
     expect(dryRunCommand.env.data).toEqual(diff.env.data);
     expect(existsSync(cachePath)).toBe(false);
-  });
+  }, 20_000); // three full spec compiles; slow under parallel suite load
 
   it("preserves the good cache when candidate parsing fails", async () => {
     cacheDir = mkdtempSync(join(tmpdir(), "elv-spec-update-"));
