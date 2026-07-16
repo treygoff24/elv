@@ -1,6 +1,6 @@
 {
   "name": "eleven-agent-cli",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "elv — agent-first ElevenLabs CLI: one JSON envelope per command over the ElevenLabs OpenAPI spec.",
   "repository": {
     "type": "git",

@@ -14,6 +14,9 @@ import {
 } from "../../src/openapi/registry";
 import { compilerSemanticsInputs, curationInputs } from "../../src/openapi/compile-spec";
 
+const packageVersion = (JSON.parse(readFileSync("package.json", "utf8")) as { version: string })
+  .version;
+
 let cacheDir: string;
 
 function registryFingerprintWithCompiler(
@@ -88,7 +91,7 @@ describe("OpenAPI registry cache", () => {
     expect(registry.size).toBe(338);
     expect(registry.get("text_to_speech_full")?.risk).toBe("generate");
     expect(existsSync(cachePath)).toBe(true);
-    expect(cached.version).toBe("0.1.0");
+    expect(cached.version).toBe(packageVersion);
     expect(cached.operations).toHaveLength(338);
     expect(() => JSON.stringify(cached.bundledSpec)).not.toThrow();
   });
@@ -184,7 +187,7 @@ describe("OpenAPI registry cache", () => {
     writeFileSync(cachePath, JSON.stringify(cache));
 
     expect(cache.schema).toBe("elv.openapi.cache.v3");
-    expect(cache.version).toBe("0.1.0");
+    expect(cache.version).toBe(packageVersion);
     const registry = await loadRegistry({ cacheDir });
 
     expect(registry.get("query_agent_knowledge_base_rag_route")?.risk).toBe("read");
@@ -270,6 +273,6 @@ describe("OpenAPI registry cache", () => {
     const registry = await loadRegistry({ cacheDir });
 
     expect(registry.has("text_to_speech_full")).toBe(true);
-    expect(JSON.parse(readFileSync(cachePath, "utf8"))).toMatchObject({ version: "0.1.0" });
+    expect(JSON.parse(readFileSync(cachePath, "utf8"))).toMatchObject({ version: packageVersion });
   });
 });

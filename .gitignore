@@ -6,3 +6,9 @@ coverage/
 .delegate/
 .DS_Store
 *.tsbuildinfo
+
+# Local-only working docs: plans, reviews, research, audits
+docs/internal/
+# Agent tooling artifacts (root paths are tool contracts)
+model-performance-journal.md
+.papercuts.jsonl
