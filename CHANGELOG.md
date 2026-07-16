@@ -15,8 +15,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Added `convai-monitor` to the WebSocket catalog, binary file sends for realtime STT, protocol-specific script validation, and WebSocket `--dry-run`, `--yes`, `--max-credits`, profile, residency, and configured-model behavior.
 - Added file-only handling for credential-producing responses. Tokens, signed URLs, API keys, and similar values are written to mode `0600` files marked `sensitive: true`; `elv view` refuses to render them.
 
+### Security
+
+- The API client and the spec fetcher refuse cross-origin redirects, so `xi-api-key` and spec contents never follow a redirect to another host. Same-origin redirects are followed manually with a hop limit.
+- `elv view` refuses `*.sensitive.json` spill files by name in addition to credential-content detection.
+- With a credit ceiling configured, unmatched raw HTTP writes and other unboundable spending operations now fail pre-flight unless `--yes` explicitly accepts the unbounded-cost risk.
+- The registry cache self-heals: cache validity is fingerprinted over the spec source bytes, the risk/cost curation tables, and the compiler's own semantics, so stale safety metadata can never survive a same-version change.
+
 ### Changed
 
+- Stream failures distinguish transport interruption (`network_error` / `stream_interrupted`) from malformed framing; partial output is preserved in both cases and retries are never auto-recommended for paid generations.
+- Multi-line SSE `data:` base64 audio decodes correctly; strict base64 validation otherwise unchanged. JSON-events streams now fail cleanly on invalid UTF-8 instead of silently corrupting output.
 - `elv call` covers the compiled public REST document. Matching `elv http` requests inherit registry metadata; unmatched paths remain forward-compatible.
 - Budget ceilings fail closed when generation or STT/agent WebSocket costs cannot be estimated. Other unknown costs report `unknown_unbounded`.
 - `models list` is documented as the account-visible `/v1/models` response, not an exhaustive cross-product catalog. Examples now use `scribe_v2`; Turbo and Scribe v1 deprecations and current model families are documented.

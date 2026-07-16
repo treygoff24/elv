@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { basename, resolve } from "node:path";
 import { failure, success } from "../core/envelope";
 import { validationError } from "../core/errors";
 import { SMALL_JSON_LIMIT, summarizeData } from "../core/response-normalizer";
@@ -53,7 +53,7 @@ export function buildViewResult(path: string, options: ViewOptions = {}): Comman
     return { env: validationError(cmd, message), exitCode: ExitCode.InputValidation };
   }
 
-  if (containsCredential(parsed)) {
+  if (basename(resolved).endsWith(".sensitive.json") || containsCredential(parsed)) {
     return {
       env: validationError(cmd, `Refusing to render sensitive provider response: ${resolved}`, {
         hints: [

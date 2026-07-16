@@ -136,4 +136,67 @@ describe("SSE response normalization", () => {
     expect(env.hints?.[0]?.why).toContain("credits may already have been consumed");
     expect(JSON.stringify(env)).not.toContain(audioBytes.toString("base64"));
   });
+
+  it("decodes base64 split across SSE data lines without accepting other whitespace", async () => {
+    const out = mkdtempSync(join(tmpdir(), "elv-sse-multiline-"));
+    const audioBytes = Buffer.from("multiline-audio");
+    const encoded = audioBytes.toString("base64");
+    const split = Math.floor(encoded.length / 2);
+    const valid = `event: audio_chunk\ndata: ${encoded.slice(0, split)}\ndata: ${encoded.slice(split)}\n\n`;
+
+    const env = await normalizeResponse(sseOp(), responseFromCharacters(valid), {
+      cmd: "elv call compose_detailed_stream",
+      out,
+    });
+
+    expect(env.ok).toBe(true);
+    if (!env.ok) throw new Error("expected success");
+    const audio = env.files?.find((file) => file.path.endsWith(".mp3"));
+    expect(readFileSync(audio!.path)).toEqual(audioBytes);
+
+    const invalid = await normalizeResponse(
+      sseOp(),
+      responseFromCharacters(
+        `event: audio_chunk\ndata: ${encoded.slice(0, split)} ${encoded.slice(split)}\n\n`,
+      ),
+      {
+        cmd: "elv call compose_detailed_stream",
+        out: mkdtempSync(join(tmpdir(), "elv-sse-space-")),
+      },
+    );
+    expect(invalid).toMatchObject({
+      ok: false,
+      error: {
+        code: "invalid_sse_stream",
+        raw: { parse_error: expect.stringContaining("Invalid base64") },
+      },
+    });
+  });
+
+  it("reports body interruption as a network failure while preserving paid output", async () => {
+    const out = mkdtempSync(join(tmpdir(), "elv-sse-interrupted-"));
+    const body = Readable.from(
+      (async function* () {
+        yield Buffer.from('data: {"status":"started"}\n\n');
+        throw new Error("socket reset");
+      })(),
+    );
+    const response = new Response(
+      Readable.toWeb(body) as ConstructorParameters<typeof Response>[0],
+      { headers: { "content-type": "text/event-stream" } },
+    );
+
+    const env = await normalizeResponse(sseOp(), response, {
+      cmd: "elv call compose_detailed_stream",
+      out,
+    });
+
+    expect(env).toMatchObject({
+      ok: false,
+      error: { type: "network_error", code: "stream_interrupted" },
+      retry: { recommended: false },
+      files: [{ partial: true }],
+    });
+    expect(env.hints?.[0]?.why).toContain("credits may already have been consumed");
+  });
 });

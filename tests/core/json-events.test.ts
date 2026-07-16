@@ -199,4 +199,49 @@ describe("json_events response parsing", () => {
     if (!env.ok) throw new Error("expected success");
     expect(env.files?.some((file) => file.path.endsWith(".pcm"))).toBe(true);
   });
+
+  it("reports body interruption as a network failure while preserving paid output", async () => {
+    const stream = Readable.from(
+      (async function* () {
+        yield Buffer.from('{"status":"started"}');
+        throw new Error("socket reset");
+      })(),
+    );
+
+    const env = await normalizeResponse(
+      op(),
+      new Response(Readable.toWeb(stream) as ConstructorParameters<typeof Response>[0], {
+        headers: { "content-type": "application/json" },
+      }),
+      { cmd: "elv call text_to_speech_stream_with_timestamps", out },
+    );
+
+    expect(env).toMatchObject({
+      ok: false,
+      error: { type: "network_error", code: "stream_interrupted" },
+      retry: { recommended: false },
+      files: [{ partial: true }],
+    });
+    expect(env.hints?.[0]?.why).toContain("credits may already have been consumed");
+  });
+
+  it("rejects invalid UTF-8 and preserves earlier valid events", async () => {
+    const stream = Readable.from([Buffer.from('{"status":"started"}'), Buffer.from([0xc3, 0x28])]);
+
+    const env = await normalizeResponse(
+      op(),
+      new Response(Readable.toWeb(stream) as ConstructorParameters<typeof Response>[0], {
+        headers: { "content-type": "application/json" },
+      }),
+      { cmd: "elv call text_to_speech_stream_with_timestamps", out },
+    );
+
+    expect(env).toMatchObject({
+      ok: false,
+      error: { type: "provider_error", code: "invalid_json_events_stream" },
+      retry: { recommended: false },
+      files: [{ partial: true }],
+    });
+    expect(JSON.stringify(env)).not.toContain("�");
+  });
 });

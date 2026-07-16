@@ -147,4 +147,27 @@ describe("view command", () => {
     expect(env.error.type).toBe("validation_error");
     expect(env.error.message).toContain("Use cat to inspect raw contents.");
   });
+
+  it("refuses sensitive spill files even when credential heuristics miss the body", () => {
+    const file = join(dir, "foo.sensitive.json");
+    writeFileSync(file, JSON.stringify({ jwt: "x" }), "utf8");
+
+    const { env, exitCode } = buildViewResult(file);
+
+    expect(exitCode).toBe(ExitCode.InputValidation);
+    expect(env).toMatchObject({
+      ok: false,
+      error: { message: expect.stringContaining("Refusing to render sensitive provider response") },
+    });
+  });
+
+  it("renders the same unrecognized credential key from a normal response spill", () => {
+    const file = join(dir, "foo.response.json");
+    writeFileSync(file, JSON.stringify({ jwt: "x" }), "utf8");
+
+    const { env, exitCode } = buildViewResult(file);
+
+    expect(exitCode).toBe(ExitCode.Success);
+    expect(env).toMatchObject({ ok: true, data: { jwt: "x" } });
+  });
 });

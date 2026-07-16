@@ -1,3 +1,5 @@
+import { createServer, type RequestListener, type Server } from "node:http";
+import type { AddressInfo } from "node:net";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { sendWithRetry } from "../../src/core/retries";
 import type { HttpRequest } from "../../src/core/request-builder";
@@ -21,6 +23,8 @@ const op: OperationCard = {
   examples: [],
 };
 
+const servers: Server[] = [];
+
 function req(method: HttpRequest["method"] = "GET"): HttpRequest {
   return { url: "https://api.test/v1/demo", method, headers: {}, path: "/v1/demo" };
 }
@@ -33,7 +37,59 @@ function json(status: number, code: string): Response {
 }
 
 describe("retry runner", () => {
-  afterEach(() => vi.unstubAllGlobals());
+  afterEach(async () => {
+    vi.unstubAllGlobals();
+    await Promise.all(
+      servers
+        .splice(0)
+        .map((server) => new Promise<void>((resolve) => server.close(() => resolve()))),
+    );
+  });
+
+  it("follows same-origin redirects without dropping authentication", async () => {
+    let receivedKey: string | undefined;
+    const url = await listen((request, response) => {
+      if (request.url === "/v1/demo") {
+        response.writeHead(302, { location: "/v1/final" }).end();
+        return;
+      }
+      receivedKey = request.headers["xi-api-key"] as string | undefined;
+      response.end("ok");
+    });
+
+    const res = await sendWithRetry(
+      { ...req(), url: `${url}/v1/demo`, headers: { "xi-api-key": "secret" } },
+      op,
+      { maxAttempts: 1 },
+    );
+
+    expect(res.status).toBe(200);
+    expect(receivedKey).toBe("secret");
+  });
+
+  it("refuses cross-origin redirects before forwarding authentication", async () => {
+    let receivedKey: string | undefined;
+    const targetUrl = await listen((request, response) => {
+      receivedKey = request.headers["xi-api-key"] as string | undefined;
+      response.end("unexpected");
+    });
+    const originUrl = await listen((_request, response) => {
+      response.writeHead(302, { location: `${targetUrl}/capture` }).end();
+    });
+
+    await expect(
+      sendWithRetry(
+        {
+          ...req(),
+          url: `${originUrl}/v1/demo`,
+          headers: { "xi-api-key": "secret" },
+        },
+        op,
+        { maxAttempts: 1 },
+      ),
+    ).rejects.toThrow(/cross-origin redirect/u);
+    expect(receivedKey).toBeUndefined();
+  });
 
   it("backs off 429 rate_limit_exceeded then succeeds", async () => {
     const sleeps: number[] = [];
@@ -112,3 +168,14 @@ describe("retry runner", () => {
     }
   });
 });
+
+function listen(handler: RequestListener): Promise<string> {
+  const server = createServer(handler);
+  servers.push(server);
+  return new Promise((resolve) => {
+    server.listen(0, "127.0.0.1", () => {
+      const address = server.address() as AddressInfo;
+      resolve(`http://127.0.0.1:${address.port}`);
+    });
+  });
+}

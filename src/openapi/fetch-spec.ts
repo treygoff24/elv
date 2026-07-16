@@ -272,6 +272,13 @@ async function fetchSpec(url: string): Promise<string> {
       `Failed to fetch OpenAPI spec from ${url}: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
+  const requestedOrigin = new URL(url).origin;
+  const responseOrigin = response.url ? new URL(response.url).origin : requestedOrigin;
+  if (responseOrigin !== requestedOrigin) {
+    throw new SpecProviderError(
+      `Refusing cross-origin redirect while fetching OpenAPI spec: ${requestedOrigin} to ${responseOrigin}`,
+    );
+  }
   if (!response.ok)
     throw new SpecProviderError(`Failed to fetch OpenAPI spec: HTTP ${response.status}`);
   const contentLength = Number(response.headers.get("content-length"));

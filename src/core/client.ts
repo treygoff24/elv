@@ -139,7 +139,7 @@ export function runPreparedOperation({
           },
         ]
       : []),
-    ...budgetPolicyWarnings(budget.policy),
+    ...budgetPolicyWarnings(budget.policy, op, effectiveOpts),
   ];
   const preflightEnvelope = preparedOperationPreflight({
     cmd,
@@ -216,6 +216,12 @@ function preparedOperationPreflight({
     );
   }
 
+  if (budget.policy === "unknown_unbounded" && potentiallySpending(op) && !opts.yes) {
+    return withWarnings(
+      unboundedBudgetConsentRequired(cmd, op, opts.maxCredits as number),
+      warnings,
+    );
+  }
   if (requiresYes(op) && !opts.yes) {
     return withWarnings(
       confirmationRequired(cmd, `${op.operationId} (${op.risk}) requires --yes`, {
@@ -337,16 +343,68 @@ function withWarnings(env: Envelope, warnings: Warning[]): Envelope {
   return { ...env, warnings: [...(env.warnings ?? []), ...warnings] };
 }
 
-function budgetPolicyWarnings(policy: ReturnType<typeof budgetDecision>["policy"]): Warning[] {
-  return policy === "unknown_unbounded"
-    ? [
-        {
-          code: "budget_policy_unknown_unbounded",
-          message:
-            "A credit ceiling is configured, but this non-generation operation has no defensible estimate and will proceed.",
-        },
-      ]
-    : [];
+function budgetPolicyWarnings(
+  policy: ReturnType<typeof budgetDecision>["policy"],
+  op: OperationCard,
+  opts: RunOpts,
+): Warning[] {
+  if (policy !== "unknown_unbounded") return [];
+  if (potentiallySpending(op)) {
+    return opts.yes
+      ? [
+          {
+            code: "budget_unbounded_cost_accepted",
+            message:
+              "The configured credit ceiling cannot bound this operation; --yes accepted the unbounded-cost risk.",
+          },
+        ]
+      : [];
+  }
+  return [
+    {
+      code: "budget_policy_unknown_unbounded",
+      message:
+        "A credit ceiling is configured, but this non-generation operation has no defensible estimate and will proceed.",
+    },
+  ];
+}
+
+function potentiallySpending(op: OperationCard): boolean {
+  return (
+    (op.operationId === "http" && op.method !== "GET" && op.method !== "HEAD") ||
+    op.risk === "generate" ||
+    op.risk === "mutate" ||
+    op.risk === "external_side_effect"
+  );
+}
+
+function unboundedBudgetConsentRequired(
+  cmd: string,
+  op: OperationCard,
+  maxCredits: number,
+): Envelope {
+  return failure({
+    cmd,
+    operation_id: op.operationId,
+    error: {
+      type: "budget_exceeded",
+      code: "budget",
+      message: `Cannot enforce credit cap ${maxCredits} because ${op.operationId} has unbounded cost without explicit consent`,
+      raw: { estimated: null, max: maxCredits, budget_policy: "unknown_unbounded" },
+    },
+    cost: {
+      credits_estimated: null,
+      credits_charged: null,
+      credits_source: "none",
+    },
+    retry: { recommended: false, after_ms: null },
+    hints: [
+      {
+        cmd: `${cmd} --yes`,
+        why: "Proceed only when you explicitly accept that the configured ceiling cannot bound this operation's cost.",
+      },
+    ],
+  });
 }
 
 function budgetEstimateUnavailable(cmd: string, op: OperationCard, maxCredits: number): Envelope {

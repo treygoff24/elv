@@ -452,9 +452,10 @@ async function streamSseEventsResponse(
   let audioBytes = 0;
   const parser: SseParserState = { pending: "", lines: [] };
   const decoder = new TextDecoder("utf-8", { fatal: true });
+  const body = toNodeReadable(res.body ?? Readable.from([]));
 
   try {
-    for await (const chunk of toNodeReadable(res.body ?? Readable.from([]))) {
+    for await (const chunk of body) {
       const frames = feedSse(parser, decoder.decode(chunkBuffer(chunk), { stream: true }), false);
       for (const frame of frames) {
         const written = await writeSseFrame(
@@ -495,6 +496,7 @@ async function streamSseEventsResponse(
       code: "invalid_sse_stream",
       message: "Provider returned a malformed SSE stream",
       noFilesHints: [],
+      interrupted: body.errored === error,
     });
   }
 }
@@ -534,6 +536,7 @@ interface StreamFailureOptions {
   code: string;
   message: string;
   noFilesHints: Hint[];
+  interrupted: boolean;
 }
 
 async function streamFailure(
@@ -558,15 +561,16 @@ async function streamFailure(
     }
   }
   const parseError = error instanceof Error ? error.message : String(error);
+  const interrupted = options.interrupted;
   return failure({
     cmd: ctx.cmd,
     operation_id: op.operationId,
     http: base.http,
     error: {
-      type: "provider_error",
-      code: options.code,
-      message: options.message,
-      raw: { parse_error: parseError },
+      type: interrupted ? "network_error" : "provider_error",
+      code: interrupted ? "stream_interrupted" : options.code,
+      message: interrupted ? "Provider stream was interrupted" : options.message,
+      raw: interrupted ? { transport_error: parseError } : { parse_error: parseError },
     },
     retry: { recommended: false, after_ms: null },
     cost: base.cost,
@@ -688,7 +692,7 @@ function extractSseAudio(
   event: string | undefined,
 ): { data: unknown; audio?: Buffer } {
   if (event === "audio_chunk" && typeof payload === "string") {
-    return { data: null, audio: decodeBase64(payload, "stream event") };
+    return { data: null, audio: decodeBase64(payload.replace(/\n/gu, ""), "stream event") };
   }
   if (!isRecord(payload)) return { data: payload };
   const output = { ...payload };
@@ -715,13 +719,14 @@ async function streamJsonEventsResponse(
     join(target.dir, deriveFilename(op.operationId, undefined, "ndjson")),
   );
   let audio: ReturnType<typeof tempFileWriter> | undefined;
-  const decoder = new TextDecoder();
+  const decoder = new TextDecoder("utf-8", { fatal: true });
   let pending = "";
   let eventCount = 0;
   let audioBytes = 0;
+  const body = toNodeReadable(res.body ?? Readable.from([]));
 
   try {
-    for await (const chunk of toNodeReadable(res.body ?? Readable.from([]))) {
+    for await (const chunk of body) {
       pending += decoder.decode(chunkBuffer(chunk), { stream: true });
       const parsed = extractJsonObjects(pending);
       pending = parsed.rest;
@@ -790,6 +795,7 @@ async function streamJsonEventsResponse(
           why: "Retry only if needed; provider credits may already have been consumed.",
         },
       ],
+      interrupted: body.errored === error,
     });
   }
 }

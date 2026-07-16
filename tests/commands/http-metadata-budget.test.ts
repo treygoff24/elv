@@ -2,7 +2,7 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { runHttp } from "../../src/commands/http";
+import { handleHttp, runHttp } from "../../src/commands/http";
 import { runOperation } from "../../src/core/client";
 import type { OperationCard } from "../../src/openapi/types";
 
@@ -259,7 +259,6 @@ describe("raw HTTP registry metadata and budget policy", () => {
   });
 
   it("reports an honest unbounded policy for non-generation operations", async () => {
-    registry.set("get_test", op({ operationId: "get_test" }));
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue(
@@ -275,6 +274,7 @@ describe("raw HTTP registry metadata and budget policy", () => {
     });
     expect(dryRunEnv).toMatchObject({
       ok: true,
+      operation_id: "http",
       data: { budget_policy: "unknown_unbounded", would_exceed_budget: null },
     });
 
@@ -288,6 +288,45 @@ describe("raw HTTP registry metadata and budget policy", () => {
         expect.objectContaining({ code: "budget_policy_unknown_unbounded" }),
       ]),
     });
+  });
+
+  it("blocks capped unmatched POST requests unless --yes accepts unbounded cost", async () => {
+    const fetch = vi
+      .fn()
+      .mockResolvedValue(
+        new Response('{"ok":true}', { headers: { "content-type": "application/json" } }),
+      );
+    vi.stubGlobal("fetch", fetch);
+
+    const blocked = await handleHttp("POST", "/v1/private/new-surface", {
+      bodyJson: "{}",
+      maxCredits: 1,
+      baseUrl: "https://api.test",
+    });
+
+    expect(blocked.exitCode).toBe(5);
+    expect(blocked.env).toMatchObject({
+      ok: false,
+      error: { code: "budget" },
+      hints: [{ cmd: expect.stringContaining("--yes") }],
+    });
+    expect(fetch).not.toHaveBeenCalled();
+
+    const accepted = await runHttp("POST", "/v1/private/new-surface", {
+      bodyJson: "{}",
+      maxCredits: 1,
+      yes: true,
+      apiKey: "test-key",
+      baseUrl: "https://api.test",
+    });
+
+    expect(accepted).toMatchObject({
+      ok: true,
+      warnings: expect.arrayContaining([
+        expect.objectContaining({ code: "budget_unbounded_cost_accepted" }),
+      ]),
+    });
+    expect(fetch).toHaveBeenCalledTimes(1);
   });
 
   it("applies explicit, environment, then profile ceilings to call runner preflight", async () => {

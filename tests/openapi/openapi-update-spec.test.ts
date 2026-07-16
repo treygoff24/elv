@@ -1,4 +1,6 @@
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { createServer, type RequestListener, type Server } from "node:http";
+import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -7,11 +9,17 @@ import { diffSpec, updateSpecCache } from "../../src/openapi/fetch-spec";
 import { rawSpecCachePath, registryCachePath } from "../../src/openapi/registry";
 
 let cacheDir: string;
+const servers: Server[] = [];
 
-afterEach(() => {
+afterEach(async () => {
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();
   if (cacheDir) rmSync(cacheDir, { recursive: true, force: true });
+  await Promise.all(
+    servers
+      .splice(0)
+      .map((server) => new Promise<void>((resolve) => server.close(() => resolve()))),
+  );
 });
 
 describe("spec update", () => {
@@ -62,6 +70,39 @@ describe("spec update", () => {
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );
     expect(result.provenance.source).toBe("https://spec.example.test/custom.json");
+  });
+
+  it("accepts a same-origin redirect when fetching a remote spec", async () => {
+    cacheDir = mkdtempSync(join(tmpdir(), "elv-spec-update-"));
+    const source = readFileSync("fixtures/fake-openapi.json", "utf8");
+    const url = await listen((request, response) => {
+      if (request.url === "/start") {
+        response.writeHead(302, { location: "/openapi.json" }).end();
+        return;
+      }
+      response.setHeader("content-type", "application/json");
+      response.end(source);
+    });
+
+    const result = await updateSpecCache({ from: `${url}/start`, cacheDir, dryRun: true });
+
+    expect(result.operations).toBe(4);
+  });
+
+  it("refuses a cross-origin redirect when fetching a remote spec", async () => {
+    cacheDir = mkdtempSync(join(tmpdir(), "elv-spec-update-"));
+    const source = readFileSync("fixtures/fake-openapi.json", "utf8");
+    const targetUrl = await listen((_request, response) => {
+      response.setHeader("content-type", "application/json");
+      response.end(source);
+    });
+    const originUrl = await listen((_request, response) => {
+      response.writeHead(302, { location: `${targetUrl}/openapi.json` }).end();
+    });
+
+    await expect(
+      updateSpecCache({ from: `${originUrl}/start`, cacheDir, dryRun: true }),
+    ).rejects.toThrow(/cross-origin redirect/u);
   });
 
   it("returns provider errors for failed remote fetches", async () => {
@@ -229,4 +270,15 @@ describe("spec update", () => {
 
 function operation(operationId: string): Record<string, unknown> {
   return { operationId, responses: { "200": { description: "ok" } } };
+}
+
+function listen(handler: RequestListener): Promise<string> {
+  const server = createServer(handler);
+  servers.push(server);
+  return new Promise((resolve) => {
+    server.listen(0, "127.0.0.1", () => {
+      const address = server.address() as AddressInfo;
+      resolve(`http://127.0.0.1:${address.port}`);
+    });
+  });
 }

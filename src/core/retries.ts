@@ -32,6 +32,8 @@ export class NetworkRetryError extends Error {
 const NEVER_RETRY = new Set([400, 401, 402, 403, 404, 409, 422]);
 const RETRY_HTTP = new Set([429, 500, 502, 503, 504]);
 const CONCURRENT_429 = new Set(["concurrent_limit_exceeded", "too_many_concurrent_requests"]);
+const REDIRECT_HTTP = new Set([301, 302, 303, 307, 308]);
+const MAX_REDIRECTS = 5;
 
 export async function sendWithRetry(
   req: HttpRequest,
@@ -45,12 +47,7 @@ export async function sendWithRetry(
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     try {
-      const res = await fetch(req.url, {
-        method: req.method,
-        headers: req.headers,
-        body: req.body as RequestInit["body"],
-        ...(req.duplex ? { duplex: req.duplex } : {}),
-      } as RequestInit & { duplex?: "half" });
+      const res = await fetchSameOrigin(req);
       const decision = await retryDecision(res, req, ctx, attempt, maxAttempts, jitter);
       if (!decision.retry) return res;
       await sleep(decision.afterMs);
@@ -62,6 +59,47 @@ export async function sendWithRetry(
   }
 
   throw new NetworkRetryError(lastNetworkError);
+}
+
+async function fetchSameOrigin(req: HttpRequest): Promise<Response> {
+  const origin = new URL(req.url).origin;
+  let url = req.url;
+  let method = req.method;
+  let body = req.body as RequestInit["body"];
+  let headers = req.headers;
+
+  for (let redirects = 0; ; redirects += 1) {
+    const res = await fetch(url, {
+      method,
+      headers,
+      body,
+      redirect: "manual",
+      ...(req.duplex ? { duplex: req.duplex } : {}),
+    } as RequestInit & { duplex?: "half" });
+    if (!REDIRECT_HTTP.has(res.status)) return res;
+
+    const location = res.headers.get("location");
+    if (!location) return res;
+    if (redirects >= MAX_REDIRECTS) {
+      await res.body?.cancel();
+      throw new Error(`Too many redirects from ${req.url}`);
+    }
+
+    const next = new URL(location, url);
+    if (next.origin !== origin) {
+      await res.body?.cancel();
+      throw new Error(`Refusing cross-origin redirect from ${origin} to ${next.origin}`);
+    }
+    await res.body?.cancel();
+
+    if (res.status === 303 || ((res.status === 301 || res.status === 302) && method === "POST")) {
+      method = "GET";
+      body = undefined;
+      headers = { ...headers };
+      delete headers["content-type"];
+    }
+    url = next.href;
+  }
 }
 
 async function retryDecision(
