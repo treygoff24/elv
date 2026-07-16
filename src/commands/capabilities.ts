@@ -31,7 +31,6 @@ const ALIAS_FAMILIES = [
       "delete_chat_response_test_route",
       "get_agent_route",
       "get_agent_response_test_route",
-      "get_agent_response_tests_summaries_route",
       "get_agents_route",
       "get_test_invocation_route",
       "list_chat_response_tests_route",

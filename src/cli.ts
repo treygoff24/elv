@@ -288,7 +288,8 @@ function registerSpecCommands(program: Command): void {
       .description("Refresh the cached OpenAPI spec")
       .option("--from <file_or_url>", "OpenAPI spec file path or URL to fetch")
       .option("--offline", "recompile from the vendored spec snapshot")
-      .action(async (options: CliOptionValues) => {
+      .action(async (_options: CliOptionValues, command: Command) => {
+        const options = mergedOptions(command);
         const result = await handleSpecUpdate({
           from: optionString(options.from),
           offline: Boolean(options.offline),

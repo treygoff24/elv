@@ -34,6 +34,10 @@ describe("risk classifier", () => {
     expect(classifyRisk(op("audio_isolation", "POST"))).toBe("generate");
   });
 
+  it("classifies the POST knowledge-base query as read-only", () => {
+    expect(classifyRisk(op("query_agent_knowledge_base_rag_route", "POST"))).toBe("read");
+  });
+
   it("classifies outbound side effects and curated cost hints", () => {
     expect(classifyRisk(op("handle_twilio_outbound_call", "POST"))).toBe("external_side_effect");
     expect(classifyRisk(op("whatsapp_outbound_message", "POST"))).toBe("external_side_effect");

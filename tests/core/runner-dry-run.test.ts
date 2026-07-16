@@ -40,4 +40,15 @@ describe("runner dry-run", () => {
       error: { type: "network_error", message: "socket died" },
     });
   });
+
+  it("warns when invoking an operation deprecated by the active spec", async () => {
+    const env = await runOperation(
+      "get_dubbing_resource",
+      { path: { dubbing_id: "dub_1" } },
+      { dryRun: true },
+    );
+
+    expect(env.ok).toBe(true);
+    expect(env.warnings).toContainEqual(expect.objectContaining({ code: "deprecated_operation" }));
+  });
 });

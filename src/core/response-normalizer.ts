@@ -771,7 +771,7 @@ function extractJsonObjects(text: string): { objects: unknown[]; rest: string } 
       escaped = false;
       continue;
     }
-    if (char === "\\\\") {
+    if (char === "\\") {
       escaped = inString;
       continue;
     }

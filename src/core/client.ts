@@ -129,7 +129,18 @@ export function runPreparedOperation({
   });
   const effectiveOpts = { ...opts, maxCredits: config.maxCredits };
   const budget = budgetDecision(op, creditsEstimated, effectiveOpts);
-  const effectiveWarnings = [...warnings, ...budgetPolicyWarnings(budget.policy)];
+  const effectiveWarnings = [
+    ...warnings,
+    ...(op.deprecated
+      ? [
+          {
+            code: "deprecated_operation",
+            message: `${op.operationId} is deprecated by the active OpenAPI specification`,
+          },
+        ]
+      : []),
+    ...budgetPolicyWarnings(budget.policy),
+  ];
   const preflightEnvelope = preparedOperationPreflight({
     cmd,
     op,

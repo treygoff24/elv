@@ -91,6 +91,31 @@ describe("json_events response parsing", () => {
     ).rejects.toThrow(/--out file/u);
   });
 
+  it("keeps braces inside strings after escaped quotes", async () => {
+    const event = JSON.stringify({
+      text: 'The model said "keep } inside the string"',
+      audio_base64: Buffer.from("audio").toString("base64"),
+    });
+    const env = await normalizeResponse(
+      op(),
+      new Response(
+        Readable.toWeb(Readable.from([event])) as ConstructorParameters<typeof Response>[0],
+        {
+          headers: { "content-type": "application/json" },
+        },
+      ),
+      { cmd: "elv call text_to_speech_stream_with_timestamps", out },
+    );
+
+    expect(env.ok).toBe(true);
+    if (!env.ok) throw new Error("expected success");
+    const ndjson = env.files?.find((file) => file.path.endsWith(".ndjson"));
+    expect(ndjson).toBeDefined();
+    expect(JSON.parse(readFileSync(ndjson!.path, "utf8"))).toMatchObject({
+      text: 'The model said "keep } inside the string"',
+    });
+  });
+
   it("rejects incomplete trailing JSON events", async () => {
     const stream = Readable.from([Buffer.from('{"audio_base64":"')]);
 

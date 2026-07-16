@@ -38,6 +38,8 @@ const EXTERNAL_SIDE_EFFECT_OP_IDS = new Set([
   "whatsapp_outbound_message",
 ]);
 
+const READ_OP_IDS = new Set(["query_agent_knowledge_base_rag_route"]);
+
 const GENERATE_OP_IDS = new Set([
   "add_language",
   "audio_isolation",
@@ -130,6 +132,7 @@ const EXTERNAL_SIDE_EFFECT_PATTERNS = [
 export function classifyRisk(
   op: Pick<OperationCard, "method" | "operationId"> & Partial<Pick<OperationCard, "pathTemplate">>,
 ): Risk {
+  if (READ_OP_IDS.has(op.operationId)) return "read";
   if (op.method === "GET" || op.method === "HEAD") return "read";
   if (op.method === "DELETE") return "destructive";
   if (DESTRUCTIVE_OP_IDS.has(op.operationId)) return "destructive";
