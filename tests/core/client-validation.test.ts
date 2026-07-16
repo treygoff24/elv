@@ -28,4 +28,23 @@ describe("runner request validation", () => {
       expect(env.ok).toBe(true);
     }
   });
+
+  it("points stale model enum failures to the spec refresh workflow", async () => {
+    const env = await runOperation(
+      "generate",
+      {
+        body: { prompt: "Hello", model_id: "music_just_launched" },
+      },
+      { dryRun: true },
+    );
+
+    expect(env.ok).toBe(false);
+    if (env.ok) throw new Error("expected validation failure");
+    expect(env.error.param).toBe("model_id");
+    expect(env.hints?.map((hint) => hint.cmd)).toEqual([
+      "elv spec status",
+      "elv spec diff",
+      "elv spec update",
+    ]);
+  });
 });

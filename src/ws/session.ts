@@ -1,9 +1,10 @@
 import WebSocket, { type RawData } from "ws";
 import { once } from "node:events";
-import { mkdir } from "node:fs/promises";
-import { fileRecord, writeManifest } from "../core/files";
+import { mkdir, readFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
+import { fileRecord, writeBufferToFile, writeManifest } from "../core/files";
 import { AudioWriter } from "./audio-writer";
-import { NdjsonEventWriter, redactWs, redactWsString } from "./events";
+import { MAX_BINARY_FILE_BYTES, NdjsonEventWriter, redactWs, redactWsString } from "./events";
 import { isRecord, parseJson as parseJsonValue } from "../util/json";
 import type { FileRecord, WsInfo } from "../core/types";
 import type { SendScriptAction } from "./events";
@@ -30,6 +31,7 @@ interface WsSessionState {
   closed: boolean;
   opened: boolean;
   messageChain: Promise<void>;
+  binaryPaths: string[];
 }
 
 export async function runWsSession(options: WsSessionOptions): Promise<WsSessionResult> {
@@ -44,6 +46,7 @@ export async function runWsSession(options: WsSessionOptions): Promise<WsSession
     closed: false,
     opened: false,
     messageChain: Promise.resolve(),
+    binaryPaths: [],
   };
   const inactivity = createInactivityTimer(socket, timeoutMs);
 
@@ -92,9 +95,9 @@ function trackMessages(
   events: NdjsonEventWriter,
   audio: AudioWriter,
 ): void {
-  socket.on("message", (data) => {
+  socket.on("message", (data, isBinary) => {
     state.messageChain = state.messageChain
-      .then(() => processSessionMessage(data, socket, state, inactivity, events, audio))
+      .then(() => processSessionMessage(data, isBinary, socket, state, inactivity, events, audio))
       .catch((error: unknown) => {
         if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING) {
           socket.terminate();
@@ -107,6 +110,7 @@ function trackMessages(
 
 async function processSessionMessage(
   data: RawData,
+  isBinary: boolean,
   socket: WebSocket,
   state: WsSessionState,
   inactivity: ReturnType<typeof createInactivityTimer>,
@@ -115,6 +119,11 @@ async function processSessionMessage(
 ): Promise<void> {
   inactivity.reset();
   state.eventsReceived += 1;
+  if (isBinary) {
+    const path = await writeBinaryFrame(data, events.path, state.binaryPaths.length + 1);
+    state.binaryPaths.push(path);
+    return;
+  }
   await processMessage(data, socket, events, audio);
 }
 
@@ -142,6 +151,7 @@ async function finishSession(
   files.push(await fileRecord(eventPath, { hash: true }));
   const audioPath = await audio.close();
   if (audioPath) files.push(await fileRecord(audioPath, { hash: true }));
+  for (const path of state.binaryPaths) files.push(await fileRecord(path, { hash: true }));
   const manifestPath = await writeManifest(
     options.outDir,
     redactWs({
@@ -151,6 +161,7 @@ async function finishSession(
       headers: options.headers ?? {},
       events_sent: state.eventsSent,
       events_received: state.eventsReceived,
+      binary_frames_received: state.binaryPaths.length,
       closed: state.closed,
       timed_out: inactivity.timedOut(),
     }),
@@ -238,10 +249,21 @@ async function playScript(socket: WebSocket, script: SendScriptAction[]): Promis
   for (const action of script) {
     if (action.type === "close") break;
     if (socket.readyState !== WebSocket.OPEN) break;
-    await sendJson(socket, action.data);
+    if (action.type === "send_binary_file") await sendBinaryFile(socket, action.path);
+    else await sendJson(socket, action.data);
     eventsSent += 1;
   }
   return eventsSent;
+}
+
+async function sendBinaryFile(socket: WebSocket, path: string): Promise<void> {
+  const bytes = await readFile(path);
+  if (bytes.length > MAX_BINARY_FILE_BYTES) {
+    throw new Error(`binary file exceeds ${MAX_BINARY_FILE_BYTES}-byte send limit: ${path}`);
+  }
+  await new Promise<void>((resolve, reject) => {
+    socket.send(bytes, { binary: true }, (error) => (error ? reject(error) : resolve()));
+  });
 }
 
 function sendJson(socket: WebSocket, value: Record<string, unknown>): Promise<void> {
@@ -254,6 +276,17 @@ function rawDataToString(data: RawData): string {
   if (Array.isArray(data)) return Buffer.concat(data).toString("utf8");
   if (data instanceof ArrayBuffer) return Buffer.from(new Uint8Array(data)).toString("utf8");
   return Buffer.from(data).toString("utf8");
+}
+
+async function writeBinaryFrame(data: RawData, eventPath: string, index: number): Promise<string> {
+  const name = `binary.received-${String(index).padStart(6, "0")}.bin`;
+  return await writeBufferToFile(rawDataToBuffer(data), join(dirname(eventPath), name));
+}
+
+function rawDataToBuffer(data: RawData): Buffer {
+  if (Array.isArray(data)) return Buffer.concat(data);
+  if (data instanceof ArrayBuffer) return Buffer.from(new Uint8Array(data));
+  return Buffer.from(data);
 }
 
 function isPing(value: unknown): value is { type: "ping"; event_id?: unknown } {

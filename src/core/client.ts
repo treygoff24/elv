@@ -30,7 +30,7 @@ import { OutTargetError } from "./files";
 import type { ValidateFunction } from "ajv";
 import type { OpenApiDocument } from "../openapi/compile-spec";
 import type { HttpMethod, OperationCard } from "../openapi/types";
-import type { AgentInput, Envelope, NormalizedError, RunOpts, Warning } from "./types";
+import type { AgentInput, Envelope, Hint, NormalizedError, RunOpts, Warning } from "./types";
 import type { HttpRequest } from "./request-builder";
 import type { ResponseContext } from "./response-normalizer";
 
@@ -82,6 +82,7 @@ export async function runOperation(
         operationId,
         param: validation.param,
         raw: validation.raw,
+        hints: validationHints(validation),
       });
 
     const { credits: estimate, warnings: estimateWarnings } = await estimateDetail(
@@ -261,6 +262,7 @@ async function runAllPages(
       sendAndNormalize(await makeRequest(pageInput), op, {
         cmd,
         out: opts.out ?? outputDir,
+        saveJson: opts.saveJson,
         hash: opts.hash,
         creditsEstimated,
         retryPost: opts.retryPost,
@@ -292,6 +294,7 @@ async function runSinglePage(
   const env = await sendAndNormalize(req, op, {
     cmd,
     out: opts.out ?? outputDir,
+    saveJson: opts.saveJson,
     hash: opts.hash,
     creditsEstimated,
     retryPost: opts.retryPost,
@@ -443,6 +446,20 @@ function validationFailure(
     param,
     raw: validator.errors,
   };
+}
+
+function validationHints(error: NormalizedError): Hint[] | undefined {
+  if (!isModelEnumFailure(error)) return undefined;
+  return [
+    { cmd: "elv spec status", why: "Check which OpenAPI revision is active." },
+    { cmd: "elv spec diff", why: "Check whether the provider publishes the model yet." },
+    { cmd: "elv spec update", why: "Refresh model enums from the published OpenAPI spec." },
+  ];
+}
+
+function isModelEnumFailure(error: NormalizedError): boolean {
+  if (error.param !== "model_id" || !Array.isArray(error.raw)) return false;
+  return error.raw.some((entry) => isRecord(entry) && entry.keyword === "enum");
 }
 
 function hasRequestPayload(op: OperationCard, input: AgentInput): boolean {

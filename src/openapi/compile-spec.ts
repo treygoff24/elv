@@ -88,6 +88,7 @@ export async function compileSpec(options: CompileSpecOptions = {}): Promise<Com
         returnsBinary: responses.some((response) => response.binary),
         returnsJson: responses.some((response) => isJsonContentType(response.contentType)),
         streamKind: streamKindForOperation(operation, responses),
+        secretResult: SECRET_RESULT_OP_IDS.has(operationId),
         costHint: costHintForOperationId(operationId),
         deprecated: operation.deprecated === true,
         examples: extractExamples(operation),
@@ -185,11 +186,18 @@ function streamKindForOperation(operation: JsonObject, responses: ResponseCard[]
     return "none";
   const okResponse = responses.find((response) => response.status === "200") ?? responses[0];
   const contentType = okResponse?.contentType?.toLowerCase() ?? "";
+  if (contentType === "text/event-stream") return "sse_events";
   if (contentType.startsWith("audio/")) return "audio_bytes";
   if (isJsonContentType(contentType)) return "json_events";
   if (contentType.startsWith("text/")) return "text";
   return "none";
 }
+
+const SECRET_RESULT_OP_IDS = new Set([
+  "get_single_use_token",
+  "get_livekit_token",
+  "get_conversation_signed_link",
+]);
 
 function groupForOperation(operation: JsonObject, pathTemplate: string): string[] {
   const fernGroup = operation["x-fern-sdk-group-name"];

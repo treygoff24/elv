@@ -1,28 +1,52 @@
-const SECRET_KEYS = new Set([
+export const CREDENTIAL_KEYS = new Set([
   "xi-api-key",
   "x-api-key",
+  "api_key",
   "authorization",
   "cookie",
   "set-cookie",
   "single_use_token",
   "xi_api_key",
   "token",
+  "access_token",
+  "refresh_token",
+  "participant_token",
+  "conversation_token",
   "conversation_signature",
+  "signed_url",
+  "client_secret",
+  "webhook_secret",
 ]);
 
-function isSecretKey(key: string): boolean {
+export function isCredentialKey(key: string): boolean {
   const normalized = key.toLowerCase();
   return (
-    SECRET_KEYS.has(normalized) ||
+    CREDENTIAL_KEYS.has(normalized) ||
     normalized.includes("secret") ||
     normalized.includes("api_key") ||
     normalized.includes("apikey")
   );
 }
 
+export function containsCredential(value: unknown, seen = new WeakSet<object>()): boolean {
+  if (value === null || typeof value !== "object") return false;
+  if (seen.has(value)) return false;
+  seen.add(value);
+  if (Array.isArray(value)) return value.some((item) => containsCredential(item, seen));
+  return Object.entries(value).some(
+    ([key, child]) =>
+      (isCredentialKey(key) && typeof child !== "boolean" && child != null) ||
+      containsCredential(child, seen),
+  );
+}
+
 export function redactString(value: string): string {
   return value
-    .replace(/([?&](?:single_use_token|authorization|token)=)[^&#\s]+/giu, "$1[REDACTED]")
+    .replace(/([?&](?:single_use_token|authorization|token)=)[^&#\s,;"')]+/giu, "$1[REDACTED]")
+    .replace(
+      /("(?:token|single_use_token|access_token|refresh_token|participant_token|conversation_token|conversation_signature|signed_url|client_secret|webhook_secret|xi-api-key|xi_api_key|api_key)"\s*:\s*")[^"]*/giu,
+      "$1[REDACTED]",
+    )
     .replace(/\bBearer\s+[^\s,;"')]+/giu, "Bearer [REDACTED]")
     .replace(/\bsk_[A-Za-z0-9_-]+/gu, "sk_[REDACTED]");
 }
@@ -37,7 +61,7 @@ function cloneRedacted(
   key: string | undefined,
   seen: WeakMap<object, unknown>,
 ): unknown {
-  if (key && isSecretKey(key) && typeof value !== "boolean") return "[REDACTED]";
+  if (key && isCredentialKey(key) && typeof value !== "boolean") return "[REDACTED]";
   if (typeof value === "string") return redactString(value);
   if (value === null || typeof value !== "object") return value;
 

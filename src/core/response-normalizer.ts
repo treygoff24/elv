@@ -16,6 +16,7 @@ import {
 } from "./files";
 import { isRecord, parseJson as parseJsonValue } from "../util/json";
 import { shellArg } from "../util/shell";
+import { containsCredential } from "./redaction";
 import type { HttpMethod, OperationCard } from "../openapi/types";
 import type {
   CostInfo,
@@ -34,6 +35,7 @@ export interface ResponseContext extends Pick<RunOpts, "out" | "hash"> {
   requestPath?: string;
   method?: HttpMethod;
   inline?: boolean;
+  saveJson?: string;
 }
 
 type JsonSpillContext = Pick<ResponseContext, "cmd" | "out" | "hash"> & { saveJson?: string };
@@ -111,6 +113,10 @@ async function normalizeSuccessResponse(
     return fileSuccess(base, files, warnings);
   }
 
+  if (op.streamKind === "sse_events") {
+    return streamSseEventsResponse(op, res, ctx, base, warnings);
+  }
+
   if (isBinarySuccess(op, runtimeType)) {
     return streamFileSuccess(
       op,
@@ -166,6 +172,22 @@ async function jsonSuccess(
     data = parseOptionalJsonBody(text);
   } catch (error) {
     return invalidJsonSuccess(op, ctx, base, warnings, text, error);
+  }
+  if (op.secretResult || containsCredential(data)) {
+    const file = await spillSecretJsonFile(op, text, ctx);
+    return success({
+      ...base,
+      data_summary: summarizeSensitiveData(data),
+      files: [{ ...file, sensitive: true }],
+      truncated: true,
+      warnings: optional(warnings),
+      hints: [
+        {
+          cmd: `cat ${shellArg(file.path)}`,
+          why: "Read the credential directly; elv view refuses sensitive provider responses.",
+        },
+      ],
+    });
   }
   if (isFullTimestampResponse(op, data)) {
     const files = await writeFullTimestampFiles(op, data, ctx);
@@ -239,6 +261,27 @@ async function spillJsonFile(
   const filename = target.file ?? deriveFilename(op.operationId, "response", "json");
   const path = await writeBufferToFile(`${text}\n`, join(target.dir, filename));
   return { ...(await fileRecord(path, { hash: ctx.hash })), mime: "application/json" };
+}
+
+async function spillSecretJsonFile(
+  op: OperationCard,
+  text: string,
+  ctx: ResponseContext,
+): Promise<FileRecord> {
+  const target = resolveOutTarget(ctx.saveJson ?? ctx.out, false);
+  const filename = target.file ?? deriveFilename(op.operationId, "sensitive", "json");
+  const path = await writeBufferToFile(`${text}\n`, join(target.dir, filename), { mode: 0o600 });
+  return {
+    ...(await fileRecord(path, { hash: ctx.hash })),
+    mime: "application/json",
+    sensitive: true,
+  };
+}
+
+function summarizeSensitiveData(data: unknown): DataSummary {
+  if (Array.isArray(data)) return { type: "array", count: data.length };
+  if (isRecord(data)) return { type: "object", count: Object.keys(data).length };
+  return { type: data === null ? "null" : typeof data };
 }
 
 function viewHint(filePath: string, data: unknown): Hint {
@@ -379,6 +422,259 @@ function timestampSidecarPath(audioPath: string): string {
   return ext
     ? `${audioPath.slice(0, -ext.length)}.timestamps.json`
     : `${audioPath}.timestamps.json`;
+}
+
+interface SseFrame {
+  event?: string;
+  id?: string;
+  retry?: number;
+  data: string;
+}
+
+interface SseParserState {
+  pending: string;
+  lines: string[];
+}
+
+async function streamSseEventsResponse(
+  op: OperationCard,
+  res: Response,
+  ctx: ResponseContext,
+  base: Omit<SuccessEnvelope, "v" | "ok">,
+  warnings: Warning[],
+): Promise<Envelope> {
+  const target = resolveOutTarget(ctx.out, true);
+  const ndjson = tempFileWriter(
+    join(target.dir, deriveFilename(op.operationId, undefined, "ndjson")),
+  );
+  let audio: ReturnType<typeof tempFileWriter> | undefined;
+  let eventCount = 0;
+  let audioBytes = 0;
+  const parser: SseParserState = { pending: "", lines: [] };
+  const decoder = new TextDecoder("utf-8", { fatal: true });
+
+  try {
+    for await (const chunk of toNodeReadable(res.body ?? Readable.from([]))) {
+      const frames = feedSse(parser, decoder.decode(chunkBuffer(chunk), { stream: true }), false);
+      for (const frame of frames) {
+        const written = await writeSseFrame(
+          frame,
+          ndjson,
+          () => (audio ??= jsonEventsAudioWriter(op, ctx, target.dir)),
+        );
+        if (written.event) eventCount += 1;
+        audioBytes += written.audioBytes;
+      }
+    }
+
+    const frames = feedSse(parser, decoder.decode(), true);
+    for (const frame of frames) {
+      const written = await writeSseFrame(
+        frame,
+        ndjson,
+        () => (audio ??= jsonEventsAudioWriter(op, ctx, target.dir)),
+      );
+      if (written.event) eventCount += 1;
+      audioBytes += written.audioBytes;
+    }
+
+    const files = await closeSseFiles(ndjson, audio, ctx, false);
+    return fileSuccess(base, files, warnings);
+  } catch (error) {
+    const files: FileRecord[] = [];
+    if (eventCount > 0) {
+      files.push(...(await closeSseFiles(ndjson, undefined, ctx, true)));
+    } else {
+      await ndjson.abort();
+    }
+    if (audio) {
+      if (audioBytes > 0) {
+        files.push(...(await closeSseFiles(undefined, audio, ctx, true)));
+      } else {
+        await audio.abort();
+      }
+    }
+    const parseError = error instanceof Error ? error.message : String(error);
+    return failure({
+      cmd: ctx.cmd,
+      operation_id: op.operationId,
+      http: base.http,
+      error: {
+        type: "provider_error",
+        code: "invalid_sse_stream",
+        message: "Provider returned a malformed SSE stream",
+        raw: { parse_error: parseError },
+      },
+      retry: { recommended: false, after_ms: null },
+      cost: base.cost,
+      files: files.length > 0 ? files : undefined,
+      warnings: optional(warnings),
+      hints:
+        files.length > 0
+          ? [
+              {
+                cmd: `elv view ${shellArg(files[0]!.path)}`,
+                why: "Inspect preserved partial output; provider credits may already have been consumed.",
+              },
+            ]
+          : [],
+    });
+  }
+}
+
+async function closeSseFiles(
+  ndjson: ReturnType<typeof tempFileWriter> | undefined,
+  audio: ReturnType<typeof tempFileWriter> | undefined,
+  ctx: ResponseContext,
+  partial: boolean,
+): Promise<FileRecord[]> {
+  const files: FileRecord[] = [];
+  if (ndjson) {
+    const path = await ndjson.close();
+    files.push({
+      ...(await fileRecord(path, { hash: ctx.hash })),
+      mime: "application/x-ndjson",
+      ...(partial ? { partial: true } : {}),
+    });
+  }
+  if (audio) {
+    const path = await audio.close();
+    files.push({
+      ...(await fileRecord(path, { hash: ctx.hash })),
+      ...(partial ? { partial: true } : {}),
+    });
+  }
+  return files;
+}
+
+function feedSse(state: SseParserState, text: string, final: boolean): SseFrame[] {
+  state.pending += text;
+  const frames: SseFrame[] = [];
+
+  while (true) {
+    const newline = firstSseNewline(state.pending);
+    if (newline === -1) break;
+    if (state.pending[newline] === "\r" && newline === state.pending.length - 1 && !final) break;
+    const line = state.pending.slice(0, newline);
+    const width = state.pending[newline] === "\r" && state.pending[newline + 1] === "\n" ? 2 : 1;
+    state.pending = state.pending.slice(newline + width);
+    acceptSseLine(state, line, frames);
+  }
+
+  if (final) {
+    if (state.pending.length > 0) acceptSseLine(state, state.pending, frames);
+    state.pending = "";
+    dispatchSseFrame(state, frames);
+  }
+  return frames;
+}
+
+function firstSseNewline(value: string): number {
+  const cr = value.indexOf("\r");
+  const lf = value.indexOf("\n");
+  if (cr === -1) return lf;
+  if (lf === -1) return cr;
+  return Math.min(cr, lf);
+}
+
+function acceptSseLine(state: SseParserState, line: string, frames: SseFrame[]): void {
+  if (line === "") dispatchSseFrame(state, frames);
+  else state.lines.push(line);
+}
+
+function dispatchSseFrame(state: SseParserState, frames: SseFrame[]): void {
+  if (state.lines.length === 0) return;
+  const frame = parseSseFrame(state.lines);
+  state.lines = [];
+  if (frame) frames.push(frame);
+}
+
+function parseSseFrame(lines: string[]): SseFrame | undefined {
+  const data: string[] = [];
+  let event: string | undefined;
+  let id: string | undefined;
+  let retry: number | undefined;
+
+  for (const line of lines) {
+    if (line.startsWith(":")) continue;
+    const colon = line.indexOf(":");
+    const field = colon === -1 ? line : line.slice(0, colon);
+    let value = colon === -1 ? "" : line.slice(colon + 1);
+    if (value.startsWith(" ")) value = value.slice(1);
+    if (field === "data") data.push(value);
+    else if (field === "event") event = value;
+    else if (field === "id" && !value.includes("\0")) id = value;
+    else if (field === "retry" && /^\d+$/u.test(value)) retry = Number(value);
+  }
+
+  if (data.length === 0) return undefined;
+  return { data: data.join("\n"), event, id, retry };
+}
+
+async function writeSseFrame(
+  frame: SseFrame,
+  ndjson: ReturnType<typeof tempFileWriter>,
+  audioWriter: () => ReturnType<typeof tempFileWriter>,
+): Promise<{ event: boolean; audioBytes: number }> {
+  if (frame.data.trim() === "[DONE]") return { event: false, audioBytes: 0 };
+  const payload =
+    frame.event === "audio_chunk" && !frame.data.trimStart().startsWith("{")
+      ? frame.data
+      : parseSseData(frame.data);
+  const { data, audio } = extractSseAudio(payload, frame.event);
+  if (audio) await audioWriter().write(audio);
+  await ndjson.write(
+    `${JSON.stringify({
+      ...(frame.event !== undefined ? { event: frame.event } : {}),
+      ...(frame.id !== undefined ? { id: frame.id } : {}),
+      ...(frame.retry !== undefined ? { retry: frame.retry } : {}),
+      data,
+    })}\n`,
+  );
+  return { event: true, audioBytes: audio?.byteLength ?? 0 };
+}
+
+function parseSseData(data: string): unknown {
+  try {
+    return parseJsonValue(data);
+  } catch {
+    return data;
+  }
+}
+
+function extractSseAudio(
+  payload: unknown,
+  event: string | undefined,
+): { data: unknown; audio?: Buffer } {
+  if (event === "audio_chunk" && typeof payload === "string") {
+    return { data: null, audio: decodeBase64(payload) };
+  }
+  if (!isRecord(payload)) return { data: payload };
+  const output = { ...payload };
+  let encoded: string | undefined;
+  for (const key of ["audio_chunk", "audio_base64", "audio"] as const) {
+    if (typeof output[key] !== "string") continue;
+    encoded ??= output[key];
+    delete output[key];
+  }
+  return encoded === undefined ? { data: output } : { data: output, audio: decodeBase64(encoded) };
+}
+
+function decodeBase64(value: string): Buffer {
+  const encoded = value.trim();
+  const padding = encoded.indexOf("=");
+  const unpadded = padding === -1 ? encoded : encoded.slice(0, padding);
+  const suffix = padding === -1 ? "" : encoded.slice(padding);
+  if (
+    encoded.length === 0 ||
+    !/^[A-Za-z0-9+/]+$/u.test(unpadded) ||
+    !/^={0,2}$/u.test(suffix) ||
+    unpadded.length % 4 === 1 ||
+    (suffix.length > 0 && encoded.length % 4 !== 0)
+  ) {
+    throw new Error("Invalid base64 audio in SSE event");
+  }
+  return Buffer.from(encoded, "base64");
 }
 
 async function streamJsonEventsFiles(

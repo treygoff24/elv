@@ -7,7 +7,7 @@ import {
   statSync,
   type WriteStream,
 } from "node:fs";
-import { rename, rm, writeFile } from "node:fs/promises";
+import { chmod, rename, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, extname, isAbsolute, join, resolve } from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
@@ -19,6 +19,10 @@ const DEFAULT_HASH_CAP_BYTES = 64 * 1024 * 1024;
 interface HashOptions {
   maxBytes?: number;
   hash?: boolean;
+}
+
+interface WriteOptions {
+  mode?: number;
 }
 
 export class OutTargetError extends Error {
@@ -136,11 +140,19 @@ export async function streamToFile(
 export async function writeBufferToFile(
   buffer: Buffer | Uint8Array | string,
   path: string,
+  opts: WriteOptions = {},
 ): Promise<string> {
   mkdirSync(dirname(path), { recursive: true });
   const content = Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer);
   const finalPath = await collisionPath(path, content);
-  await writeFile(finalPath, content);
+  if (opts.mode === undefined) {
+    await writeFile(finalPath, content);
+  } else {
+    if (existsSync(finalPath)) await chmod(finalPath, opts.mode);
+    await writeFile(finalPath, content, { mode: opts.mode });
+    // writeFile preserves an existing file's mode; force restrictive permissions too.
+    await chmod(finalPath, opts.mode);
+  }
   return finalPath;
 }
 

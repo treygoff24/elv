@@ -1,10 +1,11 @@
+import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import type { Command } from "commander";
 import { runOperation } from "../../core/client";
 import { emitAndExit, exitCodeForError, validationError } from "../../core/errors";
 import { ExitCode } from "../../core/types";
 import { waitForOperation } from "../../core/wait-operation";
-import { isRecord } from "../../util/json";
+import { isRecord, parseJsonRecord } from "../../util/json";
 import type { WaitOptions } from "../../core/wait-operation";
 import {
   mergedOptions,
@@ -17,6 +18,11 @@ import type { AgentInput, Envelope, RunOpts, SuccessEnvelope } from "../../core/
 export interface BuiltOperation {
   operationId: string;
   input: AgentInput;
+}
+
+export interface JsonBodyFlags {
+  json?: string;
+  jsonFile?: string;
 }
 
 type RequiredWaitFields = Required<Pick<WaitOptions, "operation" | "statusPath" | "success">>;
@@ -236,6 +242,17 @@ export function required(value: string | undefined, label: string): string {
 
 export function requiredPath(value: string | undefined, label: string): string {
   return resolve(required(value, label));
+}
+
+export function readJsonBody(flags: JsonBodyFlags, requiredBody = true): Record<string, unknown> {
+  if (flags.json !== undefined && flags.jsonFile !== undefined)
+    throw new Error("Use --json or --json-file, not both");
+  const raw = flags.jsonFile !== undefined ? readFileSync(flags.jsonFile, "utf8") : flags.json;
+  if (raw === undefined) {
+    if (requiredBody) throw new Error("--json or --json-file is required");
+    return {};
+  }
+  return parseJsonRecord(raw, "JSON", "JSON must be an object");
 }
 
 export function compact(record: Record<string, unknown>): Record<string, unknown> | undefined {

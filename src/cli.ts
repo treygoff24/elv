@@ -120,6 +120,7 @@ function buildProgram(version: string): Command {
       .option("--list", "list the WebSocket catalog")
       .option("--query <key=value>", "add query parameter", collect, [])
       .option("--send <path>", "NDJSON send-script")
+      .option("--timeout-ms <ms>", "inactivity timeout in milliseconds")
       .action(async (target: string | undefined, _options: CliOptionValues, command: Command) => {
         const input = wsInput(target, command);
         if (!input.ok)
@@ -365,7 +366,17 @@ function wsQuery(
 
 function wsRunOptions(command: Command): RunWsOptions {
   const opts = mergedOptions(command);
-  return { baseUrl: optionString(opts.baseUrl), profile: optionString(opts.profile) };
+  return {
+    baseUrl: optionString(opts.baseUrl),
+    profile: optionString(opts.profile),
+    dryRun: Boolean(opts.dryRun),
+    yes: Boolean(opts.yes),
+    maxCredits: numberValue(opts.maxCredits),
+    retryPost: Boolean(opts.retryPost),
+    hash: Boolean(opts.hash),
+    debug: Boolean(opts.debug),
+    timeoutMs: numberValue(opts.timeoutMs),
+  };
 }
 
 function waitOptions(command: Command): Parameters<typeof handleWait>[0] {
@@ -379,6 +390,8 @@ function waitOptions(command: Command): Parameters<typeof handleWait>[0] {
     intervalMs: optionString(opts.intervalMs),
     timeoutMs: optionString(opts.timeoutMs),
     cmd: optionString(opts.cmd),
+    profile: optionString(opts.profile),
+    baseUrl: optionString(opts.baseUrl),
   };
 }
 

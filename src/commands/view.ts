@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import { failure, success } from "../core/envelope";
 import { validationError } from "../core/errors";
 import { SMALL_JSON_LIMIT, summarizeData } from "../core/response-normalizer";
+import { containsCredential } from "../core/redaction";
 import { ExitCode } from "../core/types";
 import type { CommandResult, Hint } from "../core/types";
 import { isRecord, JsonParseError, parseJson } from "../util/json";
@@ -50,6 +51,20 @@ export function buildViewResult(path: string, options: ViewOptions = {}): Comman
           ? error.message
           : String(error);
     return { env: validationError(cmd, message), exitCode: ExitCode.InputValidation };
+  }
+
+  if (containsCredential(parsed)) {
+    return {
+      env: validationError(cmd, `Refusing to render sensitive provider response: ${resolved}`, {
+        hints: [
+          {
+            cmd: `cat ${shellArg(resolved)}`,
+            why: "Read the credential directly from its restrictive file when you intend to reveal it.",
+          },
+        ],
+      }),
+      exitCode: ExitCode.InputValidation,
+    };
   }
 
   let value = parsed;

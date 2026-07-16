@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import type { Command } from "commander";
 import { runOperation } from "../../core/client";
+import { loadConfig } from "../../core/config";
 import { mergedOptions, numberValue } from "../options";
 import {
   type BuiltOperation,
@@ -41,6 +42,13 @@ export function buildTtsInput(flags: TtsFlags): BuiltOperation {
   };
 }
 
+export function resolveTtsModel(
+  explicit: string | undefined,
+  profileDefault: string | undefined,
+): string | undefined {
+  return explicit ?? profileDefault;
+}
+
 export function registerTtsCommand(
   program: Command,
   addCommonFlags: (command: Command) => Command,
@@ -73,10 +81,15 @@ export function registerTtsCommand(
 
 async function runTts(flags: TtsFlags, command: Command): Promise<never> {
   const opts = validationOrExit(command, () => aliasRunOpts(command));
+  const model = validationOrExit(command, () => {
+    const profileDefault =
+      flags.model === undefined ? loadConfig({ profile: opts.profile }).defaultModelId : undefined;
+    return resolveTtsModel(flags.model, profileDefault);
+  });
   const text = validationOrExit(command, () => readText(flags.text, flags.textFile, "tts"));
   const voiceId = await resolveVoiceId(flags, opts, commandName(command));
   const built = validationOrExit(command, () =>
-    buildTtsInput({ ...flags, text, textFile: undefined, voiceId }),
+    buildTtsInput({ ...flags, model, text, textFile: undefined, voiceId }),
   );
   const env = await runOperation(built.operationId, built.input, opts);
   emit(env);

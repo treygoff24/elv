@@ -1,14 +1,20 @@
 import { describe, expect, it } from "vitest";
 import { buildCatalogUrl, getWsCatalogEntry, listWsCatalog } from "../../src/ws/catalog";
 
-const names = ["tts-realtime", "tts-multi", "stt-realtime", "convai"];
+const names = ["tts-realtime", "tts-multi", "stt-realtime", "convai", "convai-monitor"];
 
 describe("ws catalog", () => {
-  it("lists the scripted catalog plus interactive convai", () => {
+  it("lists protocol-specific scripted catalog entries", () => {
     const entries = listWsCatalog();
 
     expect(entries.map((entry) => entry.name)).toEqual(names);
-    expect(getWsCatalogEntry("convai")?.scriptable).toBe(false);
+    expect(getWsCatalogEntry("convai")?.scriptable).toBe(true);
+    expect(getWsCatalogEntry("convai")?.protocol).toBe("convai");
+    expect(getWsCatalogEntry("convai-monitor")).toMatchObject({
+      protocol: "monitor",
+      requiredParams: ["conversation_id"],
+      outboundRisk: "external_side_effect",
+    });
     expect(getWsCatalogEntry("tts-realtime")?.requiredParams).toContain("voice_id");
     expect(getWsCatalogEntry("stt-realtime")?.auth).toContain("xi-api-key");
   });

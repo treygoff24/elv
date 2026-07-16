@@ -183,7 +183,7 @@ describe("ws mock server (black-box, integration gate)", () => {
   );
 
   it(
-    "rejects eleven_v3 over WS without hanging",
+    "does not apply the catalog eleven_v3 rule to a raw WS URL",
     async () => {
       const scriptPath = writeScript(validScriptLines());
       const outDir = mkdtempSync(join(tmpdir(), "elv-ws-out-"));
@@ -201,12 +201,10 @@ describe("ws mock server (black-box, integration gate)", () => {
           outDir,
         ]);
 
-        expect(code).not.toBe(0);
+        expect(code).toBe(0);
 
         const envelope = parseEnvelope(stdout);
-        expect(envelope.ok).toBe(false);
-        const error = errorRecord(envelope);
-        expect(String(error.message ?? error.code)).toMatch(/eleven_v3|model/i);
+        expect(envelope.ok).toBe(true);
       } finally {
         rmSync(scriptPath, { force: true });
         rmSync(outDir, { recursive: true, force: true });

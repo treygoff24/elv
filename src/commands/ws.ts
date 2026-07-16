@@ -1,17 +1,36 @@
 import { readFileSync } from "node:fs";
+import { dirname, isAbsolute, resolve } from "node:path";
 import { success, failure } from "../core/envelope";
 import { ConfigFileError, getApiKey, loadConfig } from "../core/config";
-import { configFileError, validationError } from "../core/errors";
+import {
+  budgetExceeded,
+  configFileError,
+  confirmationRequired,
+  validationError,
+} from "../core/errors";
 import { ExitCode } from "../core/types";
 import { resolveOutTarget, OutTargetError } from "../core/files";
 import { buildCatalogUrl, getWsCatalogEntry, listWsCatalog, wsUrlFromPath } from "../ws/catalog";
-import { parseSendScript, scriptUsesModel } from "../ws/events";
+import {
+  outboundActionCount,
+  parseSendScript,
+  redactWs,
+  redactWsString,
+  scriptUsesModel,
+  ttsCharacterEstimate,
+  validateBinaryFiles,
+} from "../ws/events";
 import { runWsSession } from "../ws/session";
 import type { CommandResult, RunOpts } from "../core/types";
-import type { WsCatalogEntry } from "../ws/catalog";
+import type { WsCatalogEntry, WsProtocol } from "../ws/catalog";
+import type { SendScriptAction } from "../ws/events";
 
-export interface RunWsOptions extends Pick<RunOpts, "apiKey" | "baseUrl" | "profile"> {
+export interface RunWsOptions extends Pick<
+  RunOpts,
+  "apiKey" | "baseUrl" | "profile" | "dryRun" | "yes" | "maxCredits" | "retryPost" | "hash"
+> {
   timeoutMs?: number;
+  debug?: boolean;
 }
 
 export interface WsCommandInput {
@@ -37,7 +56,7 @@ export async function runWs(
   }
 }
 
-type ValidatedWsInput = WsCommandInput & Required<Pick<WsCommandInput, "target" | "send">>;
+type ValidatedWsInput = WsCommandInput & Required<Pick<WsCommandInput, "target">>;
 
 function listCatalogResult(): CommandResult {
   return {
@@ -50,8 +69,7 @@ function validateWsInput(
   input: WsCommandInput,
 ): { ok: true; input: ValidatedWsInput } | { ok: false; result: CommandResult } {
   if (!input.target) return { ok: false, result: inputError("Missing WS target") };
-  if (!input.send) return { ok: false, result: inputError("Missing --send script.ndjson") };
-  return { ok: true, input: { ...input, target: input.target, send: input.send } };
+  return { ok: true, input: { ...input, target: input.target } };
 }
 
 async function runScriptedWs(
@@ -61,12 +79,41 @@ async function runScriptedWs(
   const config = loadConfig({
     profile: options.profile,
     baseUrl: options.baseUrl,
+    maxCredits: options.maxCredits,
   });
+  if (
+    config.maxCredits !== undefined &&
+    (!Number.isFinite(config.maxCredits) || config.maxCredits < 0)
+  ) {
+    return inputError("--max-credits must be a non-negative number");
+  }
   const entry = getWsCatalogEntry(input.target);
-  const script = parseScriptFile(input.send);
-  const resolved = resolveTargetForInput(input.target, entry, input.query, config.baseUrl);
-  const validationErrorResult = validateScriptedTarget(entry, input.query, script, resolved.url);
+  const protocol = entry?.protocol ?? "raw";
+  if (!input.send && protocol !== "monitor") {
+    return inputError("Missing --send script.ndjson");
+  }
+  const query = withConfiguredTtsModel(input.query, entry, config.defaultModelId);
+  const script = input.send ? parseScriptFile(input.send, protocol) : [];
+  validateScriptFiles(script);
+  const resolved = resolveTargetForInput(input.target, entry, query, config.baseUrl);
+  const validationErrorResult = validateScriptedTarget(entry, query, script);
   if (validationErrorResult) return validationErrorResult;
+  const preflight = wsPreflight(entry, script, resolved.url, config.maxCredits);
+  const headers = headersForTarget(resolved.usesProfileAuth, options);
+
+  if (options.dryRun) {
+    return dryRunResult(entry, protocol, script, resolved, headers, preflight);
+  }
+  if (preflight.requiresYes && !options.yes) {
+    return {
+      env: confirmationRequired("elv ws", "Outbound agent or monitor actions require --yes", {
+        raw: { catalog: entry?.name, outbound_actions: preflight.outboundActions },
+      }),
+      exitCode: ExitCode.ConfirmationRequired,
+    };
+  }
+  const budgetError = enforceWsBudget(preflight, config.maxCredits);
+  if (budgetError) return budgetError;
 
   const result = await runWsSession({
     url: resolved.url,
@@ -74,13 +121,22 @@ async function runScriptedWs(
     path: resolved.path,
     outDir: resolveOutTarget(input.out ?? config.outputDir, true).dir,
     script,
-    headers: headersForTarget(resolved.usesProfileAuth, options),
+    headers,
     timeoutMs: options.timeoutMs,
     outputFormat: resolved.url.searchParams.get("output_format") ?? input.query.output_format,
   });
 
   return {
-    env: success({ cmd: "elv ws", ws: result.ws, files: result.files }),
+    env: success({
+      cmd: "elv ws",
+      ws: result.ws,
+      files: result.files,
+      cost: {
+        credits_estimated: preflight.creditsEstimated,
+        credits_charged: null,
+        credits_source: preflight.creditsEstimated === null ? "none" : "estimate",
+      },
+    }),
     exitCode: ExitCode.Success,
   };
 }
@@ -89,14 +145,13 @@ function validateScriptedTarget(
   entry: WsCatalogEntry | undefined,
   query: Record<string, string>,
   script: ReturnType<typeof parseSendScript>,
-  url: URL,
 ): CommandResult | undefined {
   if (entry && !entry.scriptable) {
     return inputError(
       `${entry.name} is interactive and is not supported by the scripted ws player`,
     );
   }
-  if (rejectsElevenV3Target(entry, query, script, url)) {
+  if (entry && rejectsElevenV3(entry, query, script)) {
     return inputError(
       "eleven_v3 is not supported over ElevenLabs WebSocket TTS; use eleven_flash_v2_5",
     );
@@ -137,15 +192,6 @@ function resolveTargetForInput(
   }
 }
 
-function rejectsElevenV3Target(
-  entry: WsCatalogEntry | undefined,
-  query: Record<string, string>,
-  script: ReturnType<typeof parseSendScript>,
-  url: URL,
-): boolean {
-  return entry ? rejectsElevenV3(entry, query, script) : rejectsRawElevenV3(url, script);
-}
-
 function rejectsElevenV3(
   entry: WsCatalogEntry,
   query: Record<string, string>,
@@ -153,13 +199,6 @@ function rejectsElevenV3(
 ): boolean {
   if (!entry.name.startsWith("tts-")) return false;
   return query.model_id?.toLowerCase() === "eleven_v3" || scriptUsesModel(script, "eleven_v3");
-}
-
-function rejectsRawElevenV3(url: URL, script: ReturnType<typeof parseSendScript>): boolean {
-  return (
-    url.searchParams.get("model_id")?.toLowerCase() === "eleven_v3" ||
-    scriptUsesModel(script, "eleven_v3")
-  );
 }
 
 function headersForTarget(
@@ -175,13 +214,173 @@ function authHeaders(apiKey: string | undefined): Record<string, string> | undef
   return { "xi-api-key": apiKey };
 }
 
+interface ResolvedWsTarget {
+  url: URL;
+  path: string;
+  usesProfileAuth: boolean;
+}
+
+interface WsPreflight {
+  outboundActions: number;
+  requiresYes: boolean;
+  creditsEstimated: number | null;
+  budgetPolicy: "not_configured" | "bounded" | "estimate_unavailable" | "unknown_unbounded";
+  wouldExceedBudget: boolean | null;
+}
+
+function withConfiguredTtsModel(
+  query: Record<string, string>,
+  entry: WsCatalogEntry | undefined,
+  defaultModelId: string | undefined,
+): Record<string, string> {
+  if (entry?.protocol !== "tts" || query.model_id || !defaultModelId) return query;
+  return { ...query, model_id: defaultModelId };
+}
+
+function wsPreflight(
+  entry: WsCatalogEntry | undefined,
+  script: SendScriptAction[],
+  url: URL,
+  maxCredits: number | undefined,
+): WsPreflight {
+  const outboundActions = outboundActionCount(script);
+  const protocol = entry?.protocol ?? "raw";
+  const creditsEstimated =
+    protocol === "tts"
+      ? ttsCharacterEstimate(
+          script,
+          url.searchParams.get("model_id") ?? entry?.defaultQuery?.model_id ?? "",
+        )
+      : null;
+  const estimateUnavailable = protocol === "stt" || protocol === "convai";
+  const budgetPolicy =
+    maxCredits === undefined
+      ? "not_configured"
+      : creditsEstimated !== null
+        ? "bounded"
+        : estimateUnavailable
+          ? "estimate_unavailable"
+          : "unknown_unbounded";
+  const wouldExceedBudget =
+    maxCredits === undefined
+      ? false
+      : creditsEstimated !== null
+        ? creditsEstimated > maxCredits
+        : estimateUnavailable
+          ? true
+          : null;
+  return {
+    outboundActions,
+    requiresYes: outboundActions > 0 && entry?.outboundRisk !== undefined,
+    creditsEstimated,
+    budgetPolicy,
+    wouldExceedBudget,
+  };
+}
+
+function dryRunResult(
+  entry: WsCatalogEntry | undefined,
+  protocol: WsProtocol | "raw",
+  script: SendScriptAction[],
+  resolved: ResolvedWsTarget,
+  headers: Record<string, string> | undefined,
+  preflight: WsPreflight,
+): CommandResult {
+  return {
+    env: success({
+      cmd: "elv ws",
+      cost: {
+        credits_estimated: preflight.creditsEstimated,
+        credits_charged: null,
+        credits_source: preflight.creditsEstimated === null ? "none" : "estimate",
+      },
+      data: redactWs({
+        dry_run: true,
+        request: {
+          catalog: entry?.name ?? null,
+          protocol,
+          path: resolved.path,
+          connection_url: redactWsString(resolved.url.toString()),
+          headers: headers ?? {},
+          script,
+        },
+        risk: preflight.requiresYes ? entry?.outboundRisk : "read",
+        outbound_actions: preflight.outboundActions,
+        credits_estimated: preflight.creditsEstimated,
+        budget_policy: preflight.budgetPolicy,
+        would_require_yes: preflight.requiresYes,
+        would_exceed_budget: preflight.wouldExceedBudget,
+      }),
+    }),
+    exitCode: ExitCode.Success,
+  };
+}
+
+function enforceWsBudget(
+  preflight: WsPreflight,
+  maxCredits: number | undefined,
+): CommandResult | undefined {
+  if (maxCredits === undefined) return undefined;
+  if (!Number.isFinite(maxCredits) || maxCredits < 0) {
+    return inputError("--max-credits must be a non-negative number");
+  }
+  if (preflight.budgetPolicy === "estimate_unavailable") {
+    return {
+      env: failure({
+        cmd: "elv ws",
+        error: {
+          type: "budget_exceeded",
+          code: "budget_estimate_unavailable",
+          message: "WebSocket session cost cannot be bounded before connecting",
+          raw: { estimated: null, max: maxCredits },
+        },
+        cost: {
+          credits_estimated: null,
+          credits_charged: null,
+          credits_source: "none",
+        },
+        retry: { recommended: false, after_ms: null },
+        hints: [
+          {
+            cmd: "elv ws ... --dry-run",
+            why: "Inspect the session before deliberately removing the credit ceiling.",
+          },
+        ],
+      }),
+      exitCode: ExitCode.BudgetCeiling,
+    };
+  }
+  if (preflight.wouldExceedBudget) {
+    return {
+      env: budgetExceeded("elv ws", preflight.creditsEstimated, maxCredits),
+      exitCode: ExitCode.BudgetCeiling,
+    };
+  }
+  return undefined;
+}
+
 function inputError(message: string): CommandResult {
   return { env: validationError("elv ws", message), exitCode: ExitCode.InputValidation };
 }
 
-function parseScriptFile(path: string): ReturnType<typeof parseSendScript> {
+function parseScriptFile(
+  path: string,
+  protocol: WsProtocol | "raw",
+): ReturnType<typeof parseSendScript> {
   try {
-    return parseSendScript(readFileSync(path, "utf8"));
+    return parseSendScript(readFileSync(path, "utf8"), protocol).map((action) =>
+      action.type === "send_binary_file" && !isAbsolute(action.path)
+        ? { ...action, path: resolve(dirname(path), action.path) }
+        : action,
+    );
+  } catch (error) {
+    throw new ScriptValidationError(error instanceof Error ? error.message : String(error));
+  }
+}
+
+function validateScriptFiles(script: SendScriptAction[]): void {
+  try {
+    validateBinaryFiles(script);
   } catch (error) {
     throw new ScriptValidationError(error instanceof Error ? error.message : String(error));
   }

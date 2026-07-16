@@ -5,9 +5,9 @@ import { runOperation } from "./client";
 import { ExitCode } from "./types";
 import { parseJson, parseJsonRecord } from "../util/json";
 import { readPath } from "../util/jsonpath";
-import type { AgentInput, CommandResult, Envelope } from "./types";
+import type { AgentInput, CommandResult, Envelope, RunOpts } from "./types";
 
-export interface WaitOptions {
+export interface WaitOptions extends Pick<RunOpts, "baseUrl" | "profile"> {
   operation?: string;
   json?: string;
   statusPath?: string;
@@ -22,6 +22,7 @@ interface WaitDeps {
   runOperation?: (
     operationId: string,
     input: AgentInput | Record<string, unknown>,
+    opts?: Pick<RunOpts, "baseUrl" | "profile">,
   ) => Promise<Envelope>;
   runCommand?: (argv: string[]) => Promise<Envelope>;
   sleep?: (ms: number) => Promise<void>;
@@ -44,6 +45,8 @@ type ParsedWait =
       mode: "operation";
       operation: string;
       input: AgentInput | Record<string, unknown>;
+      baseUrl?: string;
+      profile?: string;
     })
   | (ParsedCommon & {
       mode: "cmd";
@@ -91,7 +94,11 @@ function waitRuntime(parsed: ParsedWait, deps: WaitDeps): WaitRuntime {
 
 function waitRunner(parsed: ParsedWait, deps: WaitDeps): () => Promise<Envelope> {
   if (parsed.mode === "cmd") return () => (deps.runCommand ?? runCommand)(parsed.cmd);
-  return () => (deps.runOperation ?? runOperation)(parsed.operation, parsed.input);
+  return () =>
+    (deps.runOperation ?? runOperation)(parsed.operation, parsed.input, {
+      baseUrl: parsed.baseUrl,
+      profile: parsed.profile,
+    });
 }
 
 async function pollUntilComplete(parsed: ParsedWait, runtime: WaitRuntime): Promise<CommandResult> {
@@ -227,7 +234,14 @@ function parseOptions(
     const input = options.json === undefined ? {} : parseJsonObject(options.json);
     return {
       ok: true,
-      value: { mode: "operation", operation: options.operation, input, ...common },
+      value: {
+        mode: "operation",
+        operation: options.operation,
+        input,
+        baseUrl: options.baseUrl,
+        profile: options.profile,
+        ...common,
+      },
     };
   } catch (error) {
     return {

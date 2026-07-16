@@ -73,6 +73,10 @@ export interface FileRecord {
   bytes: number;
   /** sha256 hex, or null when skipped (size-capped per §6). */
   sha256?: string | null;
+  /** Output may contain credentials and must not be rendered by `elv view`. */
+  sensitive?: boolean;
+  /** Valid bytes/events preserved after a provider stream failed. */
+  partial?: boolean;
 }
 
 export interface Warning {
@@ -143,6 +147,7 @@ export interface ErrorEnvelope {
   error: NormalizedError;
   retry?: RetryInfo;
   cost?: CostInfo;
+  files?: FileRecord[];
   warnings?: Warning[];
   hints?: Hint[];
 }

@@ -230,6 +230,7 @@ function safetyMetadata(op: OperationCard): string {
     streamKind: op.streamKind,
     returnsBinary: op.returnsBinary,
     returnsJson: op.returnsJson,
+    secretResult: op.secretResult ?? false,
   });
 }
 

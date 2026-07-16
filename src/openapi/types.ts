@@ -3,7 +3,7 @@ export type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "HEAD";
 export type Risk = "read" | "generate" | "mutate" | "destructive" | "external_side_effect";
 
 /** Streaming is three different things; the runner branches on this. */
-export type StreamKind = "none" | "audio_bytes" | "json_events" | "text";
+export type StreamKind = "none" | "audio_bytes" | "json_events" | "sse_events" | "text";
 
 /** Budget guard keys on this (NOT the risk label). */
 export type CostHint =
@@ -66,6 +66,8 @@ export interface OperationCard {
   returnsBinary: boolean;
   returnsJson: boolean;
   streamKind: StreamKind;
+  /** Successful JSON may contain a credential and must not be emitted inline. */
+  secretResult?: boolean;
   costHint?: CostHint;
   deprecated: boolean;
   examples: ExampleCard[];

@@ -268,7 +268,9 @@ const cases: Array<{ name: string; alias: () => BuiltOperation; call: () => Buil
       operationId: "run_conversation_simulation_route",
       input: {
         path: { agent_id: "agent_1" },
-        body: { simulation_specification: { first_message: "Hi" } },
+        body: {
+          simulation_specification: { simulated_user_config: { first_message: "Hi" } },
+        },
       },
     }),
   },
@@ -339,6 +341,7 @@ describe("curated aliases", () => {
     expect(program.commands.map((command) => command.name()).sort()).toEqual([
       "agents",
       "dubbing",
+      "dubbing-project",
       "history",
       "models",
       "music",
@@ -349,6 +352,7 @@ describe("curated aliases", () => {
       "voice-change",
       "voice-isolate",
       "voices",
+      "workspace",
     ]);
   });
 

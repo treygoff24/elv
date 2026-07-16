@@ -1,6 +1,7 @@
 import type { Command } from "commander";
 import { registerAgentsCommand } from "./agents";
 import { registerDubbingCommand } from "./dubbing";
+import { registerDubbingProjectCommand } from "./dubbing-project";
 import { registerHistoryCommand } from "./history";
 import { registerModelsCommand } from "./models";
 import { registerMusicCommand } from "./music";
@@ -11,6 +12,7 @@ import { registerUsageCommand } from "./usage";
 import { registerVoiceChangeCommand } from "./voice-change";
 import { registerVoiceIsolateCommand } from "./voice-isolate";
 import { registerVoicesCommand } from "./voices";
+import { registerWorkspaceCommand } from "./workspace";
 
 export function registerAliases(
   program: Command,
@@ -23,9 +25,11 @@ export function registerAliases(
   registerVoiceChangeCommand(program, addCommonFlags);
   registerVoiceIsolateCommand(program, addCommonFlags);
   registerDubbingCommand(program, addCommonFlags);
+  registerDubbingProjectCommand(program, addCommonFlags);
   registerVoicesCommand(program, addCommonFlags);
   registerAgentsCommand(program, addCommonFlags);
   registerModelsCommand(program, addCommonFlags);
   registerHistoryCommand(program, addCommonFlags);
   registerUsageCommand(program, addCommonFlags);
+  registerWorkspaceCommand(program, addCommonFlags);
 }

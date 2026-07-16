@@ -1,4 +1,6 @@
-type WsCatalogName = "tts-realtime" | "tts-multi" | "stt-realtime" | "convai";
+type WsCatalogName = "tts-realtime" | "tts-multi" | "stt-realtime" | "convai" | "convai-monitor";
+
+export type WsProtocol = "tts" | "stt" | "convai" | "monitor";
 
 export interface WsCatalogEntry {
   name: WsCatalogName;
@@ -7,6 +9,9 @@ export interface WsCatalogEntry {
   requiredParams: string[];
   auth: string;
   scriptable: boolean;
+  protocol: WsProtocol;
+  outboundRisk?: "external_side_effect" | "destructive";
+  notes?: string;
   defaultQuery?: Record<string, string>;
 }
 
@@ -19,6 +24,7 @@ const WS_CATALOG: readonly WsCatalogEntry[] = [
     requiredParams: ["voice_id"],
     auth: "xi-api-key header, single_use_token query, or xi_api_key in first message",
     scriptable: true,
+    protocol: "tts",
     defaultQuery: { model_id: "eleven_flash_v2_5" },
   },
   {
@@ -29,6 +35,7 @@ const WS_CATALOG: readonly WsCatalogEntry[] = [
     requiredParams: ["voice_id"],
     auth: "xi-api-key header, single_use_token query, or xi_api_key in first message",
     scriptable: true,
+    protocol: "tts",
     defaultQuery: { model_id: "eleven_flash_v2_5" },
   },
   {
@@ -38,6 +45,7 @@ const WS_CATALOG: readonly WsCatalogEntry[] = [
     requiredParams: [],
     auth: "xi-api-key header or single_use_token query",
     scriptable: true,
+    protocol: "stt",
     defaultQuery: { model_id: "scribe_v2_realtime" },
   },
   {
@@ -46,7 +54,21 @@ const WS_CATALOG: readonly WsCatalogEntry[] = [
     pathTemplate: "/v1/convai/conversation",
     requiredParams: ["agent_id"],
     auth: "signed URL for private agents, or agent_id for public agents",
-    scriptable: false,
+    scriptable: true,
+    protocol: "convai",
+    outboundRisk: "external_side_effect",
+  },
+  {
+    name: "convai-monitor",
+    urlTemplate: "wss://api.elevenlabs.io/v1/convai/conversations/{conversation_id}/monitor",
+    pathTemplate: "/v1/convai/conversations/{conversation_id}/monitor",
+    requiredParams: ["conversation_id"],
+    auth: "xi-api-key header; enterprise/workspace permission required",
+    scriptable: true,
+    protocol: "monitor",
+    outboundRisk: "external_side_effect",
+    notes:
+      "Streams text and metadata. Outbound controls can end or transfer calls, inject context, or enable human takeover.",
   },
 ] as const;
 

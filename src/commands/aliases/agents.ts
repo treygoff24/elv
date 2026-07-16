@@ -1,12 +1,16 @@
-import { readFileSync } from "node:fs";
 import type { Command } from "commander";
-import { parseJsonRecord } from "../../util/json";
+import { runOperation } from "../../core/client";
 import {
   addPaginationFlags,
+  aliasRunOpts,
   compact,
   compactInput,
+  emit,
+  readJsonBody,
   required,
+  runAlias,
   runListAlias,
+  validationOrExit,
   type BuiltOperation,
 } from "./shared";
 
@@ -16,6 +20,10 @@ interface AgentsFlags {
   jsonFile?: string;
   text?: string;
   search?: string;
+  testId?: string;
+  invocationId?: string;
+  branchId?: string;
+  query?: string;
 }
 
 export function buildAgentsListInput(flags: AgentsFlags): BuiltOperation {
@@ -33,13 +41,16 @@ export function buildAgentsGetInput(flags: AgentsFlags): BuiltOperation {
 }
 
 export function buildAgentsCreateInput(flags: AgentsFlags): BuiltOperation {
-  return { operationId: "create_agent_route", input: { body: readJson(flags) } };
+  return { operationId: "create_agent_route", input: { body: readJsonBody(flags) } };
 }
 
 export function buildAgentsUpdateInput(flags: AgentsFlags): BuiltOperation {
   return {
     operationId: "patch_agent_settings_route",
-    input: { path: { agent_id: required(flags.agentId, "--agent-id") }, body: readJson(flags) },
+    input: {
+      path: { agent_id: required(flags.agentId, "--agent-id") },
+      body: readJsonBody(flags),
+    },
   };
 }
 
@@ -49,10 +60,96 @@ export function buildAgentsSimulateInput(flags: AgentsFlags): BuiltOperation {
     input: {
       path: { agent_id: required(flags.agentId, "--agent-id") },
       body:
-        flags.json || flags.jsonFile
-          ? readJson(flags)
-          : { simulation_specification: { first_message: required(flags.text, "--text") } },
+        flags.json !== undefined || flags.jsonFile !== undefined
+          ? readJsonBody(flags)
+          : {
+              simulation_specification: {
+                simulated_user_config: { first_message: required(flags.text, "--text") },
+              },
+            },
     },
+  };
+}
+
+export function buildAgentTestsListInput(flags: AgentsFlags): BuiltOperation {
+  return {
+    operationId: "list_chat_response_tests_route",
+    input: compactInput({ query: compact({ search: flags.search }) }),
+  };
+}
+
+export function buildAgentTestsGetInput(flags: AgentsFlags): BuiltOperation {
+  return {
+    operationId: "get_agent_response_test_route",
+    input: { path: { test_id: required(flags.testId, "--test-id") } },
+  };
+}
+
+export function buildAgentTestsCreateInput(flags: AgentsFlags): BuiltOperation {
+  return { operationId: "create_agent_response_test_route", input: { body: readJsonBody(flags) } };
+}
+
+export function buildAgentTestsUpdateInput(flags: AgentsFlags): BuiltOperation {
+  return {
+    operationId: "update_agent_response_test_route",
+    input: {
+      path: { test_id: required(flags.testId, "--test-id") },
+      body: readJsonBody(flags),
+    },
+  };
+}
+
+export function buildAgentTestsDeleteInput(flags: AgentsFlags): BuiltOperation {
+  return {
+    operationId: "delete_chat_response_test_route",
+    input: { path: { test_id: required(flags.testId, "--test-id") } },
+  };
+}
+
+export function buildAgentTestsRunInput(flags: AgentsFlags): BuiltOperation {
+  return {
+    operationId: "run_agent_test_suite_route",
+    input: {
+      path: { agent_id: required(flags.agentId, "--agent-id") },
+      body: readJsonBody(flags),
+    },
+  };
+}
+
+export function buildAgentTestRunsListInput(flags: AgentsFlags): BuiltOperation {
+  return {
+    operationId: "list_test_invocations_route",
+    input: compactInput({ query: compact({ agent_id: flags.agentId }) }),
+  };
+}
+
+export function buildAgentTestRunsGetInput(flags: AgentsFlags): BuiltOperation {
+  return {
+    operationId: "get_test_invocation_route",
+    input: {
+      path: { test_invocation_id: required(flags.invocationId, "--invocation-id") },
+    },
+  };
+}
+
+export function buildAgentTestRunsResubmitInput(flags: AgentsFlags): BuiltOperation {
+  return {
+    operationId: "resubmit_tests_route",
+    input: {
+      path: { test_invocation_id: required(flags.invocationId, "--invocation-id") },
+      body: readJsonBody(flags),
+    },
+  };
+}
+
+export function buildAgentRagQueryInput(flags: AgentsFlags): BuiltOperation {
+  return {
+    operationId: "query_agent_knowledge_base_rag_route",
+    input: compactInput({
+      path: { agent_id: required(flags.agentId, "--agent-id") },
+      query: compact({ branch_id: flags.branchId }),
+      body: { query: required(flags.query, "--query") },
+    }),
   };
 }
 
@@ -99,24 +196,127 @@ export function registerAgentsCommand(
         runListAlias(buildAgentsUpdateInput, options, command, { mergeOptions: true }),
       ),
   );
+  const tests = agents.command("tests").description("Agent response tests");
+  addCommonFlags(
+    addPaginationFlags(tests.command("list"))
+      .description("List agent response tests")
+      .option("--search <query>", "filter tests by name")
+      .action((options: AgentsFlags, command: Command) =>
+        runListAlias(buildAgentTestsListInput, options, command, { mergeOptions: true }),
+      ),
+  );
+  addCommonFlags(
+    tests
+      .command("get")
+      .description("Get an agent response test")
+      .option("--test-id <id>", "agent response test id")
+      .action((options: AgentsFlags, command: Command) =>
+        runAlias(buildAgentTestsGetInput, options, command),
+      ),
+  );
+  addCommonFlags(
+    tests
+      .command("create")
+      .description("Create an agent response test from JSON")
+      .option("--json <json>", "test request JSON")
+      .option("--json-file <path>", "test request JSON file")
+      .action((options: AgentsFlags, command: Command) =>
+        runAlias(buildAgentTestsCreateInput, options, command),
+      ),
+  );
+  addCommonFlags(
+    tests
+      .command("update")
+      .description("Update an agent response test from JSON")
+      .option("--test-id <id>", "agent response test id")
+      .option("--json <json>", "test update JSON")
+      .option("--json-file <path>", "test update JSON file")
+      .action((options: AgentsFlags, command: Command) =>
+        runAlias(buildAgentTestsUpdateInput, options, command),
+      ),
+  );
+  addCommonFlags(
+    tests
+      .command("delete")
+      .description("Delete an agent response test")
+      .option("--test-id <id>", "agent response test id")
+      .action((options: AgentsFlags, command: Command) =>
+        runAlias(buildAgentTestsDeleteInput, options, command),
+      ),
+  );
+  addCommonFlags(
+    tests
+      .command("run")
+      .description("Run selected tests on an agent")
+      .option("--agent-id <id>", "conversational agent id")
+      .option("--json <json>", "test-run request JSON")
+      .option("--json-file <path>", "test-run request JSON file")
+      .action((options: AgentsFlags, command: Command) =>
+        runAlias(buildAgentTestsRunInput, options, command),
+      ),
+  );
+  const testRuns = agents.command("test-runs").description("Agent test-suite invocations");
+  addCommonFlags(
+    addPaginationFlags(testRuns.command("list"))
+      .description("List test-suite invocations")
+      .option("--agent-id <id>", "filter by conversational agent id")
+      .action((options: AgentsFlags, command: Command) =>
+        runListAlias(buildAgentTestRunsListInput, options, command, { mergeOptions: true }),
+      ),
+  );
+  addCommonFlags(
+    testRuns
+      .command("get")
+      .description("Get a test-suite invocation")
+      .option("--invocation-id <id>", "test invocation id")
+      .action((options: AgentsFlags, command: Command) =>
+        runAlias(buildAgentTestRunsGetInput, options, command),
+      ),
+  );
+  addCommonFlags(
+    testRuns
+      .command("resubmit")
+      .description("Resubmit selected runs from a test-suite invocation")
+      .option("--invocation-id <id>", "test invocation id")
+      .option("--json <json>", "resubmission request JSON")
+      .option("--json-file <path>", "resubmission request JSON file")
+      .action((options: AgentsFlags, command: Command) =>
+        runAlias(buildAgentTestRunsResubmitInput, options, command),
+      ),
+  );
+  addCommonFlags(
+    agents
+      .command("rag-query")
+      .description("Run the agent's read-only RAG retrieval for an ad-hoc query")
+      .option("--agent-id <id>", "conversational agent id")
+      .option("--query <text>", "query to run against the knowledge base")
+      .option("--branch-id <id>", "agent branch id")
+      .action((options: AgentsFlags, command: Command) =>
+        runAlias(buildAgentRagQueryInput, options, command),
+      ),
+  );
   addCommonFlags(
     agents
       .command("simulate")
-      .description("Run a conversation simulation")
+      .description("Deprecated: run a conversation simulation; prefer agents tests create/run")
       .option("--agent-id <id>", "conversational agent id")
       .option("--text <text>", "first user message for a simple simulation")
       .option("--json <json>", "full simulation specification JSON")
       .option("--json-file <path>", "full simulation specification JSON file")
-      .action((options: AgentsFlags, command: Command) =>
-        runListAlias(buildAgentsSimulateInput, options, command, { mergeOptions: true }),
-      ),
+      .action(async (options: AgentsFlags, command: Command) => {
+        const built = validationOrExit(command, () => buildAgentsSimulateInput(options));
+        const env = await runOperation(built.operationId, built.input, aliasRunOpts(command));
+        emit({
+          ...env,
+          warnings: [
+            ...(env.warnings ?? []),
+            {
+              code: "deprecated_operation",
+              message:
+                "agents simulate is deprecated by ElevenLabs; use agents tests create and agents tests run",
+            },
+          ],
+        });
+      }),
   );
-}
-
-function readJson(flags: AgentsFlags): Record<string, unknown> {
-  if (flags.json !== undefined && flags.jsonFile !== undefined)
-    throw new Error("Use --json or --json-file, not both");
-  const raw = flags.jsonFile !== undefined ? readFileSync(flags.jsonFile, "utf8") : flags.json;
-  if (raw === undefined) throw new Error("--json or --json-file is required");
-  return parseJsonRecord(raw, "JSON", "JSON must be an object");
 }
