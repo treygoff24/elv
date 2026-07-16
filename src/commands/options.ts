@@ -25,10 +25,12 @@ export interface CliOptionValues extends RunOptionValues, PaginationOptionValues
   file?: string[] | string;
   format?: string;
   from?: string;
+  group?: string;
   json?: string;
   jsonFile?: string;
   language?: string;
   list?: boolean;
+  method?: string;
   model?: string;
   offline?: boolean;
   operation?: string;
@@ -37,10 +39,12 @@ export interface CliOptionValues extends RunOptionValues, PaginationOptionValues
   query?: string[];
   raw?: boolean;
   removeBackgroundNoise?: boolean;
+  risk?: string;
   search?: string;
   send?: string;
   sort?: string;
   statusPath?: string;
+  stream?: string;
   stdinJson?: boolean;
   success?: string;
   text?: string;
@@ -49,6 +53,9 @@ export interface CliOptionValues extends RunOptionValues, PaginationOptionValues
   timeoutMs?: string | number;
   intervalMs?: string | number;
   unpack?: boolean;
+  uploads?: boolean;
+  deprecated?: boolean;
+  cost?: string;
   voice?: string;
   voiceId?: string;
 }

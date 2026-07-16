@@ -1,11 +1,12 @@
 import { exitCodeForError, validationError } from "../core/errors";
 import { envelopeForThrown, runPreparedOperation } from "../core/client";
+import { InputNormalizationError } from "../core/request-builder";
 import { applyPaginationDefaults, type PaginationOptions } from "../core/pagination";
 import { estimateCredits } from "../core/budget";
 import { loadRegistry } from "../openapi/registry";
 import { classifyRisk } from "../openapi/risk";
 import { parseJson } from "../util/json";
-import type { AgentInput, CommandResult, Envelope, RunOpts } from "../core/types";
+import type { AgentInput, CommandResult, Envelope, RunOpts, Warning } from "../core/types";
 import type { HttpMethod, OperationCard } from "../openapi/types";
 import { ExitCode as Codes } from "../core/types";
 import { addFiles, addPairs } from "./input";
@@ -49,7 +50,7 @@ export async function runHttp(
   }
 
   try {
-    const op = await httpOperation(parsed.method, path, parsed.input);
+    const { op, metadataWarning } = await httpOperation(parsed.method, path, parsed.input);
     if (opts.limit !== undefined && (!Number.isInteger(opts.limit) || opts.limit <= 0)) {
       return validationError(cmd, "--limit must be a positive integer", {
         operationId: op.operationId,
@@ -65,6 +66,7 @@ export async function runHttp(
       command: { kind: "http", method: op.method, path },
       dryRunRequest: { method: op.method, path, input },
       creditsEstimated: await estimateCredits(op, input, opts),
+      warnings: [metadataWarning],
       requestPath: path,
       method: op.method,
     });
@@ -83,9 +85,15 @@ function parseHttpInput(
   const cmd = `elv http ${methodRaw} ${path}`;
   const method = methodRaw.toUpperCase();
   if (!isHttpMethod(method))
-    return { ok: false, env: validationError(cmd, `Unsupported HTTP method: ${methodRaw}`) };
+    return {
+      ok: false,
+      env: validationError(cmd, `Unsupported HTTP method: ${methodRaw}`),
+    };
   if (!path.startsWith("/"))
-    return { ok: false, env: validationError(cmd, "HTTP path must start with /") };
+    return {
+      ok: false,
+      env: validationError(cmd, "HTTP path must start with /"),
+    };
 
   try {
     const input: AgentInput & Record<string, unknown> = {};
@@ -105,34 +113,53 @@ async function httpOperation(
   method: HttpMethod,
   path: string,
   input: AgentInput,
-): Promise<OperationCard> {
+): Promise<{ op: OperationCard; metadataWarning: Warning }> {
   const fileFields = Object.keys(input.files ?? {});
   const registryOp = await matchingRegistryOperation(method, path);
+  if (registryOp) {
+    return {
+      op: {
+        ...registryOp,
+        pathTemplate: path,
+        requestBody: requestBodyForRawInput(registryOp.requestBody, input, fileFields),
+      },
+      metadataWarning: {
+        code: "http_metadata_matched",
+        message: `HTTP metadata matched registry operation ${registryOp.operationId}.`,
+      },
+    };
+  }
   return {
-    operationId: "http",
-    method,
-    pathTemplate: path,
-    group: ["http"],
-    tags: [],
-    risk: registryOp?.risk ?? fallbackRisk(method, path),
-    pathParams: [],
-    queryParams: [],
-    headerParams: [],
-    requestBody:
-      input.body !== undefined || fileFields.length > 0
-        ? {
-            contentType: fileFields.length > 0 ? "multipart/form-data" : "application/json",
-            required: false,
-            multipart: fileFields.length > 0,
-            fileFields,
-          }
-        : undefined,
-    responses: [],
-    returnsBinary: false,
-    returnsJson: true,
-    streamKind: "none",
-    deprecated: false,
-    examples: [],
+    op: {
+      operationId: "http",
+      method,
+      pathTemplate: path,
+      group: ["http"],
+      tags: [],
+      risk: fallbackRisk(method, path),
+      pathParams: [],
+      queryParams: [],
+      headerParams: [],
+      requestBody:
+        input.body !== undefined || fileFields.length > 0
+          ? {
+              contentType: fileFields.length > 0 ? "multipart/form-data" : "application/json",
+              required: false,
+              multipart: fileFields.length > 0,
+              fileFields,
+            }
+          : undefined,
+      responses: [],
+      returnsBinary: false,
+      returnsJson: true,
+      streamKind: "none",
+      deprecated: false,
+      examples: [],
+    },
+    metadataWarning: {
+      code: "http_metadata_inferred",
+      message: "HTTP metadata was inferred because no registry operation matched the request path.",
+    },
   };
 }
 
@@ -142,10 +169,68 @@ async function matchingRegistryOperation(
 ): Promise<OperationCard | undefined> {
   const requestPath = path.replace(/\?.*$/u, "");
   const registry = await loadRegistry();
-  for (const op of registry.values()) {
-    if (op.method === method && pathMatchesTemplate(op.pathTemplate, requestPath)) return op;
+  const candidates = [...registry.values()]
+    .filter((op) => op.method === method && pathMatchesTemplate(op.pathTemplate, requestPath))
+    .map((op) => ({ op, rank: pathSpecificity(op.pathTemplate, requestPath) }))
+    .sort(compareMatches);
+  const best = candidates[0];
+  if (!best) return undefined;
+
+  const equallySpecific = candidates.filter((candidate) => sameRank(candidate.rank, best.rank));
+  if (new Set(equallySpecific.map(({ op }) => safetyMetadata(op))).size > 1) {
+    throw new InputNormalizationError(`Ambiguous HTTP metadata for ${method} ${requestPath}`, {
+      operations: equallySpecific.map(({ op }) => op.operationId).sort(),
+    });
   }
-  return undefined;
+  return best.op;
+}
+
+interface PathSpecificity {
+  exact: boolean;
+  literals: number;
+  parameters: number;
+}
+
+interface RankedMatch {
+  op: OperationCard;
+  rank: PathSpecificity;
+}
+
+function pathSpecificity(template: string, requestPath: string): PathSpecificity {
+  const parts = pathParts(template);
+  const parameters = parts.filter(isTemplateParameter).length;
+  return {
+    exact: template === requestPath,
+    literals: parts.length - parameters,
+    parameters,
+  };
+}
+
+function compareMatches(left: RankedMatch, right: RankedMatch): number {
+  return (
+    Number(right.rank.exact) - Number(left.rank.exact) ||
+    right.rank.literals - left.rank.literals ||
+    left.rank.parameters - right.rank.parameters ||
+    left.op.operationId.localeCompare(right.op.operationId)
+  );
+}
+
+function sameRank(left: PathSpecificity, right: PathSpecificity): boolean {
+  return (
+    left.exact === right.exact &&
+    left.literals === right.literals &&
+    left.parameters === right.parameters
+  );
+}
+
+function safetyMetadata(op: OperationCard): string {
+  return JSON.stringify({
+    risk: op.risk,
+    costHint: op.costHint ?? "unknown",
+    streamKind: op.streamKind,
+    returnsBinary: op.returnsBinary,
+    returnsJson: op.returnsJson,
+  });
 }
 
 function pathMatchesTemplate(template: string, path: string): boolean {
@@ -161,6 +246,30 @@ function pathMatchesTemplate(template: string, path: string): boolean {
 
 function pathParts(path: string): string[] {
   return path.split("/").filter(Boolean);
+}
+
+function isTemplateParameter(part: string): boolean {
+  return part.startsWith("{") && part.endsWith("}");
+}
+
+function requestBodyForRawInput(
+  matched: OperationCard["requestBody"],
+  input: AgentInput,
+  fileFields: string[],
+): OperationCard["requestBody"] {
+  if (fileFields.length > 0) {
+    return {
+      ...matched,
+      contentType: "multipart/form-data",
+      required: matched?.required ?? false,
+      multipart: true,
+      fileFields: [...new Set([...(matched?.fileFields ?? []), ...fileFields])],
+    };
+  }
+  if (matched) return matched;
+  return input.body === undefined
+    ? undefined
+    : { contentType: "application/json", required: false, multipart: false };
 }
 
 function fallbackRisk(method: HttpMethod, path: string): OperationCard["risk"] {

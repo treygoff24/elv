@@ -377,8 +377,6 @@ describe("aliases mock server (black-box, integration gate)", () => {
         "--model",
         "scribe_v2",
         "--wait",
-        "--max-credits",
-        "1000",
       ]);
 
       expect(code).toBe(0);
@@ -413,8 +411,6 @@ describe("aliases mock server (black-box, integration gate)", () => {
         "--target",
         "es",
         "--wait",
-        "--max-credits",
-        "1000",
       ]);
 
       expect(code).toBe(0);

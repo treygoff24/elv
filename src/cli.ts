@@ -22,10 +22,11 @@ import {
 } from "./commands/options";
 import { handleWait } from "./commands/wait";
 import { runWs } from "./commands/ws";
-import { handleOpsGet, handleOpsSchema, handleOpsSearch } from "./commands/ops";
+import { handleOpsGet, handleOpsList, handleOpsSchema, handleOpsSearch } from "./commands/ops";
+import { handleCapabilities } from "./commands/capabilities";
 import { buildViewResult } from "./commands/view";
 import { registerAliases } from "./commands/aliases/index";
-import { handleSpecUpdate } from "./commands/spec";
+import { handleSpecDiff, handleSpecStatus, handleSpecUpdate } from "./commands/spec";
 import { parseJson } from "./util/json";
 import type { ConfigOverrides } from "./core/config";
 import type { RunWsOptions, WsCommandInput } from "./commands/ws";
@@ -61,6 +62,16 @@ function buildProgram(version: string): Command {
       outputError: () => undefined,
     });
   addCommonFlags(program);
+
+  addCommonFlags(
+    program
+      .command("capabilities")
+      .description("Describe the CLI machine contract and service coverage")
+      .action(async () => {
+        const result = await handleCapabilities({ version });
+        emitAndExit(result.env, result.exitCode);
+      }),
+  );
 
   registerOpsCommands(program);
 
@@ -161,6 +172,32 @@ function registerOpsCommands(program: Command): void {
   const ops = parentCommand(program, "ops", "OpenAPI operation discovery");
   addCommonFlags(
     ops
+      .command("list")
+      .description("List and filter OpenAPI operations")
+      .option("--group <name>", "filter by service group")
+      .option("--method <method>", "filter by HTTP method")
+      .option("--risk <risk>", "filter by risk class")
+      .option("--stream <kind>", "filter by stream kind")
+      .option("--cost <policy>", "filter by cost policy")
+      .option("--deprecated", "show only deprecated operations")
+      .option("--uploads", "show only operations with file uploads")
+      .option("--limit <n>", "maximum results", "100")
+      .action(async (options: CliOptionValues) => {
+        const result = await handleOpsList({
+          group: optionString(options.group),
+          method: optionString(options.method),
+          risk: optionString(options.risk),
+          stream: optionString(options.stream),
+          cost: optionString(options.cost),
+          deprecated: Boolean(options.deprecated),
+          uploads: Boolean(options.uploads),
+          limit: optionString(options.limit),
+        });
+        emitAndExit(result.env, result.exitCode);
+      }),
+  );
+  addCommonFlags(
+    ops
       .command("search <query>")
       .description("Search operations by keyword")
       .option("--limit <n>", "maximum results", "10")
@@ -222,6 +259,30 @@ function registerSpecCommands(program: Command): void {
   const spec = parentCommand(program, "spec", "OpenAPI spec cache");
   addCommonFlags(
     spec
+      .command("status")
+      .description("Show vendored and active OpenAPI provenance")
+      .action(async () => {
+        const result = await handleSpecStatus();
+        emitAndExit(result.env, result.exitCode);
+      }),
+  );
+  addCommonFlags(
+    spec
+      .command("diff")
+      .description("Compile and compare an OpenAPI candidate without writing it")
+      .option("--from <file_or_url>", "OpenAPI spec file path or URL to compare")
+      .option("--offline", "compare the vendored spec snapshot")
+      .action(async (options: CliOptionValues) => {
+        const result = await handleSpecDiff({
+          from: optionString(options.from),
+          offline: Boolean(options.offline),
+          cmd: "elv spec diff",
+        });
+        emitAndExit(result.env, result.exitCode);
+      }),
+  );
+  addCommonFlags(
+    spec
       .command("update")
       .description("Refresh the cached OpenAPI spec")
       .option("--from <file_or_url>", "OpenAPI spec file path or URL to fetch")
@@ -230,6 +291,7 @@ function registerSpecCommands(program: Command): void {
         const result = await handleSpecUpdate({
           from: optionString(options.from),
           offline: Boolean(options.offline),
+          dryRun: Boolean(options.dryRun),
           cmd: "elv spec update",
         });
         emitAndExit(result.env, result.exitCode);

@@ -1,8 +1,14 @@
 import { failure, success } from "../core/envelope";
 import { ExitCode } from "../core/types";
-import { SpecInputError, SpecProviderError, updateSpecCache } from "../openapi/fetch-spec";
+import {
+  diffSpec,
+  specStatus,
+  SpecInputError,
+  SpecProviderError,
+  updateSpecCache,
+} from "../openapi/fetch-spec";
 import type { CommandResult } from "../core/types";
-import type { UpdateSpecOptions } from "../openapi/fetch-spec";
+import type { SpecUpdateResult, UpdateSpecOptions } from "../openapi/fetch-spec";
 
 interface SpecUpdateOptions extends UpdateSpecOptions {
   cmd?: string;
@@ -13,16 +19,46 @@ export async function handleSpecUpdate(options: SpecUpdateOptions = {}): Promise
   try {
     const result = await updateSpecCache(options);
     return {
-      env: success({
-        cmd,
-        data: {
-          operations: result.operations,
-          total_operations: result.totalOperations,
-          skipped_operations: result.skippedOperations,
-          cache_path: result.cachePath,
-          spec_cache_path: result.specCachePath,
-        },
-      }),
+      env: success({ cmd, data: specResultData(result) }),
+      exitCode: ExitCode.Success,
+    };
+  } catch (error) {
+    return specUpdateFailure(cmd, error);
+  }
+}
+
+export async function handleSpecDiff(options: SpecUpdateOptions = {}): Promise<CommandResult> {
+  const cmd = options.cmd ?? "elv spec diff";
+  try {
+    const result = await diffSpec(options);
+    return {
+      env: success({ cmd, data: specResultData(result) }),
+      exitCode: ExitCode.Success,
+    };
+  } catch (error) {
+    return specUpdateFailure(cmd, error);
+  }
+}
+
+function specResultData(result: SpecUpdateResult): Record<string, unknown> {
+  return {
+    operations: result.operations,
+    total_operations: result.totalOperations,
+    skipped_operations: result.skippedOperations,
+    cache_path: result.cachePath,
+    written: result.written,
+    provenance: result.provenance,
+    diff: result.diff,
+  };
+}
+
+export async function handleSpecStatus(
+  options: Pick<UpdateSpecOptions, "cacheDir" | "version"> & { cmd?: string } = {},
+): Promise<CommandResult> {
+  const cmd = options.cmd ?? "elv spec status";
+  try {
+    return {
+      env: success({ cmd, data: await specStatus(options) }),
       exitCode: ExitCode.Success,
     };
   } catch (error) {

@@ -1,7 +1,7 @@
 import { loadRegistry, readRegistryCache } from "../openapi/registry";
 import { isRecord } from "../util/json";
 import { suggestIds } from "../util/suggest";
-import { estimateDetail, overBudget } from "./budget";
+import { budgetDecision, estimateDetail } from "./budget";
 import { ConfigFileError, loadConfig, getApiKey } from "./config";
 import { dryRun, failure } from "./envelope";
 import {
@@ -66,7 +66,9 @@ export async function runOperation(
     const op = hydrateBodySchema(baseOp, cached?.bundledSpec);
 
     if (opts.limit !== undefined && (!Number.isInteger(opts.limit) || opts.limit <= 0)) {
-      return validationError(cmd, "--limit must be a positive integer", { operationId });
+      return validationError(cmd, "--limit must be a positive integer", {
+        operationId,
+      });
     }
 
     const normalized = applyPaginationDefaults(
@@ -119,26 +121,29 @@ export function runPreparedOperation({
   requestPath,
   method,
 }: PreparedOperationRun): Promise<Envelope> {
-  const preflightEnvelope = preparedOperationPreflight({
-    cmd,
-    op,
-    input,
-    opts,
-    command,
-    dryRunRequest,
-    creditsEstimated,
-    warnings,
-    requestPath,
-    method,
-  });
-  if (preflightEnvelope) return Promise.resolve(preflightEnvelope);
-
   const config = loadConfig({
     profile: opts.profile,
     baseUrl: opts.baseUrl,
     maxCredits: opts.maxCredits,
   });
-  if (opts.all && !allOutputTarget(opts)) {
+  const effectiveOpts = { ...opts, maxCredits: config.maxCredits };
+  const budget = budgetDecision(op, creditsEstimated, effectiveOpts);
+  const effectiveWarnings = [...warnings, ...budgetPolicyWarnings(budget.policy)];
+  const preflightEnvelope = preparedOperationPreflight({
+    cmd,
+    op,
+    input,
+    opts: effectiveOpts,
+    command,
+    dryRunRequest,
+    creditsEstimated,
+    warnings: effectiveWarnings,
+    requestPath,
+    method,
+  });
+  if (preflightEnvelope) return Promise.resolve(preflightEnvelope);
+
+  if (effectiveOpts.all && !allOutputTarget(effectiveOpts)) {
     return Promise.resolve(
       validationError(cmd, "--all requires --save-json or --out", {
         operationId: op.operationId,
@@ -147,22 +152,25 @@ export function runPreparedOperation({
   }
 
   const requestContext = {
-    baseUrl: opts.baseUrl ?? config.baseUrl,
-    apiKey: opts.apiKey ?? getApiKey({ profile: opts.profile }),
+    baseUrl: effectiveOpts.baseUrl ?? config.baseUrl,
+    apiKey: effectiveOpts.apiKey ?? getApiKey({ profile: effectiveOpts.profile }),
   };
   const makeRequest = (nextInput: AgentInput) => buildHttpRequest(op, nextInput, requestContext);
+  const executable = {
+    cmd,
+    op,
+    input,
+    opts: effectiveOpts,
+    command,
+    creditsEstimated,
+    warnings: effectiveWarnings,
+    requestPath,
+    method,
+  };
 
-  return opts.all
-    ? runAllPages(
-        { cmd, op, input, opts, command, creditsEstimated, requestPath, method },
-        makeRequest,
-        config.outputDir,
-      )
-    : runSinglePage(
-        { cmd, op, input, opts, command, creditsEstimated, warnings, requestPath, method },
-        makeRequest,
-        config.outputDir,
-      );
+  return effectiveOpts.all
+    ? runAllPages(executable, makeRequest, config.outputDir)
+    : runSinglePage(executable, makeRequest, config.outputDir);
 }
 
 function preparedOperationPreflight({
@@ -173,47 +181,75 @@ function preparedOperationPreflight({
   creditsEstimated,
   warnings = [],
 }: PreparedOperationRun): Envelope | null {
+  const budget = budgetDecision(op, creditsEstimated, opts);
   if (opts.dryRun) {
+    const env = dryRun({
+      cmd,
+      operationId: op.operationId,
+      request: dryRunRequest,
+      creditsEstimated,
+      wouldRequireYes: requiresYes(op),
+      wouldExceedBudget: budget.wouldExceed === true,
+    });
     return withWarnings(
-      dryRun({
-        cmd,
-        operationId: op.operationId,
-        request: dryRunRequest,
-        creditsEstimated,
-        wouldRequireYes: requiresYes(op),
-        wouldExceedBudget: overBudget(creditsEstimated, opts),
-      }),
+      {
+        ...env,
+        data: {
+          ...(isRecord(env.data) ? env.data : {}),
+          budget_policy: budget.policy,
+          would_exceed_budget: budget.wouldExceed,
+        },
+      },
       warnings,
     );
   }
 
   if (requiresYes(op) && !opts.yes) {
-    return confirmationRequired(cmd, `${op.operationId} (${op.risk}) requires --yes`, {
-      operationId: op.operationId,
-      hints: [
-        {
-          cmd: `${cmd} --dry-run`,
-          why: "Preview the request without calling the API or mutating anything.",
-        },
-      ],
-    });
+    return withWarnings(
+      confirmationRequired(cmd, `${op.operationId} (${op.risk}) requires --yes`, {
+        operationId: op.operationId,
+        hints: [
+          {
+            cmd: `${cmd} --dry-run`,
+            why: "Preview the request without calling the API or mutating anything.",
+          },
+        ],
+      }),
+      warnings,
+    );
   }
-  if (overBudget(creditsEstimated, opts)) {
-    return budgetExceeded(cmd, creditsEstimated, opts.maxCredits as number, {
-      operationId: op.operationId,
-    });
+  if (budget.policy === "estimate_unavailable") {
+    return withWarnings(budgetEstimateUnavailable(cmd, op, opts.maxCredits as number), warnings);
+  }
+  if (budget.wouldExceed === true) {
+    return withWarnings(
+      budgetExceeded(cmd, creditsEstimated, opts.maxCredits as number, {
+        operationId: op.operationId,
+      }),
+      warnings,
+    );
   }
   return null;
 }
 
 type RequestFactory = (nextInput: AgentInput) => Promise<HttpRequest>;
 
-function runAllPages(
-  { cmd, op, input, opts, command, creditsEstimated, requestPath, method }: ExecutableOperationRun,
+async function runAllPages(
+  {
+    cmd,
+    op,
+    input,
+    opts,
+    command,
+    creditsEstimated,
+    warnings = [],
+    requestPath,
+    method,
+  }: ExecutableOperationRun,
   makeRequest: RequestFactory,
   outputDir: string,
 ): Promise<Envelope> {
-  return collectAllPages({
+  const env = await collectAllPages({
     op,
     input,
     out: opts.out,
@@ -233,6 +269,7 @@ function runAllPages(
         inline: true,
       }),
   });
+  return withWarnings(env, warnings);
 }
 
 async function runSinglePage(
@@ -282,8 +319,49 @@ async function runSinglePage(
 }
 
 function withWarnings(env: Envelope, warnings: Warning[]): Envelope {
-  if (!env.ok || warnings.length === 0) return env;
+  if (warnings.length === 0) return env;
   return { ...env, warnings: [...(env.warnings ?? []), ...warnings] };
+}
+
+function budgetPolicyWarnings(policy: ReturnType<typeof budgetDecision>["policy"]): Warning[] {
+  return policy === "unknown_unbounded"
+    ? [
+        {
+          code: "budget_policy_unknown_unbounded",
+          message:
+            "A credit ceiling is configured, but this non-generation operation has no defensible estimate and will proceed.",
+        },
+      ]
+    : [];
+}
+
+function budgetEstimateUnavailable(cmd: string, op: OperationCard, maxCredits: number): Envelope {
+  return failure({
+    cmd,
+    operation_id: op.operationId,
+    error: {
+      type: "budget_exceeded",
+      code: "budget_estimate_unavailable",
+      message: `Cannot enforce credit cap ${maxCredits} because ${op.operationId} has no defensible cost estimate`,
+      raw: {
+        estimated: null,
+        max: maxCredits,
+        budget_policy: "estimate_unavailable",
+      },
+    },
+    cost: {
+      credits_estimated: null,
+      credits_charged: null,
+      credits_source: "none",
+    },
+    retry: { recommended: false, after_ms: null },
+    hints: [
+      {
+        cmd,
+        why: "Remove the configured ceiling deliberately, provide a smaller bounded input, or choose an operation with a documented estimator.",
+      },
+    ],
+  });
 }
 
 interface SendAndNormalizeContext extends ResponseContext {
@@ -424,7 +502,10 @@ function ajvParam(instancePath: string | undefined, params: unknown): string | n
 
 export function envelopeForThrown(cmd: string, operationId: string, error: unknown): Envelope {
   if (error instanceof ConfigFileError) {
-    return configFileError(cmd, error.message, { operationId, raw: { path: error.path } });
+    return configFileError(cmd, error.message, {
+      operationId,
+      raw: { path: error.path },
+    });
   }
   if (error instanceof InputNormalizationError) {
     return failure({
@@ -432,7 +513,12 @@ export function envelopeForThrown(cmd: string, operationId: string, error: unkno
       operation_id: operationId,
       error: error.toNormalizedError(),
       retry: { recommended: false, after_ms: null },
-      hints: [{ cmd: `elv ops schema ${operationId}`, why: "Inspect required buckets." }],
+      hints: [
+        {
+          cmd: `elv ops schema ${operationId}`,
+          why: "Inspect required buckets.",
+        },
+      ],
     });
   }
   if (error instanceof NetworkRetryError) {

@@ -15,6 +15,17 @@ interface EstimateDetail {
   warnings: Warning[];
 }
 
+export type BudgetPolicy =
+  | "not_configured"
+  | "bounded"
+  | "estimate_unavailable"
+  | "unknown_unbounded";
+
+export interface BudgetDecision {
+  policy: BudgetPolicy;
+  wouldExceed: boolean | null;
+}
+
 export async function estimateCredits(
   op: OperationCard,
   input: AgentInput,
@@ -37,6 +48,17 @@ export async function estimateDetail(
 
 export function overBudget(estimate: number | null, opts: RunOpts): boolean {
   return estimate !== null && opts.maxCredits != null && estimate > opts.maxCredits;
+}
+
+export function budgetDecision(
+  op: OperationCard,
+  estimate: number | null,
+  opts: RunOpts,
+): BudgetDecision {
+  if (opts.maxCredits == null) return { policy: "not_configured", wouldExceed: false };
+  if (estimate !== null) return { policy: "bounded", wouldExceed: estimate > opts.maxCredits };
+  if (op.risk === "generate") return { policy: "estimate_unavailable", wouldExceed: true };
+  return { policy: "unknown_unbounded", wouldExceed: null };
 }
 
 async function baseEstimate(

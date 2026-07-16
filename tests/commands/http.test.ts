@@ -67,7 +67,7 @@ describe("http command", () => {
     expect(fetch).not.toHaveBeenCalled();
     expect(env).toMatchObject({
       ok: false,
-      operation_id: "http",
+      operation_id: "handle_twilio_outbound_call",
       error: { code: "confirmation" },
     });
   });

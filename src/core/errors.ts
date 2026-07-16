@@ -44,6 +44,7 @@ const EXIT_CODE_RULES: Array<[Set<string>, ExitCode]> = [
 const EXACT_EXIT_CODES: Record<string, ExitCode> = {
   confirmation: ExitCode.ConfirmationRequired,
   budget: ExitCode.BudgetCeiling,
+  budget_estimate_unavailable: ExitCode.BudgetCeiling,
 };
 const TYPE_BY_STATUS: Record<number, string> = {
   400: "validation_error",

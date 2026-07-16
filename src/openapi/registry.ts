@@ -1,4 +1,5 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { createHash, randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { compileSpec } from "./compile-spec";
@@ -12,15 +13,33 @@ export interface RegistryOptions {
   forceRecompile?: boolean;
   specPath?: string;
   specDocument?: unknown;
+  /** Test seam for proving the authoritative cache survives an interrupted write. */
+  beforeCacheRename?: (temporaryPath: string, targetPath: string) => void;
 }
 
-interface RegistryCache {
+export interface SpecCounts {
+  paths: number;
+  total_operations: number;
+  callable_operations: number;
+  skipped_operations: number;
+  schemas: number;
+}
+
+export interface SpecProvenance extends SpecCounts {
+  source: string;
+  retrieved_at: string;
+  sha256: string;
+}
+
+export interface RegistryCache {
+  schema?: "elv.openapi.cache.v2";
   version: string;
   generated_at: string;
   totalOperations: number;
   skippedOperations: number;
   operations: OperationCard[];
   bundledSpec?: OpenApiDocument;
+  provenance?: SpecProvenance;
 }
 
 export async function loadRegistry(
@@ -34,10 +53,22 @@ export async function loadRegistry(
   const sourcePath =
     options.specPath ??
     (existsSync(rawSpecCachePath(options)) ? rawSpecCachePath(options) : vendoredSpecPath());
+  const sourceText =
+    options.specDocument === undefined
+      ? readFileSync(sourcePath, "utf8")
+      : JSON.stringify(options.specDocument);
   const compiled = await compileSpec(
     options.specDocument === undefined ? { sourcePath } : { document: options.specDocument },
   );
-  writeRegistryCache(compiled, options);
+  writeRegistryCache(
+    compiled,
+    specProvenance(
+      compiled,
+      sourceText,
+      options.specDocument === undefined ? sourcePath : "memory",
+    ),
+    options,
+  );
   return mapOperations(compiled.operations);
 }
 
@@ -55,30 +86,62 @@ export function readRegistryCache(options: RegistryOptions = {}): RegistryCache 
   return parsed as RegistryCache;
 }
 
+/** Write the one authoritative cache artifact using a same-directory atomic rename. */
 export function writeRegistryCache(
   compiled: CompileSpecResult,
+  provenance: SpecProvenance,
   options: RegistryOptions = {},
 ): string {
   const path = registryCachePath(options);
   mkdirSync(dirname(path), { recursive: true });
+  const temporaryPath = `${path}.tmp-${process.pid}-${randomUUID()}`;
   writeFileSync(
-    path,
+    temporaryPath,
     `${JSON.stringify({
+      schema: "elv.openapi.cache.v2",
       version: packageVersion(options.version),
       generated_at: new Date().toISOString(),
       totalOperations: compiled.totalOperations,
       skippedOperations: compiled.skippedOperations,
       operations: compiled.operations,
       bundledSpec: compiled.bundledSpec,
-    })}\n`,
+      provenance,
+    } satisfies RegistryCache)}\n`,
   );
+  options.beforeCacheRename?.(temporaryPath, path);
+  renameSync(temporaryPath, path);
   return path;
+}
+
+export function specProvenance(
+  compiled: CompileSpecResult,
+  sourceText: string,
+  source: string,
+  retrievedAt = new Date().toISOString(),
+): SpecProvenance {
+  return {
+    source,
+    retrieved_at: retrievedAt,
+    sha256: createHash("sha256").update(sourceText).digest("hex"),
+    ...specCounts(compiled),
+  };
+}
+
+export function specCounts(compiled: CompileSpecResult): SpecCounts {
+  return {
+    paths: Object.keys(compiled.bundledSpec.paths ?? {}).length,
+    total_operations: compiled.totalOperations,
+    callable_operations: compiled.operations.length,
+    skipped_operations: compiled.skippedOperations,
+    schemas: Object.keys(compiled.bundledSpec.components?.schemas ?? {}).length,
+  };
 }
 
 export function registryCachePath(options: RegistryOptions = {}): string {
   return join(versionedCacheDir(options), "openapi.compact.json");
 }
 
+/** Legacy pre-v2 raw cache path, read only for one-time migration. */
 export function rawSpecCachePath(options: RegistryOptions = {}): string {
   return join(versionedCacheDir(options), "openapi.raw.json");
 }
@@ -110,6 +173,11 @@ export function vendoredSpecPath(): string {
   return resolve("spec/openapi.snapshot.json");
 }
 
+export function vendoredSpecMetaPath(): string {
+  for (const path of vendoredSpecMetaCandidates()) if (existsSync(path)) return path;
+  return resolve("spec/openapi.snapshot.meta.json");
+}
+
 function mapOperations(operations: OperationCard[]): Map<string, OperationCard> {
   return new Map(operations.map((operation) => [operation.operationId, operation]));
 }
@@ -127,5 +195,13 @@ function vendoredSpecCandidates(): string[] {
     resolve(new URL("../../spec/openapi.snapshot.json", import.meta.url).pathname),
     resolve(new URL("../spec/openapi.snapshot.json", import.meta.url).pathname),
     resolve("spec/openapi.snapshot.json"),
+  ];
+}
+
+function vendoredSpecMetaCandidates(): string[] {
+  return [
+    resolve(new URL("../../spec/openapi.snapshot.meta.json", import.meta.url).pathname),
+    resolve(new URL("../spec/openapi.snapshot.meta.json", import.meta.url).pathname),
+    resolve("spec/openapi.snapshot.meta.json"),
   ];
 }
