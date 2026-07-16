@@ -106,7 +106,10 @@ export function buildCatalogUrl(
 }
 
 export function wsUrlFromPath(path: string, baseUrl: string): URL {
-  return new URL(path, wsBase(baseUrl));
+  const base = new URL(wsBase(baseUrl));
+  const url = new URL(path, base);
+  if (url.host !== base.host) throw new Error("WebSocket path resolves outside configured host");
+  return url;
 }
 
 function withBaseHost(template: string, baseUrl: string): string {

@@ -89,10 +89,10 @@ function parseHttpInput(
       ok: false,
       env: validationError(cmd, `Unsupported HTTP method: ${methodRaw}`),
     };
-  if (!path.startsWith("/"))
+  if (!path.startsWith("/") || path.startsWith("//"))
     return {
       ok: false,
-      env: validationError(cmd, "HTTP path must start with /"),
+      env: validationError(cmd, "HTTP path must start with one / and cannot change hosts"),
     };
 
   try {

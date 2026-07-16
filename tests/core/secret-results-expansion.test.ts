@@ -113,6 +113,10 @@ describe("secret result handling", () => {
     expect(
       redactString('{"signed_url":"wss://example.test?token=canary","token_cost_factor":1.25}'),
     ).toBe('{"signed_url":"[REDACTED]","token_cost_factor":1.25}');
+    expect(redact({ livekit: { accessToken: "canary" } })).toEqual({
+      livekit: { accessToken: "[REDACTED]" },
+    });
+    expect(redactString('{"accessToken":"canary"}')).toBe('{"accessToken":"[REDACTED]"}');
   });
 
   it("tightens an existing --save-json destination instead of retaining weak permissions", async () => {

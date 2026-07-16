@@ -18,14 +18,24 @@ export const CREDENTIAL_KEYS = new Set([
   "webhook_secret",
 ]);
 
+const NORMALIZED_CREDENTIAL_KEYS = new Set(
+  [...CREDENTIAL_KEYS].map((key) => normalizeCredentialKey(key)),
+);
+
 export function isCredentialKey(key: string): boolean {
   const normalized = key.toLowerCase();
+  const compact = normalizeCredentialKey(key);
   return (
     CREDENTIAL_KEYS.has(normalized) ||
+    NORMALIZED_CREDENTIAL_KEYS.has(compact) ||
     normalized.includes("secret") ||
     normalized.includes("api_key") ||
-    normalized.includes("apikey")
+    compact.includes("apikey")
   );
+}
+
+function normalizeCredentialKey(key: string): string {
+  return key.toLowerCase().replace(/[-_]/gu, "");
 }
 
 export function containsCredential(value: unknown, seen = new WeakSet<object>()): boolean {
@@ -42,9 +52,12 @@ export function containsCredential(value: unknown, seen = new WeakSet<object>())
 
 export function redactString(value: string): string {
   return value
-    .replace(/([?&](?:single_use_token|authorization|token)=)[^&#\s,;"')]+/giu, "$1[REDACTED]")
     .replace(
-      /("(?:token|single_use_token|access_token|refresh_token|participant_token|conversation_token|conversation_signature|signed_url|client_secret|webhook_secret|xi-api-key|xi_api_key|api_key)"\s*:\s*")[^"]*/giu,
+      /([?&](?:single_?use_?token|access_?token|refresh_?token|signed_?token|authorization|token)=)[^&#\s,;"')]+/giu,
+      "$1[REDACTED]",
+    )
+    .replace(
+      /("(?:token|single_?use_?token|access_?token|refresh_?token|participant_?token|conversation_?token|conversation_?signature|signed_?url|client_?secret|webhook_?secret|xi-?api-?key|api_?key)"\s*:\s*")[^"]*/giu,
       "$1[REDACTED]",
     )
     .replace(/\bBearer\s+[^\s,;"')]+/giu, "Bearer [REDACTED]")

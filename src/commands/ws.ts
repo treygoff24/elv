@@ -87,15 +87,17 @@ async function runScriptedWs(
   ) {
     return inputError("--max-credits must be a non-negative number");
   }
-  const entry = getWsCatalogEntry(input.target);
+  const namedEntry = getWsCatalogEntry(input.target);
+  const entry = namedEntry ?? catalogEntryForRawPath(input.target);
   const protocol = entry?.protocol ?? "raw";
   if (!input.send && protocol !== "monitor") {
     return inputError("Missing --send script.ndjson");
   }
-  const query = withConfiguredTtsModel(input.query, entry, config.defaultModelId);
+  const baseQuery = namedEntry ? input.query : { ...entry?.defaultQuery, ...input.query };
+  const query = withConfiguredTtsModel(baseQuery, entry, config.defaultModelId);
   const script = input.send ? parseScriptFile(input.send, protocol) : [];
   validateScriptFiles(script);
-  const resolved = resolveTargetForInput(input.target, entry, query, config.baseUrl);
+  const resolved = resolveTargetForInput(input.target, namedEntry, query, config.baseUrl);
   const validationErrorResult = validateScriptedTarget(entry, query, script);
   if (validationErrorResult) return validationErrorResult;
   const preflight = wsPreflight(entry, script, resolved.url, config.maxCredits);
@@ -172,11 +174,28 @@ function resolveTarget(
       usesProfileAuth: true,
     };
   const rawAbsolute = target.startsWith("ws://") || target.startsWith("wss://");
-  const rawPath = target.startsWith("/");
+  const rawPath = target.startsWith("/") && !target.startsWith("//");
   const url = rawAbsolute ? new URL(target) : rawPath ? wsUrlFromPath(target, baseUrl) : undefined;
   if (!url) throw new Error(`Unknown WS catalog entry or raw path: ${target}`);
   for (const [key, value] of Object.entries(query)) url.searchParams.set(key, value);
   return { url, path: url.pathname, usesProfileAuth: rawPath };
+}
+
+function catalogEntryForRawPath(target: string): WsCatalogEntry | undefined {
+  if (!target.startsWith("/") || target.startsWith("//")) return undefined;
+  const path = target.replace(/\?.*$/u, "");
+  return listWsCatalog().find((entry) => wsPathMatches(entry.pathTemplate, path));
+}
+
+function wsPathMatches(template: string, path: string): boolean {
+  const templateParts = template.split("/").filter(Boolean);
+  const pathParts = path.split("/").filter(Boolean);
+  return (
+    templateParts.length === pathParts.length &&
+    templateParts.every(
+      (part, index) => (part.startsWith("{") && part.endsWith("}")) || part === pathParts[index],
+    )
+  );
 }
 
 function resolveTargetForInput(

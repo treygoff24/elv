@@ -134,6 +134,20 @@ describe("ws session", () => {
     expect(server.headers["xi-api-key"]).toBeUndefined();
   });
 
+  it("rejects protocol-relative WebSocket paths before attaching profile auth", async () => {
+    const dir = await tempDir();
+    const script = join(dir, "script.ndjson");
+    writeFileSync(script, JSON.stringify({ type: "send", data: { text: " " } }));
+
+    const result = await runWs(
+      { target: "//evil.example/steal", send: script, out: dir, query: {} },
+      { baseUrl: "https://api.elevenlabs.io", apiKey: "sk_profile", dryRun: true },
+    );
+
+    expect(result.exitCode).toBe(2);
+    expect(result.env.ok).toBe(false);
+  });
+
   it("rejects eleven_v3 for catalog targets", async () => {
     const dir = await tempDir();
     const script = join(dir, "script.ndjson");
@@ -282,6 +296,27 @@ describe("ws session", () => {
     expect(server.received).toContain('{"type":"end_call"}');
   });
 
+  it("inherits monitor confirmation gates for configured-host raw paths", async () => {
+    const server = await startServer(() => undefined);
+    const dir = await tempDir();
+    const script = join(dir, "control.ndjson");
+    writeFileSync(script, JSON.stringify({ type: "send", data: { type: "end_call" } }));
+
+    const result = await runWs(
+      {
+        target: "/v1/convai/conversations/conv-1/monitor",
+        send: script,
+        out: dir,
+        query: {},
+      },
+      { baseUrl: httpBase(server.url), apiKey: "sk_monitor", timeoutMs: 100 },
+    );
+
+    expect(result.exitCode).toBe(4);
+    expect(result.env.ok).toBe(false);
+    expect(server.connected).toBe(false);
+  });
+
   it("rejects oversized binary actions before connecting", async () => {
     const server = await startServer(() => undefined);
     const dir = await tempDir();
@@ -345,6 +380,23 @@ describe("ws session", () => {
 
     const result = await runWs(
       { target: "stt-realtime", send: script, out: dir, query: {} },
+      { baseUrl: httpBase(server.url), maxCredits: 10, timeoutMs: 100 },
+    );
+
+    expect(result.exitCode).toBe(5);
+    expect(result.env.ok).toBe(false);
+    expect(result.env.ok ? undefined : result.env.error.code).toBe("budget_estimate_unavailable");
+    expect(server.connected).toBe(false);
+  });
+
+  it("inherits realtime STT budget gates for configured-host raw paths", async () => {
+    const server = await startServer(() => undefined);
+    const dir = await tempDir();
+    const script = join(dir, "script.ndjson");
+    writeFileSync(script, JSON.stringify({ type: "send", data: { type: "input_audio_chunk" } }));
+
+    const result = await runWs(
+      { target: "/v1/speech-to-text/realtime", send: script, out: dir, query: {} },
       { baseUrl: httpBase(server.url), maxCredits: 10, timeoutMs: 100 },
     );
 

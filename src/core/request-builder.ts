@@ -88,7 +88,15 @@ export function buildHttpRequest(
 }
 
 function requestUrl(path: string, normalized: AgentInput, baseUrl = DEFAULT_BASE_URL): URL {
-  const url = new URL(path, baseUrl);
+  const base = new URL(baseUrl);
+  const url = new URL(path, base);
+  if (url.origin !== base.origin) {
+    throw new InputNormalizationError("Request path resolves outside the configured API origin", {
+      path,
+      configured_origin: base.origin,
+      resolved_origin: url.origin,
+    });
+  }
   for (const [key, value] of Object.entries(normalized.query ?? {})) appendQuery(url, key, value);
   return url;
 }

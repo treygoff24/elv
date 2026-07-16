@@ -54,6 +54,22 @@ describe("http command", () => {
     });
   });
 
+  it("rejects protocol-relative paths before auth can leave the configured host", async () => {
+    const fetch = vi.fn();
+    vi.stubGlobal("fetch", fetch);
+
+    const env = await runHttp("GET", "//evil.example/steal", {
+      baseUrl: "https://api.elevenlabs.io",
+      apiKey: "sk_test_secret",
+    });
+
+    expect(fetch).not.toHaveBeenCalled();
+    expect(env).toMatchObject({
+      ok: false,
+      error: { type: "validation_error", code: "validation_error" },
+    });
+  });
+
   it("requires --yes for registry-backed raw external side effects", async () => {
     const fetch = vi.fn();
     vi.stubGlobal("fetch", fetch);
