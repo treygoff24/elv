@@ -259,7 +259,12 @@ describe("current API workflow aliases", () => {
       "CI",
     ]);
     expect(serviceAccount.code).toBe(4);
-    expect(errorRecord(parseEnvelope(serviceAccount.stdout)).code).toBe("confirmation");
+    const serviceAccountEnvelope = parseEnvelope(serviceAccount.stdout);
+    expect(serviceAccountEnvelope.cmd).toBe("elv workspace service-accounts create");
+    expect(errorRecord(serviceAccountEnvelope).code).toBe("confirmation");
+    expect(serviceAccountEnvelope.hints).toEqual([
+      expect.objectContaining({ cmd: "elv workspace service-accounts create --dry-run" }),
+    ]);
 
     const deleteSegment = await runCli([
       "dubbing-project",
@@ -285,6 +290,36 @@ describe("current API workflow aliases", () => {
     ]);
     expect(conflict.code).toBe(2);
     expect(errorRecord(parseEnvelope(conflict.stdout)).message).toContain("--json or --json-file");
+  });
+
+  it("dry-runs polymorphic request schemas with nested document refs", async () => {
+    const agentTest = await runCli([
+      "agents",
+      "tests",
+      "create",
+      "--json",
+      '{"name":"Refund"}',
+      "--dry-run",
+    ]);
+    expect(agentTest.code).toBe(0);
+    expect(parseEnvelope(agentTest.stdout)).toMatchObject({
+      ok: true,
+      cmd: "elv agents tests create",
+      operation_id: "create_agent_response_test_route",
+    });
+
+    const authConnection = await runCli([
+      "call",
+      "create_auth_connection",
+      "--json",
+      '{"body":{"name":"CI OAuth","auth_type":"oauth2_client_credentials","provider":"custom","client_id":"client","token_url":"https://example.test/token","client_secret":"secret"}}',
+      "--dry-run",
+    ]);
+    expect(authConnection.code).toBe(0);
+    expect(parseEnvelope(authConnection.stdout)).toMatchObject({
+      ok: true,
+      operation_id: "create_auth_connection",
+    });
   });
 
   it("includes Music prompt in detailed-stream dry-run", async () => {
@@ -316,8 +351,6 @@ describe("current API workflow aliases", () => {
     ]);
     expect(result.code).toBe(0);
     const warnings = parseEnvelope(result.stdout).warnings as Array<Record<string, unknown>>;
-    expect(warnings).toEqual(
-      expect.arrayContaining([expect.objectContaining({ code: "deprecated_operation" })]),
-    );
+    expect(warnings).toEqual([expect.objectContaining({ code: "deprecated_operation" })]);
   });
 });

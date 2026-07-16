@@ -29,7 +29,7 @@ import { requiresYes } from "./safety";
 import { OutTargetError } from "./files";
 import type { ValidateFunction } from "ajv";
 import type { OpenApiDocument } from "../openapi/compile-spec";
-import type { HttpMethod, OperationCard } from "../openapi/types";
+import { SchemaResolutionError, type HttpMethod, type OperationCard } from "../openapi/types";
 import type { AgentInput, Envelope, Hint, NormalizedError, RunOpts, Warning } from "./types";
 import type { HttpRequest } from "./request-builder";
 import type { ResponseContext } from "./response-normalizer";
@@ -56,7 +56,7 @@ export async function runOperation(
   input: AgentInput | Record<string, unknown>,
   opts: OperationRunOpts = {},
 ): Promise<Envelope> {
-  const cmd = `elv call ${operationId}`;
+  const cmd = opts.cmd ?? `elv call ${operationId}`;
   try {
     const registry = await loadRegistry();
     const cached = readRegistryCache();
@@ -570,6 +570,26 @@ export function envelopeForThrown(cmd: string, operationId: string, error: unkno
       },
       retry: { recommended: false, after_ms: null },
       hints: [{ cmd, why: error.hint }],
+    });
+  }
+  if (error instanceof SchemaResolutionError) {
+    return failure({
+      cmd,
+      operation_id: operationId,
+      error: {
+        type: "schema_resolution_error",
+        code: "schema_resolution_error",
+        message: error.message,
+        raw: { operation_id: operationId },
+      },
+      retry: { recommended: false, after_ms: null },
+      hints: [
+        {
+          cmd: `elv ops schema ${operationId} --example`,
+          why: "Inspect the active request schema and generate a valid input skeleton.",
+        },
+        { cmd: "elv spec status", why: "Inspect the active OpenAPI revision." },
+      ],
     });
   }
   return failure({

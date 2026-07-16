@@ -24,7 +24,7 @@ const COMMAND_FAMILIES = [
 const ALIAS_FAMILIES = [
   {
     name: "agents",
-    description: "Conversational AI agent lifecycle and simulation shortcuts.",
+    description: "Agent lifecycle, response tests, and RAG query; simulation is deprecated.",
     operation_ids: [
       "create_agent_response_test_route",
       "create_agent_route",

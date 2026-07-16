@@ -1,5 +1,15 @@
 export type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "HEAD";
 
+export class SchemaResolutionError extends Error {
+  constructor(operationId: string, cause: unknown) {
+    super(
+      `Cannot compile the request schema for ${operationId}: ${cause instanceof Error ? cause.message : String(cause)}`,
+      { cause },
+    );
+    this.name = "SchemaResolutionError";
+  }
+}
+
 export type Risk = "read" | "generate" | "mutate" | "destructive" | "external_side_effect";
 
 /** Streaming is three different things; the runner branches on this. */

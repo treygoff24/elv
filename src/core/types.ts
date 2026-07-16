@@ -28,6 +28,8 @@ export interface AgentInput {
 }
 
 export interface RunOpts {
+  /** Command path the caller invoked; aliases preserve it in envelopes and hints. */
+  cmd?: string;
   dryRun?: boolean;
   yes?: boolean;
   maxCredits?: number;

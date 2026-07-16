@@ -37,7 +37,7 @@ interface WaitAfterCreateConfig extends RequiredWaitFields, Pick<WaitOptions, "f
 }
 
 export function aliasRunOpts(command: Command): RunOpts {
-  return runOptsFromCommand(command);
+  return { ...runOptsFromCommand(command), cmd: commandName(command) };
 }
 
 function paginationOpts(command: Command): {

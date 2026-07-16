@@ -1,16 +1,12 @@
 import type { Command } from "commander";
-import { runOperation } from "../../core/client";
 import {
   addPaginationFlags,
-  aliasRunOpts,
   compact,
   compactInput,
-  emit,
   readJsonBody,
   required,
   runAlias,
   runListAlias,
-  validationOrExit,
   type BuiltOperation,
 } from "./shared";
 
@@ -303,20 +299,8 @@ export function registerAgentsCommand(
       .option("--text <text>", "first user message for a simple simulation")
       .option("--json <json>", "full simulation specification JSON")
       .option("--json-file <path>", "full simulation specification JSON file")
-      .action(async (options: AgentsFlags, command: Command) => {
-        const built = validationOrExit(command, () => buildAgentsSimulateInput(options));
-        const env = await runOperation(built.operationId, built.input, aliasRunOpts(command));
-        emit({
-          ...env,
-          warnings: [
-            ...(env.warnings ?? []),
-            {
-              code: "deprecated_operation",
-              message:
-                "agents simulate is deprecated by ElevenLabs; use agents tests create and agents tests run",
-            },
-          ],
-        });
-      }),
+      .action((options: AgentsFlags, command: Command) =>
+        runAlias(buildAgentsSimulateInput, options, command),
+      ),
   );
 }

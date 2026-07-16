@@ -31,4 +31,30 @@ describe("Ajv 2020 validator", () => {
     expect(validate!({ text: "hi" })).toBe(true);
     expect(validate!({})).toBe(false);
   });
+
+  it("resolves document-local refs nested in polymorphic request schemas", async () => {
+    const compiled = await compileSpec({ sourcePath: "spec/openapi.snapshot.json" });
+    const testsCreate = compiled.operations.find(
+      (candidate) => candidate.operationId === "create_agent_response_test_route",
+    );
+    const authCreate = compiled.operations.find(
+      (candidate) => candidate.operationId === "create_auth_connection",
+    );
+
+    const ajv = buildAjv(compiled.bundledSpec);
+    const validateTest = getInputValidator(ajv, testsCreate!);
+    const validateAuth = getInputValidator(ajv, authCreate!);
+
+    expect(validateTest!({ name: "Refund" })).toBe(true);
+    expect(
+      validateAuth!({
+        name: "CI OAuth",
+        auth_type: "oauth2_client_credentials",
+        provider: "custom",
+        client_id: "client",
+        token_url: "https://example.test/token",
+        client_secret: "secret",
+      }),
+    ).toBe(true);
+  });
 });
