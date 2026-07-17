@@ -1,7 +1,7 @@
 import { exitCodeForError, validationError } from "../core/errors";
 import { envelopeForThrown, runPreparedOperation } from "../core/client";
 import { InputNormalizationError } from "../core/request-builder";
-import { applyPaginationDefaults, type PaginationOptions } from "../core/pagination";
+import { applyPaginationDefaults, type PaginatedRunOptions } from "../core/pagination";
 import { estimateCredits } from "../core/budget";
 import { loadRegistry } from "../openapi/registry";
 import { classifyRisk } from "../openapi/risk";
@@ -24,7 +24,7 @@ interface HttpOptions
   file?: string[];
 }
 
-type HttpRunOpts = RunOpts & PaginationOptions;
+type HttpRunOpts = PaginatedRunOptions;
 
 export async function handleHttp(
   method: string,

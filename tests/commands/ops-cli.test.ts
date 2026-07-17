@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { arrayValue, parseEnvelope, recordValue, type CliResult } from "../helpers/cli-result";
+import type { JsonObject, JsonValue } from "../../src/util/json";
 
 type CachedCliResult = CliResult & { cacheDir: string };
 
@@ -22,7 +23,7 @@ function runCli(args: string[], env?: Record<string, string>): CachedCliResult {
   };
 }
 
-function operationIdOf(item: unknown): string | undefined {
+function operationIdOf(item: JsonValue): string | undefined {
   if (typeof item !== "object" || item === null || Array.isArray(item)) return undefined;
   const record = recordValue(item, "operation");
   if (typeof record.operationId === "string") return record.operationId;
@@ -30,7 +31,7 @@ function operationIdOf(item: unknown): string | undefined {
   return undefined;
 }
 
-function searchResults(envelope: Record<string, unknown>): unknown[] {
+function searchResults(envelope: JsonObject): JsonValue[] {
   return arrayValue(envelope.data, "data");
 }
 

@@ -6,7 +6,7 @@ import { fileRecord, writeBufferToFile, writeManifest } from "../core/files";
 import { AudioWriter } from "./audio-writer";
 import { MAX_BINARY_FILE_BYTES, NdjsonEventWriter, redactWs, redactWsString } from "./events";
 import { isRecord, parseJson as parseJsonValue } from "../util/json";
-import type { FileRecord, WsInfo } from "../core/types";
+import type { FileRecord, SuccessEnvelope, WsInfo } from "../core/types";
 import type { JsonObject, JsonValue } from "../util/json";
 import type { SendScriptAction } from "./events";
 
@@ -21,10 +21,7 @@ interface WsSessionOptions {
   outputFormat?: string;
 }
 
-interface WsSessionResult {
-  ws: WsInfo;
-  files: FileRecord[];
-}
+type WsSessionResult = Required<Pick<SuccessEnvelope, "ws" | "files">>;
 
 export class WsSessionError extends Error {
   constructor(

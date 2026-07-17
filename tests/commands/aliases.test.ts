@@ -436,8 +436,10 @@ async function comparableRequest(op: OperationCard, input: AgentInput) {
   };
 }
 
-async function formMap(form: FormData): Promise<Record<string, unknown[]>> {
-  const out: Record<string, unknown[]> = {};
+type FormValue = string | { name: string; size: number; type: string };
+
+async function formMap(form: FormData): Promise<Record<string, FormValue[]>> {
+  const out: Record<string, FormValue[]> = {};
   for (const [key, value] of form.entries()) {
     const item =
       value instanceof Blob

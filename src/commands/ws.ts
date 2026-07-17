@@ -6,6 +6,7 @@ import {
   budgetExceeded,
   configFileError,
   confirmationRequired,
+  outTargetError,
   validationError,
 } from "../core/errors";
 import { ExitCode } from "../core/types";
@@ -418,17 +419,7 @@ function errorEnvelope(error: unknown): CommandResult {
   }
   if (error instanceof OutTargetError) {
     return {
-      env: failure({
-        cmd: "elv ws",
-        error: {
-          type: "validation_error",
-          code: error.code,
-          message: error.message,
-          raw: { hint: error.hint },
-        },
-        retry: { recommended: false, after_ms: null },
-        hints: [{ cmd: "elv ws --out <dir>", why: error.hint }],
-      }),
+      env: outTargetError("elv ws", error, { hintCmd: "elv ws --out <dir>" }),
       exitCode: ExitCode.InputValidation,
     };
   }

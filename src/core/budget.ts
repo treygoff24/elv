@@ -124,32 +124,30 @@ async function durationCredits(
   creditsPerMinute: number,
   warnings: Warning[],
 ): Promise<number | null> {
-  const duration = await inputDurationSeconds(input);
-  if (duration === null) {
-    warnings.push({
-      code: "duration_unknown",
-      message: "Duration unknown; budget estimate unavailable.",
-    });
-    return null;
-  }
+  const duration = await inputDurationSeconds(input, warnings);
+  if (duration === null) return null;
   return (creditsPerMinute * Math.ceil(duration)) / 60;
 }
 
 async function sourceMinuteCredits(input: AgentInput, warnings: Warning[]): Promise<number | null> {
-  const duration = await inputDurationSeconds(input);
+  const duration = await inputDurationSeconds(input, warnings);
+  if (duration === null) return null;
+  return 10_000 * (Math.ceil(duration) / 60) * targetLanguageCount(input.body);
+}
+
+async function inputDurationSeconds(
+  input: AgentInput,
+  warnings: Warning[],
+): Promise<number | null> {
+  const filePath = firstFile(input.files);
+  const duration = filePath ? await probeDurationSeconds(filePath) : null;
   if (duration === null) {
     warnings.push({
       code: "duration_unknown",
       message: "Duration unknown; budget estimate unavailable.",
     });
-    return null;
   }
-  return 10_000 * (Math.ceil(duration) / 60) * targetLanguageCount(input.body);
-}
-
-async function inputDurationSeconds(input: AgentInput): Promise<number | null> {
-  const filePath = firstFile(input.files);
-  return filePath ? await probeDurationSeconds(filePath) : null;
+  return duration;
 }
 
 function firstFile(files: AgentInput["files"]): string | null {

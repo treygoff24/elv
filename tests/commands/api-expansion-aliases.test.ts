@@ -29,7 +29,7 @@ import {
   buildWorkspaceMembersListInput,
 } from "../../src/commands/aliases/workspace";
 import { loadRegistry } from "../../src/openapi/registry";
-import { errorRecord, parseEnvelope, recordValue, runCli } from "../helpers/cli-result";
+import { arrayValue, errorRecord, parseEnvelope, recordValue, runCli } from "../helpers/cli-result";
 
 describe("current API workflow aliases", () => {
   it("builds detailed Music SSE input", () => {
@@ -344,7 +344,9 @@ describe("current API workflow aliases", () => {
       "--dry-run",
     ]);
     expect(result.code).toBe(0);
-    const warnings = parseEnvelope(result.stdout).warnings as Array<Record<string, unknown>>;
+    const warnings = arrayValue(parseEnvelope(result.stdout).warnings, "warnings").map((warning) =>
+      recordValue(warning, "warning"),
+    );
     expect(warnings).toEqual([expect.objectContaining({ code: "deprecated_operation" })]);
   });
 });

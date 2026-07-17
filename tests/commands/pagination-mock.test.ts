@@ -304,7 +304,7 @@ describe("pagination mock server (black-box, integration gate)", () => {
 
       const envelope = parseEnvelope(stdout);
       expect(envelope.ok).toBe(false);
-      const error = envelope.error as Record<string, unknown>;
+      const error = recordValue(envelope.error, "error");
       expect(String(error.message)).toMatch(/positive integer/);
     },
     CALL_TIMEOUT_MS,
@@ -322,8 +322,10 @@ describe("pagination mock server (black-box, integration gate)", () => {
         expect(code).toBe(0);
         expect(existsSync(savePath)).toBe(true);
 
-        const saved = JSON.parse(readFileSync(savePath, "utf8")) as Record<string, unknown>;
-        const voices = saved.voices as Array<Record<string, unknown>>;
+        const saved = recordValue(JSON.parse(readFileSync(savePath, "utf8")), "saved");
+        const voices = arrayValue(saved.voices, "saved.voices").map((voice) =>
+          recordValue(voice, "voice"),
+        );
         expect(voices[0]?.voice_id).toBe("v1");
 
         const envelope = parseEnvelope(stdout);
@@ -344,7 +346,7 @@ describe("pagination mock server (black-box, integration gate)", () => {
       expect(code).toBe(2);
       const envelope = parseEnvelope(stdout);
       expect(envelope.ok).toBe(false);
-      const error = envelope.error as Record<string, unknown>;
+      const error = recordValue(envelope.error, "error");
       expect(String(error.message)).toMatch(/positive integer/);
     },
     CALL_TIMEOUT_MS,
@@ -361,8 +363,8 @@ describe("pagination mock server (black-box, integration gate)", () => {
       const envelope = parseEnvelope(stdout);
       expect(envelope.ok).toBe(true);
       expect(envelope.files).toBeUndefined();
-      const data = envelope.data as Record<string, unknown>;
-      const voices = data.voices as Array<Record<string, unknown>>;
+      const data = recordValue(envelope.data, "data");
+      const voices = arrayValue(data.voices, "voices").map((voice) => recordValue(voice, "voice"));
       expect(voices.length).toBe(PAGE_ONE_SIZE);
       expect(voices[0]).toHaveProperty("voice_id");
       expect(voices[0]).not.toHaveProperty("name");
@@ -380,7 +382,7 @@ describe("pagination mock server (black-box, integration gate)", () => {
       expect(v2VoicesRequestCount).toBe(0);
       const envelope = parseEnvelope(stdout);
       expect(envelope.ok).toBe(false);
-      const error = envelope.error as Record<string, unknown>;
+      const error = recordValue(envelope.error, "error");
       expect(error.code).toBe("validation_error");
       expect(String(error.message)).toMatch(/--fields cannot be combined with --all/);
     },

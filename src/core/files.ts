@@ -205,7 +205,7 @@ async function collisionPathForFile(path: string, contentPath: string): Promise<
 
   const extension = extname(path);
   const stem = path.slice(0, path.length - extension.length);
-  return `${stem}-${contentHash?.slice(0, 8) ?? "content"}${extension}`;
+  return `${stem}-${contentHash!.slice(0, 8)}${extension}`;
 }
 
 async function closeWriteStream(stream: WriteStream): Promise<void> {

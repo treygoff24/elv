@@ -1,4 +1,5 @@
 import { loadRegistry, readRegistryCache } from "../openapi/registry";
+import { resolveRef as resolveOpenApiRef } from "../openapi/compile-spec";
 import { errorMessage } from "../util/error";
 import { isRecord } from "../util/json";
 import { suggestIds } from "../util/suggest";
@@ -11,6 +12,7 @@ import {
   confirmationRequired,
   hintsForError,
   mergeErrorHints,
+  outTargetError,
   validationError,
   unknownOperation,
 } from "./errors";
@@ -24,7 +26,7 @@ import {
   collectAllPages,
   supportsPagination,
   type PaginationCommand,
-  type PaginationOptions,
+  type PaginatedRunOptions,
 } from "./pagination";
 import { requiresYes } from "./safety";
 import { OutTargetError } from "./files";
@@ -36,7 +38,7 @@ import type { AgentInput, Envelope, Hint, NormalizedError, RunOpts, Warning } fr
 import type { HttpRequest } from "./request-builder";
 import type { ResponseContext } from "./response-normalizer";
 
-type OperationRunOpts = RunOpts & PaginationOptions & { inline?: boolean };
+type OperationRunOpts = PaginatedRunOptions & { inline?: boolean };
 
 type DryRunRequest = JsonObjectInput & {
   operation_id?: string;
@@ -579,15 +581,7 @@ function hydrateBodySchema(
 }
 
 function resolveRef(ref: string, spec: OpenApiDocument): JsonValue | undefined {
-  if (!ref.startsWith("#/")) return undefined;
-  return ref
-    .slice(2)
-    .split("/")
-    .map((part) => part.replace(/~1/gu, "/").replace(/~0/gu, "~"))
-    .reduce<JsonValue | undefined>(
-      (current, part) => asRecord(current)[part] as JsonValue | undefined,
-      spec,
-    );
+  return ref.startsWith("#/") ? resolveOpenApiRef(ref, spec) : undefined;
 }
 
 function ajvParam(
@@ -631,18 +625,7 @@ export function envelopeForThrown(cmd: string, operationId: string, error: unkno
     });
   }
   if (error instanceof OutTargetError) {
-    return failure({
-      cmd,
-      operation_id: operationId,
-      error: {
-        type: "validation_error",
-        code: error.code,
-        message: error.message,
-        raw: { hint: error.hint },
-      },
-      retry: { recommended: false, after_ms: null },
-      hints: [{ cmd, why: error.hint }],
-    });
+    return outTargetError(cmd, error, { operationId });
   }
   if (error instanceof SchemaResolutionError) {
     return failure({

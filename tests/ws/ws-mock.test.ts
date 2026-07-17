@@ -3,7 +3,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { WebSocketServer, type RawData, type WebSocket } from "ws";
-import { errorRecord, parseEnvelope, runCli, type CliResult } from "../helpers/cli-result";
+import {
+  errorRecord,
+  parseEnvelope,
+  recordValue,
+  runCli,
+  type CliResult,
+} from "../helpers/cli-result";
 
 const CANARY_KEY = "test_key_CANARY";
 const CANARY_TOKEN = "SECRET_CANARY";
@@ -125,8 +131,7 @@ describe("ws mock server (black-box, integration gate)", () => {
         const envelope = parseEnvelope(stdout);
         expect(envelope.ok).toBe(true);
 
-        const wsMeta = envelope.ws as Record<string, unknown>;
-        expect(wsMeta).toBeDefined();
+        const wsMeta = recordValue(envelope.ws, "ws");
         expect(Number(wsMeta.events_received)).toBeGreaterThan(0);
         expect(wsMeta.closed).toBe(true);
 

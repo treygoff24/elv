@@ -1,4 +1,5 @@
 import { failure, writeEnvelope } from "./envelope";
+import type { OutTargetError } from "./files";
 import { ExitCode } from "./types";
 import type { Envelope, ErrorEnvelope, Hint, NormalizedError } from "./types";
 
@@ -169,6 +170,25 @@ export function configFileError(
     },
     retry: { recommended: false, after_ms: null },
     hints: [{ cmd: "elv config doctor", why: "Validate local elv configuration." }],
+  });
+}
+
+export function outTargetError(
+  cmd: string,
+  error: OutTargetError,
+  options: Pick<PreflightOptions, "operationId"> & { hintCmd?: string } = {},
+): ErrorEnvelope {
+  return failure({
+    cmd,
+    operation_id: options.operationId,
+    error: {
+      type: "validation_error",
+      code: error.code,
+      message: error.message,
+      raw: { hint: error.hint },
+    },
+    retry: { recommended: false, after_ms: null },
+    hints: [{ cmd: options.hintCmd ?? cmd, why: error.hint }],
   });
 }
 

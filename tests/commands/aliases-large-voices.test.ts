@@ -21,7 +21,7 @@ function readBody(req: IncomingMessage): Promise<string> {
   });
 }
 
-function largeVoices(): Record<string, unknown> {
+function largeVoices() {
   return {
     voices: Array.from({ length: 35 }, (_, index) => ({
       voice_id: index === 7 ? "roger" : `voice_${index}`,

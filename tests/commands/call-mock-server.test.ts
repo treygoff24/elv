@@ -212,7 +212,7 @@ describe("call mock server (black-box, integration gate)", () => {
 
         const cost = envelope.cost;
         if (cost && typeof cost === "object" && cost !== null) {
-          const costRecord = cost as Record<string, unknown>;
+          const costRecord = recordValue(cost, "cost");
           if (costRecord.credits_charged != null) {
             expect(costRecord.credits_charged).toBe(42);
           }

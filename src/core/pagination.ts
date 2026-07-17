@@ -13,6 +13,8 @@ export interface PaginationOptions extends Pick<RunOpts, "out" | "hash"> {
   saveJson?: string;
 }
 
+export type PaginatedRunOptions = RunOpts & PaginationOptions;
+
 export interface PaginationCommand {
   kind: "call" | "http";
   method?: HttpMethod;

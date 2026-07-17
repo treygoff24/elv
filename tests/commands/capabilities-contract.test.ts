@@ -3,18 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { handleCapabilities } from "../../src/commands/capabilities";
-
-function record(value: unknown): Record<string, unknown> {
-  expect(value).toBeTypeOf("object");
-  expect(value).not.toBeNull();
-  expect(Array.isArray(value)).toBe(false);
-  return value as Record<string, unknown>;
-}
-
-function array(value: unknown): unknown[] {
-  expect(Array.isArray(value)).toBe(true);
-  return value as unknown[];
-}
+import { arrayValue as array, recordValue as record } from "../helpers/cli-result";
 
 describe("capabilities machine contract", () => {
   const previousCache = process.env.ELV_CACHE_DIR;

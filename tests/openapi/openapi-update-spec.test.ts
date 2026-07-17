@@ -7,7 +7,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { handleSpecDiff, handleSpecStatus, handleSpecUpdate } from "../../src/commands/spec";
 import { diffSpec, updateSpecCache } from "../../src/openapi/fetch-spec";
 import { rawSpecCachePath, registryCachePath } from "../../src/openapi/registry";
+import { isRecord, parseJsonRecord } from "../../src/util/json";
+import type { OpenApiDocument } from "../../src/openapi/compile-spec";
 import type { OperationCard } from "../../src/openapi/types";
+import type { JsonValue } from "../../src/util/json";
 
 let cacheDir: string;
 const servers: Server[] = [];
@@ -54,7 +57,7 @@ describe("spec update", () => {
     expect(result.exitCode).toBe(0);
     expect(result.env.ok).toBe(true);
     if (!result.env.ok) throw new Error("expected success");
-    expect((result.env.data as Record<string, unknown>).operations).toBe(4);
+    expect(isRecord(result.env.data) && result.env.data.operations).toBe(4);
   });
 
   it("honors ELV_SPEC_URL when --from is absent", async () => {
@@ -209,11 +212,14 @@ describe("spec update", () => {
   it("reports stable operation, deprecation, and schema diffs", async () => {
     cacheDir = mkdtempSync(join(tmpdir(), "elv-spec-update-"));
     await updateSpecCache({ from: "fixtures/fake-openapi.json", cacheDir });
-    const candidate = JSON.parse(readFileSync("fixtures/fake-openapi.json", "utf8")) as {
-      paths: Record<string, Record<string, Record<string, unknown>>>;
-      components: { schemas: Record<string, unknown> };
-    };
-    candidate.paths["/v1/voices"]!.get!.deprecated = true;
+    const candidate = parseJsonRecord(
+      readFileSync("fixtures/fake-openapi.json", "utf8"),
+      "fake OpenAPI fixture",
+    ) as OpenApiDocument;
+    const voicesPath = candidate.paths["/v1/voices"];
+    const getVoices = voicesPath && isRecord(voicesPath.get) ? voicesPath.get : undefined;
+    if (!getVoices) throw new Error("fixture is missing GET /v1/voices");
+    getVoices.deprecated = true;
     candidate.paths["/v1/z"] = { get: operation("z_new") };
     candidate.paths["/v1/a"] = { get: operation("a_new") };
     candidate.components.schemas.Zed = { type: "string" };
@@ -251,7 +257,7 @@ describe("spec update", () => {
     const updated = await updateSpecCache({ from: "fixtures/fake-openapi.json", cacheDir });
     const legacy = JSON.parse(readFileSync(updated.cachePath, "utf8")) as {
       schema?: string;
-      provenance?: unknown;
+      provenance?: JsonValue;
     };
     delete legacy.schema;
     delete legacy.provenance;

@@ -6,7 +6,7 @@ import { errorMessage } from "../util/error";
 import { parseJsonRecord } from "../util/json";
 import type { JsonObject } from "../util/json";
 import type { AgentInput, CommandResult, RunOpts } from "../core/types";
-import type { PaginationOptions } from "../core/pagination";
+import type { PaginatedRunOptions } from "../core/pagination";
 import { addFiles, addPairs } from "./input";
 import { paginationOptionsFromOptions, runOptsFromOptions } from "./options";
 import type { CliOptionValues, PaginationOptionValues, RunOptionValues } from "./options";
@@ -28,7 +28,7 @@ export async function handleCall(
   const parsed = parseCallInput(operationId, options);
   if (!parsed.ok) return { env: parsed.env, exitCode: ExitCode.InputValidation };
 
-  let opts: RunOpts & PaginationOptions;
+  let opts: PaginatedRunOptions;
   try {
     opts = callRunOpts(options);
   } catch (error) {
@@ -87,7 +87,7 @@ function parseCallInput(
   return { ok: true, input };
 }
 
-function callRunOpts(options: CallOptions): RunOpts & PaginationOptions {
+function callRunOpts(options: CallOptions): PaginatedRunOptions {
   return {
     ...runOptsFromOptions(options),
     allowUnknown: options.allowUnknown,

@@ -3,7 +3,7 @@ import type { CliOptionValues } from "../options";
 import { runOperation } from "../../core/client";
 import { emitAndExit, validationError } from "../../core/errors";
 import { ExitCode } from "../../core/types";
-import type { Envelope, RunOpts, SuccessEnvelope } from "../../core/types";
+import type { RunOpts, SuccessEnvelope } from "../../core/types";
 import {
   addPaginationFlags,
   type BuiltOperation,
@@ -30,14 +30,14 @@ interface VoicesFlags extends Pick<
 const RESOLVER_PAGE_SIZE = 100;
 
 interface VoiceRecord {
-  name?: string;
-  voice_id?: string;
+  name: string;
+  voice_id: string;
 }
 
 export type VoiceSelector = Pick<CliOptionValues, "voiceId" | "voice">;
 
 type VoiceListData = {
-  voices?: VoiceRecord[];
+  voices: VoiceRecord[];
 };
 
 export function buildVoicesListInput(flags: VoicesFlags): BuiltOperation {
@@ -77,13 +77,9 @@ export function buildVoicesCloneInstantInput(flags: VoicesFlags): BuiltOperation
 
 export function findMatchingVoices(query: string, voices: VoiceRecord[]): VoiceRecord[] {
   const needle = query.toLowerCase();
-  const exact = voices.filter((voice) => String(voice.name ?? "").toLowerCase() === needle);
+  const exact = voices.filter((voice) => voice.name.toLowerCase() === needle);
   if (exact.length) return exact;
-  return voices.filter((voice) =>
-    String(voice.name ?? "")
-      .toLowerCase()
-      .includes(needle),
-  );
+  return voices.filter((voice) => voice.name.toLowerCase().includes(needle));
 }
 
 export async function resolveVoiceId(
@@ -105,7 +101,7 @@ export async function resolveVoiceId(
   if (!env.ok) emit(env);
   const voices = voicesFrom(env);
   const matches = findMatchingVoices(flags.voice, voices);
-  if (matches.length === 1) return String(matches[0]?.voice_id);
+  if (matches.length === 1) return matches[0]!.voice_id;
   emitAndExit(
     validationError(
       cmd,
@@ -120,20 +116,14 @@ export async function resolveVoiceId(
 function candidateNames(name: string, voices: VoiceRecord[]): string {
   const needle = name.toLowerCase();
   const names = voices
-    .filter((voice) =>
-      String(voice.name ?? "")
-        .toLowerCase()
-        .includes(needle),
-    )
+    .filter((voice) => voice.name.toLowerCase().includes(needle))
     .map((voice) => `${voice.name} (${voice.voice_id})`)
     .slice(0, 10);
   return names.length ? `; candidates: ${names.join(", ")}` : "";
 }
 
-function voicesFrom(env: Envelope): VoiceRecord[] {
-  if (!env.ok) return [];
-  const data = env.data as VoiceListData | undefined;
-  return Array.isArray(data?.voices) ? data.voices : [];
+function voicesFrom(env: SuccessEnvelope): VoiceRecord[] {
+  return (env.data as VoiceListData).voices;
 }
 
 export function registerVoicesCommand(

@@ -16,22 +16,19 @@ interface SpecUpdateOptions extends UpdateSpecOptions {
 }
 
 export async function handleSpecUpdate(options: SpecUpdateOptions = {}): Promise<CommandResult> {
-  const cmd = options.cmd ?? "elv spec update";
-  try {
-    const result = await updateSpecCache(options);
-    return {
-      env: success({ cmd, data: specResultData(result) }),
-      exitCode: ExitCode.Success,
-    };
-  } catch (error) {
-    return specUpdateFailure(cmd, error);
-  }
+  return runSpecChange(options.cmd ?? "elv spec update", () => updateSpecCache(options));
 }
 
 export async function handleSpecDiff(options: SpecUpdateOptions = {}): Promise<CommandResult> {
-  const cmd = options.cmd ?? "elv spec diff";
+  return runSpecChange(options.cmd ?? "elv spec diff", () => diffSpec(options));
+}
+
+async function runSpecChange(
+  cmd: string,
+  change: () => Promise<SpecUpdateResult>,
+): Promise<CommandResult> {
   try {
-    const result = await diffSpec(options);
+    const result = await change();
     return {
       env: success({ cmd, data: specResultData(result) }),
       exitCode: ExitCode.Success,

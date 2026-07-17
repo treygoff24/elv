@@ -81,10 +81,7 @@ interface ComparableSpec {
   provenance: SpecProvenance | "unknown";
 }
 
-interface VendoredMetadata extends JsonObject {
-  source: string;
-  retrieved_at: string;
-}
+type VendoredMetadata = JsonObject & Pick<SpecProvenance, "source" | "retrieved_at">;
 
 export class SpecInputError extends Error {
   constructor(

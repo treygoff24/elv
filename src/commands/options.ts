@@ -138,7 +138,6 @@ export function collect(value: string, previous: string[]): string[] {
 
 export function numberValue(value: string | number | undefined): number | undefined {
   if (value === undefined || value === "") return undefined;
-  if (typeof value !== "string" && typeof value !== "number") return undefined;
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) throw new OptionValueError(`Expected number, got ${value}`);
   return parsed;

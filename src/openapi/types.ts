@@ -16,7 +16,7 @@ export class SchemaResolutionError extends Error {
 export const RISKS = ["read", "mutate", "generate", "external_side_effect", "destructive"] as const;
 export type Risk = (typeof RISKS)[number];
 
-/** Streaming is three different things; the runner branches on this. */
+/** Each stream kind needs different transport handling; a streaming boolean is insufficient. */
 export const STREAM_KINDS = ["none", "audio_bytes", "json_events", "sse_events", "text"] as const;
 export type StreamKind = (typeof STREAM_KINDS)[number];
 

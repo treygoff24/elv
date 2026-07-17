@@ -11,6 +11,7 @@ import {
 import { success } from "../../src/core/envelope";
 import type { Envelope } from "../../src/core/types";
 import type { OperationCard } from "../../src/openapi/types";
+import type { JsonValue } from "../../src/util/json";
 
 function op(overrides: Partial<OperationCard>): OperationCard {
   return {
@@ -33,7 +34,7 @@ function op(overrides: Partial<OperationCard>): OperationCard {
   };
 }
 
-function ok(data: unknown): Envelope {
+function ok(data: JsonValue): Envelope {
   return success({ cmd: "elv call demo", operation_id: "demo", data, truncated: false, hints: [] });
 }
 

@@ -9,10 +9,11 @@ import {
 import { readRegistryCache, loadRegistry } from "../openapi/registry";
 import { COST_HINTS, HTTP_METHODS, RISKS, STREAM_KINDS } from "../openapi/types";
 import type { CostHint, HttpMethod, OperationCard, Risk, StreamKind } from "../openapi/types";
-import type { CommandResult, Hint, Warning } from "../core/types";
+import type { CommandResult, Hint, SuccessEnvelope } from "../core/types";
 import type { CliOptionValues } from "./options";
 
 type SearchResult = Omit<OpsListItem, "stream" | "upload_fields">;
+type OperationSummary = Omit<SearchResult, "cost_hint" | "deprecated">;
 
 type OpsSearchOptions = Pick<CliOptionValues, "limit">;
 
@@ -174,15 +175,21 @@ export function searchOperations(
     .sort((a, b) => b.score - a.score || a.op.operationId.localeCompare(b.op.operationId));
 
   return scored.slice(0, limit).map(({ op }) => ({
+    ...operationSummary(op),
+    cost_hint: op.costHint ?? "unknown",
+    deprecated: op.deprecated,
+  }));
+}
+
+function operationSummary(op: OperationCard): OperationSummary {
+  return {
     operation_id: op.operationId,
     method: op.method,
     path: op.pathTemplate,
     group: op.group,
     summary: op.summary,
     risk: op.risk,
-    cost_hint: op.costHint ?? "unknown",
-    deprecated: op.deprecated,
-  }));
+  };
 }
 
 export function listOperations(
@@ -193,12 +200,7 @@ export function listOperations(
     .filter((op) => matchesListFilters(op, options))
     .sort((a, b) => a.operationId.localeCompare(b.operationId))
     .map((op) => ({
-      operation_id: op.operationId,
-      method: op.method,
-      path: op.pathTemplate,
-      group: op.group,
-      summary: op.summary,
-      risk: op.risk,
+      ...operationSummary(op),
       stream: op.streamKind,
       cost_hint: op.costHint ?? "unknown",
       deprecated: op.deprecated,
@@ -317,7 +319,7 @@ function matchesListFilters(op: OperationCard, options: NormalizedListOptions): 
   return true;
 }
 
-function deprecationAnnotation(op: OperationCard): { warnings?: Warning[]; hints?: Hint[] } {
+function deprecationAnnotation(op: OperationCard): Pick<SuccessEnvelope, "warnings" | "hints"> {
   if (!op.deprecated) return {};
   const replacement = replacementFromDescription(op.description);
   return {
@@ -345,7 +347,7 @@ function replacementHint(replacement: string): Hint {
   const request = replacement.match(/^(GET|POST|PUT|PATCH|DELETE|HEAD)\s+(\/\S+)$/iu);
   if (request) {
     return {
-      cmd: `elv http ${request[1]?.toUpperCase()} ${request[2]}`,
+      cmd: `elv http ${request[1]!.toUpperCase()} ${request[2]}`,
       why: "Use the replacement endpoint.",
     };
   }

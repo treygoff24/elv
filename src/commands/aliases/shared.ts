@@ -40,11 +40,7 @@ export function aliasRunOpts(command: Command): RunOpts {
   return { ...runOptsFromCommand(command), cmd: commandName(command) };
 }
 
-function paginationOpts(command: Command): {
-  all?: boolean;
-  limit?: number;
-  saveJson?: string;
-} {
+function paginationOpts(command: Command): ReturnType<typeof paginationOptionsFromCommand> {
   return paginationOptionsFromCommand(command);
 }
 
@@ -76,7 +72,7 @@ function fieldsOpt(command: Command): string[] | undefined {
 // ignore the persistence request.
 function resolveListOpts(command: Command): {
   fields?: string[];
-  fetch: { all?: boolean; limit?: number; saveJson?: string; inline?: boolean };
+  fetch: ReturnType<typeof paginationOpts> & { inline?: boolean };
 } {
   const fields = fieldsOpt(command);
   const pagination = paginationOpts(command);
@@ -191,7 +187,7 @@ export function validationOrExit<T>(command: Command, fn: () => T): T {
 }
 
 export async function waitAfterCreate(
-  env: Envelope,
+  env: SuccessEnvelope,
   opts: RunOpts,
   config: WaitAfterCreateConfig,
 ): Promise<never> {
@@ -215,8 +211,8 @@ export async function waitAfterCreate(
   emitAndExit(result.env, result.exitCode);
 }
 
-function stringAt(env: Envelope, keys: string[]): string | null {
-  if (!env.ok || !isRecord(env.data)) return null;
+function stringAt(env: SuccessEnvelope, keys: string[]): string | null {
+  if (!isRecord(env.data)) return null;
   const data = env.data;
   for (const key of keys) if (typeof data[key] === "string") return data[key];
   return null;

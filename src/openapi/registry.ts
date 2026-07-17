@@ -93,7 +93,7 @@ export function readRegistryCache(options: RegistryOptions = {}): RegistryCache 
   return parsed;
 }
 
-/** Write the one authoritative cache artifact using a same-directory atomic rename. */
+/** Same-directory rename prevents readers from observing a partially written cache. */
 export function writeRegistryCache(
   compiled: CompileSpecResult,
   provenance: SpecProvenance,
@@ -181,11 +181,7 @@ function cacheSourceSha256(options: RegistryOptions, cache: RegistryCache): stri
       : null;
   }
   if (cache.provenance.source !== sourceSelector) return cache.provenance.sha256;
-  try {
-    return hashText(readFileSync(sourceSelector));
-  } catch {
-    return null;
-  }
+  return hashText(readFileSync(sourceSelector));
 }
 
 function registrySourcePath(options: RegistryOptions): string {

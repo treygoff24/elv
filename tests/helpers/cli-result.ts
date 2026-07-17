@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import { expect } from "vitest";
+import type { JsonObject, JsonValue } from "../../src/util/json";
 
 export interface CliResult {
   stdout: string;
@@ -26,7 +27,7 @@ export function runCli(args: string[], env?: Record<string, string>): Promise<Cl
   });
 }
 
-export function parseEnvelope(stdout: string): Record<string, unknown> {
+export function parseEnvelope(stdout: string): JsonObject {
   const trimmed = stdout.trim();
   expect(trimmed.length).toBeGreaterThan(0);
   expect(trimmed.startsWith("{")).toBe(true);
@@ -36,23 +37,23 @@ export function parseEnvelope(stdout: string): Record<string, unknown> {
   return recordValue(parsed, "stdout envelope");
 }
 
-export function errorRecord(envelope: Record<string, unknown>): Record<string, unknown> {
+export function errorRecord(envelope: JsonObject): JsonObject {
   return recordValue(envelope.error, "error");
 }
 
-export function filesArray(envelope: Record<string, unknown>): Record<string, unknown>[] {
+export function filesArray(envelope: JsonObject): JsonObject[] {
   return arrayValue(envelope.files, "files").map((file) => recordValue(file, "file"));
 }
 
-export function arrayValue(value: unknown, label = "value"): unknown[] {
+export function arrayValue(value: unknown, label = "value"): JsonValue[] {
   if (!Array.isArray(value)) {
     expect(Array.isArray(value)).toBe(true);
     throw new Error(`${label} must be an array`);
   }
-  return value;
+  return value as JsonValue[];
 }
 
-export function recordValue(value: unknown, label = "value"): Record<string, unknown> {
+export function recordValue(value: unknown, label = "value"): JsonObject {
   if (!isRecordValue(value)) {
     expect(value).toBeTypeOf("object");
     expect(value).not.toBeNull();
@@ -62,7 +63,7 @@ export function recordValue(value: unknown, label = "value"): Record<string, unk
   return value;
 }
 
-function isRecordValue(value: unknown): value is Record<string, unknown> {
+function isRecordValue(value: unknown): value is JsonObject {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 

@@ -15,7 +15,7 @@ import {
 import { compilerSemanticsInputs, curationInputs } from "../../src/openapi/compile-spec";
 import type { OpenApiDocument } from "../../src/openapi/compile-spec";
 import type { OperationCard } from "../../src/openapi/types";
-import type { JsonValue } from "../../src/util/json";
+import { parseJsonRecord, type JsonValue } from "../../src/util/json";
 
 const packageVersion = (JSON.parse(readFileSync("package.json", "utf8")) as { version: string })
   .version;
@@ -160,7 +160,7 @@ describe("OpenAPI registry cache", () => {
     cacheDir = mkdtempSync(join(tmpdir(), "elv-cache-"));
     const cachePath = registryCachePath({ cacheDir });
     await loadRegistry({ cacheDir });
-    const cache = JSON.parse(readFileSync(cachePath, "utf8")) as Record<string, unknown>;
+    const cache = parseJsonRecord(readFileSync(cachePath, "utf8"), cachePath);
     cache.version = "stale";
     cache.operations = [{ operationId: "wrong" }];
     writeFileSync(cachePath, JSON.stringify(cache));

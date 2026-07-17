@@ -246,7 +246,9 @@ export function compilerSemanticsInputs() {
   };
 }
 
-function functionSources(functions: Record<string, Function>): Record<string, string> {
+function functionSources(
+  functions: Record<string, (...args: never[]) => unknown>,
+): Record<string, string> {
   return Object.fromEntries(
     Object.entries(functions).map(([name, fn]) => [name, Function.prototype.toString.call(fn)]),
   );

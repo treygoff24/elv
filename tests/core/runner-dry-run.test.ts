@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { runOperation } from "../../src/core/client";
+import { isRecord } from "../../src/util/json";
 
 describe("runner dry-run", () => {
   afterEach(() => vi.unstubAllGlobals());
@@ -18,7 +19,7 @@ describe("runner dry-run", () => {
     if (!env.ok) throw new Error("expected success");
     expect(fetch).not.toHaveBeenCalled();
     expect(env).toMatchObject({ ok: true, operation_id: "text_to_speech_full" });
-    expect((env.data as Record<string, unknown>).dry_run).toBe(true);
+    expect(isRecord(env.data) && env.data.dry_run).toBe(true);
   });
 
   it("normalizes async network failures", async () => {
