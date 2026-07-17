@@ -61,7 +61,7 @@ type ExecutableOperationRun = Omit<PreparedOperationRun, "dryRunRequest">;
 
 export async function runOperation(
   operationId: string,
-  input: AgentInput | Record<string, unknown>,
+  input: AgentInput,
   opts: OperationRunOpts = {},
 ): Promise<Envelope> {
   const cmd = opts.cmd ?? `elv call ${operationId}`;

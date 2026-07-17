@@ -114,7 +114,7 @@ export function redactWsString(value: string): string {
 function parseLine(line: string, index: number): SendScriptAction {
   let parsed: JsonValue;
   try {
-    parsed = parseJson(line, `send-script line ${index}`) as JsonValue;
+    parsed = parseJson(line, `send-script line ${index}`);
   } catch (error) {
     throw new Error(`send-script line ${index} is not valid JSON: ${errorMessage(error)}`);
   }

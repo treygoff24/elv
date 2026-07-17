@@ -7,6 +7,7 @@ import {
   riskCompilerSemanticsInputs,
   riskCurationInputs,
 } from "./risk";
+import { HTTP_METHODS } from "./types";
 import { parseJson } from "../util/json";
 import type { JsonObject, JsonValue } from "../util/json";
 import type {
@@ -19,7 +20,7 @@ import type {
   StreamKind,
 } from "./types";
 
-const METHODS = ["get", "post", "put", "patch", "delete", "head"] as const;
+const METHODS = HTTP_METHODS.map((method) => method.toLowerCase());
 const METHOD_SET = new Set<string>(METHODS);
 const BODY_TYPE_PREFERENCE = [
   "application/json",
@@ -53,7 +54,7 @@ export async function compileSpec(options: CompileSpecOptions = {}): Promise<Com
   let totalOperations = 0;
   let skippedOperations = 0;
 
-  for (const [pathTemplate, pathItem] of Object.entries(bundledSpec.paths ?? {})) {
+  for (const [pathTemplate, pathItem] of Object.entries(bundledSpec.paths)) {
     const pathParams = extractParameters(asArray(pathItem.parameters), bundledSpec);
     for (const [methodLower, rawOperation] of Object.entries(pathItem)) {
       if (!METHOD_SET.has(methodLower)) continue;

@@ -7,6 +7,7 @@ import { ExitCode } from "../../core/types";
 import { waitForOperation } from "../../core/wait-operation";
 import { errorMessage } from "../../util/error";
 import { isRecord, parseJsonRecord } from "../../util/json";
+import type { JsonObject, JsonObjectInput } from "../../util/json";
 import type { WaitOptions } from "../../core/wait-operation";
 import {
   type CliOptionValues,
@@ -136,10 +137,7 @@ export function commandName(command: Command): string {
 }
 
 export function emit(env: Envelope): never {
-  emitAndExit(
-    env,
-    env.ok ? ExitCode.Success : exitCodeForError(env.error, env.http?.status ?? undefined),
-  );
+  emitAndExit(env, env.ok ? ExitCode.Success : exitCodeForError(env.error, env.http?.status));
 }
 
 export async function runAlias<T>(
@@ -233,7 +231,7 @@ export function requiredPath(value: string | undefined, label: string): string {
   return resolve(required(value, label));
 }
 
-export function readJsonBody(flags: JsonBodyFlags, requiredBody = true): Record<string, unknown> {
+export function readJsonBody(flags: JsonBodyFlags, requiredBody = true): JsonObject {
   if (flags.json !== undefined && flags.jsonFile !== undefined)
     throw new Error("Use --json or --json-file, not both");
   const raw = flags.jsonFile !== undefined ? readFileSync(flags.jsonFile, "utf8") : flags.json;
@@ -244,7 +242,7 @@ export function readJsonBody(flags: JsonBodyFlags, requiredBody = true): Record<
   return parseJsonRecord(raw, "JSON", "JSON must be an object");
 }
 
-export function compact(record: Record<string, unknown>): Record<string, unknown> | undefined {
+export function compact(record: JsonObjectInput): JsonObjectInput | undefined {
   const entries = Object.entries(record).filter(([, value]) => value !== undefined);
   return entries.length ? Object.fromEntries(entries) : undefined;
 }

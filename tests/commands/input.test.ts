@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { addFiles, addPairs } from "../../src/commands/input";
+import type { AgentInput } from "../../src/core/types";
 
 describe("command input helpers", () => {
   it("adds query/path pairs and accumulates array file fields", () => {
-    const input: Record<string, unknown> = {};
+    const input: AgentInput = {};
 
     addPairs(input, "query", ["page=2"]);
     addPairs(input, "path", ["voice_id=v1"]);

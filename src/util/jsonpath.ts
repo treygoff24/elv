@@ -1,3 +1,7 @@
+import type { JsonValue } from "./json";
+
+export function readPath(obj: JsonValue, path: string): JsonValue | undefined;
+export function readPath(obj: unknown, path: string): unknown;
 export function readPath(obj: unknown, path: string): unknown {
   const clean = path.startsWith("$.") ? path.slice(2) : path;
   if (!clean) throw new Error("status path must be a non-empty dotted path");

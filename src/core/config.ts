@@ -5,7 +5,8 @@ import { success, failure } from "./envelope";
 import { ExitCode } from "./types";
 import { errorMessage } from "../util/error";
 import { isRecord, parseJson } from "../util/json";
-import type { CommandResult, Envelope } from "./types";
+import type { CommandResult } from "./types";
+import type { JsonValue } from "../util/json";
 
 interface ProfileConfig {
   base_url?: string;
@@ -44,7 +45,6 @@ interface DoctorCheck {
 }
 
 interface DoctorResult extends CommandResult {
-  env: Envelope & { data?: unknown };
   checks: DoctorCheck[];
 }
 
@@ -196,7 +196,7 @@ export async function configDoctor(options: DoctorOptions = {}): Promise<DoctorR
 function readConfigFile(): FileConfig {
   const path = findConfigPath();
   if (!path) return {};
-  let parsed: unknown;
+  let parsed: JsonValue;
   try {
     parsed = parseJson(readFileSync(path, "utf8"), path);
   } catch (error) {

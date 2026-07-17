@@ -5,6 +5,7 @@ import { applyPaginationDefaults, type PaginationOptions } from "../core/paginat
 import { estimateCredits } from "../core/budget";
 import { loadRegistry } from "../openapi/registry";
 import { classifyRisk } from "../openapi/risk";
+import { HTTP_METHODS } from "../openapi/types";
 import { errorMessage } from "../util/error";
 import { parseJson } from "../util/json";
 import type { AgentInput, CommandResult, Envelope, RunOpts, Warning } from "../core/types";
@@ -97,7 +98,7 @@ function parseHttpInput(
     };
 
   try {
-    const input: AgentInput & Record<string, unknown> = {};
+    const input: AgentInput = {};
     addPairs(input, "query", options.query);
     if (options.bodyJson !== undefined) input.body = parseJson(options.bodyJson, "--body-json");
     addFiles(input, options.file);
@@ -287,5 +288,5 @@ function httpRunOpts(options: HttpOptions): HttpRunOpts {
 }
 
 function isHttpMethod(value: string): value is HttpMethod {
-  return ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"].includes(value);
+  return HTTP_METHODS.includes(value as HttpMethod);
 }

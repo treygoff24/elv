@@ -2,7 +2,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { estimateCredits, estimateDetail, overBudget } from "../../src/core/budget";
+import { estimateCredits, estimateDetail } from "../../src/core/budget";
 import type { CostHint, OperationCard } from "../../src/openapi/types";
 
 let tempDir = "";
@@ -153,12 +153,6 @@ describe("budget estimates", () => {
         { retryPost: true },
       ),
     ).resolves.toBe(9);
-  });
-
-  it("checks over-budget boundaries only for known estimates", () => {
-    expect(overBudget(10, { maxCredits: 9 })).toBe(true);
-    expect(overBudget(10, { maxCredits: 10 })).toBe(false);
-    expect(overBudget(null, { maxCredits: 0 })).toBe(false);
   });
 
   it("does not guard slot or unknown cost hints", async () => {

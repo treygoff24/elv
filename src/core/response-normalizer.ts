@@ -20,6 +20,7 @@ import { errorMessage } from "../util/error";
 import { shellArg } from "../util/shell";
 import { containsCredential } from "./redaction";
 import type { HttpMethod, OperationCard } from "../openapi/types";
+import type { JsonObject, JsonValue } from "../util/json";
 import type {
   CostInfo,
   DataSummary,
@@ -168,7 +169,7 @@ async function jsonSuccess(
   warnings: Warning[],
 ): Promise<Envelope> {
   const text = await res.text();
-  let data: unknown;
+  let data: JsonValue;
   try {
     data = parseOptionalJsonBody(text);
   } catch (error) {
@@ -279,7 +280,7 @@ async function spillSecretJsonFile(
   };
 }
 
-function summarizeSensitiveData(data: unknown): DataSummary {
+function summarizeSensitiveData(data: JsonValue): DataSummary {
   if (Array.isArray(data)) return { type: "array", count: data.length };
   if (isRecord(data)) return { type: "object", count: Object.keys(data).length };
   return { type: data === null ? "null" : typeof data };
@@ -378,7 +379,7 @@ function viewPathHint(data: unknown): string {
 
 async function writeFullTimestampFiles(
   op: OperationCard,
-  data: Record<string, unknown>,
+  data: JsonObject,
   ctx: ResponseContext,
 ): Promise<FileRecord[]> {
   const target = resolveOutTarget(ctx.out, false);
@@ -403,10 +404,7 @@ async function writeFullTimestampFiles(
   ];
 }
 
-function isFullTimestampResponse(
-  op: OperationCard,
-  data: unknown,
-): data is Record<string, unknown> {
+function isFullTimestampResponse(op: OperationCard, data: JsonValue): data is JsonObject {
   return (
     op.operationId.endsWith("_full_with_timestamps") &&
     isRecord(data) &&
@@ -440,45 +438,35 @@ async function streamSseEventsResponse(
   base: Omit<SuccessEnvelope, "v" | "ok">,
   warnings: Warning[],
 ): Promise<Envelope> {
-  const target = resolveOutTarget(ctx.out, true);
-  const ndjson = tempFileWriter(
-    join(target.dir, deriveFilename(op.operationId, undefined, "ndjson")),
-  );
+  const { dir, ndjson } = jsonEventOutputs(op, ctx);
   let audio: ReturnType<typeof tempFileWriter> | undefined;
   let eventCount = 0;
   let audioBytes = 0;
   const parser: SseParserState = { pending: "", lines: [] };
   const decoder = new TextDecoder("utf-8", { fatal: true });
   const body = toNodeReadable(res.body ?? Readable.from([]));
-
-  try {
-    for await (const chunk of body) {
-      const frames = feedSse(parser, decoder.decode(chunkBuffer(chunk), { stream: true }), false);
-      for (const frame of frames) {
-        const written = await writeSseFrame(
-          frame,
-          ndjson,
-          () => (audio ??= jsonEventsAudioWriter(op, ctx, target.dir)),
-          (bytes) => {
-            audioBytes += bytes;
-          },
-        );
-        if (written.event) eventCount += 1;
-      }
-    }
-
-    const frames = feedSse(parser, decoder.decode(), true);
+  const writeFrames = async (frames: SseFrame[]): Promise<void> => {
     for (const frame of frames) {
       const written = await writeSseFrame(
         frame,
         ndjson,
-        () => (audio ??= jsonEventsAudioWriter(op, ctx, target.dir)),
+        () => (audio ??= jsonEventsAudioWriter(op, ctx, dir)),
         (bytes) => {
           audioBytes += bytes;
         },
       );
       if (written.event) eventCount += 1;
     }
+  };
+
+  try {
+    for await (const chunk of body) {
+      await writeFrames(
+        feedSse(parser, decoder.decode(chunkBuffer(chunk), { stream: true }), false),
+      );
+    }
+
+    await writeFrames(feedSse(parser, decoder.decode(), true));
 
     const files = await closeSseFiles(ndjson, audio, ctx, false);
     return fileSuccess(base, files, warnings);
@@ -676,7 +664,7 @@ async function writeSseFrame(
   return { event: true };
 }
 
-function parseSseData(data: string): unknown {
+function parseSseData(data: string): JsonValue {
   try {
     return parseJsonValue(data);
   } catch {
@@ -685,9 +673,9 @@ function parseSseData(data: string): unknown {
 }
 
 function extractSseAudio(
-  payload: unknown,
+  payload: JsonValue,
   event: string | undefined,
-): { data: unknown; audio?: Buffer } {
+): { data: JsonValue; audio?: Buffer } {
   if (event === "audio_chunk" && typeof payload === "string") {
     return { data: null, audio: decodeBase64(payload.replace(/\n/gu, ""), "stream event") };
   }
@@ -711,49 +699,39 @@ async function streamJsonEventsResponse(
   base: Omit<SuccessEnvelope, "v" | "ok">,
   warnings: Warning[],
 ): Promise<Envelope> {
-  const target = resolveOutTarget(ctx.out, true);
-  const ndjson = tempFileWriter(
-    join(target.dir, deriveFilename(op.operationId, undefined, "ndjson")),
-  );
+  const { dir, ndjson } = jsonEventOutputs(op, ctx);
   let audio: ReturnType<typeof tempFileWriter> | undefined;
   const decoder = new TextDecoder("utf-8", { fatal: true });
   let pending = "";
   let eventCount = 0;
   let audioBytes = 0;
   const body = toNodeReadable(res.body ?? Readable.from([]));
-
-  try {
-    for await (const chunk of body) {
-      pending += decoder.decode(chunkBuffer(chunk), { stream: true });
-      const parsed = extractJsonObjects(pending);
-      pending = parsed.rest;
-      for (const event of parsed.objects) {
-        await writeJsonEvent(
-          event,
-          ndjson,
-          () => (audio ??= jsonEventsAudioWriter(op, ctx, target.dir)),
-          (bytes) => {
-            audioBytes += bytes;
-          },
-        );
-        eventCount += 1;
-      }
-    }
-
-    pending += decoder.decode();
-    const parsed = extractJsonObjects(pending);
-    if (parsed.rest.trim()) throw new Error("Incomplete trailing JSON event");
-    for (const event of parsed.objects) {
+  const writeEvents = async (events: JsonValue[]): Promise<void> => {
+    for (const event of events) {
       await writeJsonEvent(
         event,
         ndjson,
-        () => (audio ??= jsonEventsAudioWriter(op, ctx, target.dir)),
+        () => (audio ??= jsonEventsAudioWriter(op, ctx, dir)),
         (bytes) => {
           audioBytes += bytes;
         },
       );
       eventCount += 1;
     }
+  };
+
+  try {
+    for await (const chunk of body) {
+      pending += decoder.decode(chunkBuffer(chunk), { stream: true });
+      const parsed = extractJsonObjects(pending);
+      pending = parsed.rest;
+      await writeEvents(parsed.objects);
+    }
+
+    pending += decoder.decode();
+    const parsed = extractJsonObjects(pending);
+    if (parsed.rest.trim()) throw new Error("Incomplete trailing JSON event");
+    await writeEvents(parsed.objects);
 
     const ndjsonPath = await ndjson.close();
     const files: FileRecord[] = [
@@ -797,6 +775,17 @@ async function streamJsonEventsResponse(
   }
 }
 
+function jsonEventOutputs(
+  op: OperationCard,
+  ctx: ResponseContext,
+): { dir: string; ndjson: ReturnType<typeof tempFileWriter> } {
+  const dir = resolveOutTarget(ctx.out, true).dir;
+  return {
+    dir,
+    ndjson: tempFileWriter(join(dir, deriveFilename(op.operationId, undefined, "ndjson"))),
+  };
+}
+
 function jsonEventsAudioWriter(
   op: OperationCard,
   ctx: ResponseContext,
@@ -807,7 +796,7 @@ function jsonEventsAudioWriter(
 }
 
 async function writeJsonEvent(
-  event: unknown,
+  event: JsonValue,
   ndjson: ReturnType<typeof tempFileWriter>,
   audioWriter: () => ReturnType<typeof tempFileWriter>,
   recordAudioBytes: (bytes: number) => void,
@@ -828,8 +817,8 @@ async function writeJsonEvent(
   }
 }
 
-function extractJsonObjects(text: string): { objects: unknown[]; rest: string } {
-  const objects: unknown[] = [];
+function extractJsonObjects(text: string): { objects: JsonValue[]; rest: string } {
+  const objects: JsonValue[] = [];
   let start = -1;
   let depth = 0;
   let inString = false;
@@ -930,7 +919,7 @@ function costInfo(
   return { credits_estimated: null, credits_charged: null, credits_source: "none" };
 }
 
-async function parseErrorBody(res: Response): Promise<unknown> {
+async function parseErrorBody(res: Response): Promise<JsonValue> {
   const text = await res.text();
   if (!text) return {};
   if (isJson(contentType(res.headers))) {
@@ -946,7 +935,7 @@ async function parseErrorBody(res: Response): Promise<unknown> {
   return { detail: text };
 }
 
-function parseOptionalJsonBody(text: string): unknown {
+function parseOptionalJsonBody(text: string): JsonValue {
   if (!text) return null;
   return parseJsonValue(text);
 }

@@ -23,6 +23,7 @@ import {
 import { runWsSession, WsSessionError } from "../ws/session";
 import { errorMessage } from "../util/error";
 import { shellArg } from "../util/shell";
+import type { BudgetDecision } from "../core/budget";
 import type { CommandResult, RunOpts } from "../core/types";
 import type { WsCatalogEntry, WsProtocol } from "../ws/catalog";
 import type { SendScriptAction } from "../ws/events";
@@ -245,7 +246,7 @@ interface WsPreflight {
   outboundActions: number;
   requiresYes: boolean;
   creditsEstimated: number | null;
-  budgetPolicy: "not_configured" | "bounded" | "estimate_unavailable" | "unknown_unbounded";
+  budgetPolicy: BudgetDecision["policy"];
   wouldExceedBudget: boolean | null;
 }
 

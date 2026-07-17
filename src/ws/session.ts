@@ -210,17 +210,7 @@ async function finishSession(
   for (const path of state.binaryPaths) files.push(await fileRecord(path, { hash: true }));
   const manifestPath = await writeManifest(
     options.outDir,
-    redactWs({
-      catalog: options.catalog,
-      path: options.path,
-      connection_url: redactWsString(options.url.toString()),
-      headers: options.headers ?? {},
-      events_sent: state.eventsSent,
-      events_received: state.eventsReceived,
-      binary_frames_received: state.binaryPaths.length,
-      closed: state.closed,
-      timed_out: inactivity.timedOut(),
-    }),
+    sessionManifest(options, state, inactivity),
   );
   files.push(await fileRecord(manifestPath, { hash: true }));
 
@@ -253,21 +243,7 @@ async function preserveFailedSession(
   }
   try {
     paths.push(
-      await writeManifest(
-        options.outDir,
-        redactWs({
-          catalog: options.catalog,
-          path: options.path,
-          connection_url: redactWsString(options.url.toString()),
-          headers: options.headers ?? {},
-          events_sent: state.eventsSent,
-          events_received: state.eventsReceived,
-          binary_frames_received: state.binaryPaths.length,
-          closed: state.closed,
-          timed_out: inactivity.timedOut(),
-          partial: true,
-        }),
-      ),
+      await writeManifest(options.outDir, sessionManifest(options, state, inactivity, true)),
     );
   } catch {
     // The received payload files remain recoverable even if the diagnostic manifest cannot be written.
@@ -276,6 +252,26 @@ async function preserveFailedSession(
     paths.map(async (path) => ({ ...(await fileRecord(path, { hash: true })), partial: true })),
   );
   return records.flatMap((result) => (result.status === "fulfilled" ? [result.value] : []));
+}
+
+function sessionManifest(
+  options: WsSessionOptions,
+  state: WsSessionState,
+  inactivity: ReturnType<typeof createInactivityTimer>,
+  partial = false,
+): JsonValue {
+  return redactWs({
+    catalog: options.catalog,
+    path: options.path,
+    connection_url: redactWsString(options.url.toString()),
+    headers: options.headers ?? {},
+    events_sent: state.eventsSent,
+    events_received: state.eventsReceived,
+    binary_frames_received: state.binaryPaths.length,
+    closed: state.closed,
+    timed_out: inactivity.timedOut(),
+    ...(partial ? { partial: true } : {}),
+  });
 }
 
 function wsInfo(
@@ -346,7 +342,7 @@ async function processMessage(
 ): Promise<void> {
   const raw = rawDataToString(data);
   await events.writeRaw(raw);
-  const parsed = parseJsonValue(raw, "WebSocket message") as JsonValue;
+  const parsed = parseJsonValue(raw, "WebSocket message");
   await audio.writeFromEvent(parsed);
   if (isPing(parsed) && socket.readyState === WebSocket.OPEN) {
     await sendJson(socket, { type: "pong", event_id: parsed.event_id });

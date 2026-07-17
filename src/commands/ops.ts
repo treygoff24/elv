@@ -7,6 +7,7 @@ import {
   rawInputSchemaForOperation,
 } from "../openapi/compact-schema";
 import { readRegistryCache, loadRegistry } from "../openapi/registry";
+import { COST_HINTS, HTTP_METHODS, RISKS, STREAM_KINDS } from "../openapi/types";
 import type { CostHint, HttpMethod, OperationCard, Risk, StreamKind } from "../openapi/types";
 import type { CommandResult, Hint, Warning } from "../core/types";
 
@@ -16,7 +17,7 @@ interface OpsSearchOptions {
   limit?: string | number;
 }
 
-export interface OpsListOptions {
+interface OpsListOptions {
   group?: string;
   method?: string;
   risk?: string;
@@ -38,7 +39,7 @@ interface NormalizedListOptions {
   limit: number;
 }
 
-export interface OpsListItem {
+interface OpsListItem {
   operation_id: string;
   method: HttpMethod;
   path: string;
@@ -275,18 +276,6 @@ function parseLimit(value: string | number | undefined): number | null {
   const parsed = typeof value === "number" ? value : Number(value);
   return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
 }
-
-const HTTP_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"] as const;
-const RISKS = ["read", "mutate", "generate", "external_side_effect", "destructive"] as const;
-const STREAM_KINDS = ["none", "audio_bytes", "json_events", "sse_events", "text"] as const;
-const COST_HINTS = [
-  "characters",
-  "audio_seconds",
-  "per_generation",
-  "per_source_minute",
-  "slot",
-  "unknown",
-] as const;
 
 function normalizeListOptions(options: OpsListOptions): NormalizedListOptions | string {
   const method = normalizeEnum(options.method?.toUpperCase(), HTTP_METHODS, "--method");

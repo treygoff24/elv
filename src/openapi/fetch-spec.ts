@@ -57,7 +57,7 @@ export interface SpecUpdateResult {
   diff: SpecDiff;
 }
 
-export interface SpecStatus {
+interface SpecStatus {
   cache_path: string;
   vendored: SpecProvenance;
   active: {
@@ -84,7 +84,7 @@ interface ComparableSpec {
 export class SpecInputError extends Error {
   constructor(
     message: string,
-    public readonly raw?: unknown,
+    public readonly raw?: JsonObject,
   ) {
     super(message);
     this.name = "SpecInputError";
@@ -168,7 +168,7 @@ async function activeBaseline(options: RegistryOptions): Promise<ComparableSpec>
         totalOperations: cached.totalOperations,
         skippedOperations: cached.skippedOperations,
       },
-      provenance: cached.provenance ?? "unknown",
+      provenance: cached.provenance,
     };
   }
   return compileVendored();
@@ -392,20 +392,10 @@ function canonical(value: unknown): string {
   return JSON.stringify(value);
 }
 
-function countsForCache(cache: RegistryCache): SpecCounts | null {
-  if (cache.provenance) {
-    const { paths, total_operations, callable_operations, skipped_operations, schemas } =
-      cache.provenance;
-    return { paths, total_operations, callable_operations, skipped_operations, schemas };
-  }
-  if (!cache.bundledSpec) return null;
-  return {
-    paths: Object.keys(cache.bundledSpec.paths ?? {}).length,
-    total_operations: cache.totalOperations,
-    callable_operations: cache.operations.length,
-    skipped_operations: cache.skippedOperations,
-    schemas: Object.keys(cache.bundledSpec.components?.schemas ?? {}).length,
-  };
+function countsForCache(cache: RegistryCache): SpecCounts {
+  const { paths, total_operations, callable_operations, skipped_operations, schemas } =
+    cache.provenance;
+  return { paths, total_operations, callable_operations, skipped_operations, schemas };
 }
 
 function readVendoredMetadata(): { source?: string; retrieved_at?: string } | null {

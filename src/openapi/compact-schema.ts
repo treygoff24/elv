@@ -3,7 +3,7 @@ import type { OpenApiDocument } from "./compile-spec";
 import type { JsonObject, JsonValue } from "../util/json";
 import type { OperationCard, ParamCard } from "./types";
 
-type CompactValue = string | number | boolean | null | JsonObject;
+type CompactValue = Exclude<JsonValue, readonly JsonValue[]>;
 interface CompactBuckets {
   path: Record<string, CompactValue>;
   query: Record<string, CompactValue>;

@@ -239,8 +239,7 @@ function registerConfigCommands(program: Command): void {
     config
       .command("get")
       .description("Print resolved configuration")
-      .action((...args: unknown[]) => {
-        const command = lastCommand(args);
+      .action((_options: CliOptionValues, command: Command) => {
         const configData = loadConfig(configOverrides(command));
         emitAndExit(success({ cmd: "elv config get", data: configData }), ExitCode.Success);
       }),
@@ -249,8 +248,7 @@ function registerConfigCommands(program: Command): void {
     config
       .command("doctor")
       .description("Check auth, connectivity, and credits")
-      .action(async (...args: unknown[]) => {
-        const command = lastCommand(args);
+      .action(async (_options: CliOptionValues, command: Command) => {
         const result = await configDoctor(configOverrides(command));
         emitAndExit(result.env, result.exitCode);
       }),
@@ -407,16 +405,12 @@ function configOverrides(command: Command): ConfigOverrides {
   };
 }
 
-function lastCommand(args: unknown[]): Command {
-  return args[args.length - 1] as Command;
-}
-
 interface CommandHelpData {
   command: string;
   description: string;
   usage: string;
   arguments: { name: string; required: boolean; description: string }[];
-  options: { flags: string; description: string; default: unknown }[];
+  options: { flags: string; description: string; default?: string | boolean | string[] }[];
   subcommands: string[];
 }
 

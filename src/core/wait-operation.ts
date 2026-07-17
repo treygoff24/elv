@@ -7,6 +7,7 @@ import { errorMessage } from "../util/error";
 import { parseJson, parseJsonRecord } from "../util/json";
 import { readPath } from "../util/jsonpath";
 import type { AgentInput, CommandResult, Envelope, RunOpts } from "./types";
+import type { JsonObject } from "../util/json";
 
 export interface WaitOptions extends Pick<RunOpts, "baseUrl" | "profile"> {
   operation?: string;
@@ -22,7 +23,7 @@ export interface WaitOptions extends Pick<RunOpts, "baseUrl" | "profile"> {
 interface WaitDeps {
   runOperation?: (
     operationId: string,
-    input: AgentInput | Record<string, unknown>,
+    input: AgentInput,
     opts?: Pick<RunOpts, "baseUrl" | "profile">,
   ) => Promise<Envelope>;
   runCommand?: (argv: string[]) => Promise<Envelope>;
@@ -45,7 +46,7 @@ type ParsedWait =
   | (ParsedCommon & {
       mode: "operation";
       operation: string;
-      input: AgentInput | Record<string, unknown>;
+      input: AgentInput;
       baseUrl?: string;
       profile?: string;
     })
@@ -285,7 +286,7 @@ function waitTimeout(path: string, status: unknown, env: Envelope): CommandResul
   };
 }
 
-function parseJsonObject(raw: string): Record<string, unknown> {
+function parseJsonObject(raw: string): JsonObject {
   return parseJsonRecord(raw, "--json", "--json must be a JSON object");
 }
 
@@ -346,7 +347,7 @@ function appendStderr(state: CommandRunState, chunk: Buffer | string): void {
 
 function finishCommand(state: CommandRunState, code: number | null): void {
   try {
-    state.resolve(parseJson(state.stdout.trim(), "command stdout") as Envelope);
+    state.resolve(parseJson(state.stdout.trim(), "command stdout") as unknown as Envelope);
   } catch {
     state.resolve(
       commandEnvelopeError("Command did not emit a JSON envelope", {

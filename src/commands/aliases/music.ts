@@ -40,27 +40,18 @@ export function registerMusicCommand(
   const music = program.command("music").description("Music generation");
   const configure = (command: Command, stream: boolean) =>
     addCommonFlags(
-      command
-        .option("--prompt <text>", "music generation prompt")
-        .option("--prompt-file <path>", "read prompt from a file")
-        .option("--model <id>", "music model id")
-        .option("--format <format>", "output audio format (output_format)")
-        .option("--length-ms <ms>", "target track length in milliseconds")
-        .action(async (_options: MusicFlags, command: Command) =>
-          runAlias(buildMusicInput, { ...(mergedOptions(command) as MusicFlags), stream }, command),
-        ),
+      addMusicOptions(command).action(async (_options: MusicFlags, command: Command) =>
+        runAlias(buildMusicInput, { ...(mergedOptions(command) as MusicFlags), stream }, command),
+      ),
     );
   configure(music, false);
   configure(music.command("stream").description("Music generation (streaming)"), true);
   addCommonFlags(
-    music
-      .command("detailed-stream")
-      .description("Stream Music audio and detailed metadata as SSE")
-      .option("--prompt <text>", "music generation prompt")
-      .option("--prompt-file <path>", "read prompt from a file")
-      .option("--model <id>", "music model id")
-      .option("--format <format>", "output audio format (output_format)")
-      .option("--length-ms <ms>", "target track length in milliseconds")
+    addMusicOptions(
+      music
+        .command("detailed-stream")
+        .description("Stream Music audio and detailed metadata as SSE"),
+    )
       .option("--timestamps", "include word timestamps")
       .action((_options: MusicFlags, command: Command) =>
         runAlias(
@@ -70,6 +61,15 @@ export function registerMusicCommand(
         ),
       ),
   );
+}
+
+function addMusicOptions(command: Command): Command {
+  return command
+    .option("--prompt <text>", "music generation prompt")
+    .option("--prompt-file <path>", "read prompt from a file")
+    .option("--model <id>", "music model id")
+    .option("--format <format>", "output audio format (output_format)")
+    .option("--length-ms <ms>", "target track length in milliseconds");
 }
 
 function readPrompt(prompt: string | undefined, file: string | undefined): string | undefined {

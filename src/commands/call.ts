@@ -4,6 +4,7 @@ import { runOperation } from "../core/client";
 import { ExitCode } from "../core/types";
 import { errorMessage } from "../util/error";
 import { parseJsonRecord } from "../util/json";
+import type { JsonObject } from "../util/json";
 import type { AgentInput, CommandResult, RunOpts } from "../core/types";
 import type { PaginationOptions } from "../core/pagination";
 import { addFiles, addPairs } from "./input";
@@ -47,9 +48,7 @@ export async function handleCall(
 function parseCallInput(
   operationId: string,
   options: CallOptions,
-):
-  | { ok: true; input: AgentInput | Record<string, unknown> }
-  | { ok: false; env: ReturnType<typeof validationError> } {
+): { ok: true; input: AgentInput } | { ok: false; env: ReturnType<typeof validationError> } {
   const cmd = `elv call ${operationId}`;
   const jsonSources = [
     options.json,
@@ -63,7 +62,7 @@ function parseCallInput(
     };
   }
 
-  let input: Record<string, unknown> = {};
+  let input: JsonObject = {};
   try {
     if (options.json !== undefined) input = parseJsonObject(options.json);
     else if (options.jsonFile !== undefined)
@@ -98,6 +97,6 @@ function callRunOpts(options: CallOptions): RunOpts & PaginationOptions {
   };
 }
 
-function parseJsonObject(raw: string): Record<string, unknown> {
+function parseJsonObject(raw: string): JsonObject {
   return parseJsonRecord(raw, "JSON input", "JSON input must be an object");
 }

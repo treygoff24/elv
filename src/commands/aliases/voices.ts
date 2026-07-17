@@ -32,7 +32,6 @@ const RESOLVER_PAGE_SIZE = 100;
 interface VoiceRecord {
   name?: string;
   voice_id?: string;
-  [key: string]: unknown;
 }
 
 export type VoiceSelector = Pick<CliOptionValues, "voiceId" | "voice">;

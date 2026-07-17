@@ -76,7 +76,7 @@ export async function loadRegistry(
 export function readRegistryCache(options: RegistryOptions = {}): RegistryCache | null {
   const path = registryCachePath(options);
   if (!existsSync(path)) return null;
-  let parsed: unknown;
+  let parsed: JsonValue;
   try {
     parsed = parseJson(readFileSync(path, "utf8"), path);
   } catch {
@@ -139,7 +139,7 @@ export function specProvenance(
 
 export function specCounts(compiled: CompileSpecResult): SpecCounts {
   return {
-    paths: Object.keys(compiled.bundledSpec.paths ?? {}).length,
+    paths: Object.keys(compiled.bundledSpec.paths).length,
     total_operations: compiled.totalOperations,
     callable_operations: compiled.operations.length,
     skipped_operations: compiled.skippedOperations,

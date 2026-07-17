@@ -1,29 +1,30 @@
 import type { HttpMethod } from "../openapi/types";
+import type { JsonInputValue, JsonObjectInput } from "../util/json";
 
 export const ENVELOPE_VERSION = 1 as const;
 
 /** §4 exit-code taxonomy — agents branch on these without parsing JSON. Keyed on body code, not HTTP status. */
 export enum ExitCode {
   Success = 0,
-  InputValidation = 2, // invalid_parameters/validation_error/text_too_long/max_character_limit_exceeded, or our pre-flight (400 AND 422)
-  AuthPermission = 3, // invalid_api_key/missing_api_key/forbidden/insufficient_permissions/feature_not_available/detected_unusual_activity
-  ConfirmationRequired = 4, // --yes missing on destructive/external_side_effect op
-  BudgetCeiling = 5, // --max-credits pre-flight blocked the call (no network)
-  CreditExhausted = 6, // provider insufficient_credits/quota_exceeded (401 or 402)
-  TransientExhausted = 7, // 429 + 5xx after retries, network failure
-  ProviderError = 8, // other 4xx/5xx not covered above
-  NotFound = 9, // 404, unknown operation_id
+  InputValidation = 2,
+  AuthPermission = 3,
+  ConfirmationRequired = 4,
+  BudgetCeiling = 5,
+  CreditExhausted = 6,
+  TransientExhausted = 7,
+  ProviderError = 8,
+  NotFound = 9,
 }
 
 /** Canonical bucketed input to the runner. Flat JSON is normalized into this shape. */
-export interface AgentInput {
-  path?: Record<string, unknown>;
-  query?: Record<string, unknown>;
-  body?: unknown;
+export type AgentInput = JsonObjectInput & {
+  path?: JsonObjectInput;
+  query?: JsonObjectInput;
+  body?: JsonInputValue;
   headers?: Record<string, string>;
   /** Resolved file uploads: field name → absolute path(s). `name[]` arrays collapse to string[]. */
   files?: Record<string, string | string[]>;
-}
+};
 
 export interface RunOpts {
   /** Command path the caller invoked; aliases preserve it in envelopes and hints. */

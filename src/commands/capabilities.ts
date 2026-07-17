@@ -245,9 +245,9 @@ function specSummary(cache: RegistryCache | null, operations: number) {
     retrieved_at: provenance?.retrieved_at ?? null,
     sha256: provenance?.sha256 ?? null,
     paths: provenance?.paths ?? null,
-    total_operations: provenance?.total_operations ?? cache?.totalOperations ?? operations,
+    total_operations: provenance?.total_operations ?? operations,
     callable_operations: provenance?.callable_operations ?? operations,
-    skipped_operations: provenance?.skipped_operations ?? cache?.skippedOperations ?? 0,
+    skipped_operations: provenance?.skipped_operations ?? 0,
     schemas: provenance?.schemas ?? null,
     generated_at: cache?.generated_at ?? null,
   };

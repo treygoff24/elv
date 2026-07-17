@@ -2,6 +2,8 @@ import { DEFAULT_RETRY_ATTEMPTS } from "./retries";
 import { probeDurationSeconds } from "./duration";
 import type { AgentInput, RunOpts, Warning } from "./types";
 import type { OperationCard } from "../openapi/types";
+import { isRecord } from "../util/json";
+import type { JsonInputValue } from "../util/json";
 
 export const GUARDED_HINTS = new Set([
   "characters",
@@ -40,10 +42,6 @@ export async function estimateDetail(
 
   const credits = multiplyRetries(await baseEstimate(op, input, warnings), opts);
   return { credits, warnings };
-}
-
-export function overBudget(estimate: number | null, opts: RunOpts): boolean {
-  return estimate !== null && opts.maxCredits != null && estimate > opts.maxCredits;
 }
 
 export function budgetDecision(
@@ -100,12 +98,12 @@ function characterCount(input: AgentInput, warnings: Warning[]): number {
 
 // Flash/Turbo models bill at 0.5 credits/char via the API; all other models at 1.0.
 // Unknown/unset model_id defaults to 1.0 (conservative for the pre-flight guard).
-function ttsCreditFactor(body: unknown): number {
+function ttsCreditFactor(body: JsonInputValue): number {
   const modelId = isRecord(body) && typeof body.model_id === "string" ? body.model_id : "";
   return /flash|turbo/iu.test(modelId) ? 0.5 : 1;
 }
 
-function textFromBody(body: unknown): string {
+function textFromBody(body: JsonInputValue): string {
   if (!isRecord(body)) return "";
   if (typeof body.text === "string") return body.text;
   if (Array.isArray(body.inputs)) {
@@ -193,12 +191,12 @@ function isSourceMinuteOperation(operationId: string): boolean {
   return ["create_dubbing", "dub", "add_language", "render", "translate"].includes(operationId);
 }
 
-function targetLanguageCount(body: unknown): number {
+function targetLanguageCount(body: JsonInputValue): number {
   if (!isRecord(body)) return 1;
   return languageCount(body.target_languages ?? body.target_lang);
 }
 
-function languageCount(value: unknown): number {
+function languageCount(value: JsonInputValue): number {
   if (Array.isArray(value)) return Math.max(1, value.length);
   if (typeof value === "string")
     return Math.max(1, value.split(",").filter((language) => language.trim()).length);
@@ -221,12 +219,8 @@ function detectSharedVoice(input: AgentInput): boolean {
   );
 }
 
-function numberAt(value: unknown, key: string): number | null {
+function numberAt(value: JsonInputValue, key: string): number | null {
   if (!isRecord(value)) return null;
   const number = Number(value[key]);
   return Number.isFinite(number) ? number : null;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
 }

@@ -1,6 +1,7 @@
 import type { JsonValue } from "../util/json";
 
-export type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "HEAD";
+export const HTTP_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"] as const;
+export type HttpMethod = (typeof HTTP_METHODS)[number];
 
 export class SchemaResolutionError extends Error {
   constructor(operationId: string, cause: unknown) {
@@ -12,19 +13,23 @@ export class SchemaResolutionError extends Error {
   }
 }
 
-export type Risk = "read" | "generate" | "mutate" | "destructive" | "external_side_effect";
+export const RISKS = ["read", "mutate", "generate", "external_side_effect", "destructive"] as const;
+export type Risk = (typeof RISKS)[number];
 
 /** Streaming is three different things; the runner branches on this. */
-export type StreamKind = "none" | "audio_bytes" | "json_events" | "sse_events" | "text";
+export const STREAM_KINDS = ["none", "audio_bytes", "json_events", "sse_events", "text"] as const;
+export type StreamKind = (typeof STREAM_KINDS)[number];
 
 /** Budget guard keys on this (NOT the risk label). */
-export type CostHint =
-  | "characters"
-  | "audio_seconds"
-  | "per_generation"
-  | "per_source_minute"
-  | "slot"
-  | "unknown";
+export const COST_HINTS = [
+  "characters",
+  "audio_seconds",
+  "per_generation",
+  "per_source_minute",
+  "slot",
+  "unknown",
+] as const;
+export type CostHint = (typeof COST_HINTS)[number];
 
 export interface ParamCard {
   name: string;

@@ -13,6 +13,7 @@ import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { lookup } from "mime-types";
 import type { FileRecord } from "./types";
+import type { JsonValue } from "../util/json";
 
 const DEFAULT_HASH_CAP_BYTES = 64 * 1024 * 1024;
 
@@ -177,7 +178,7 @@ export async function fileRecord(path: string, opts: HashOptions = {}): Promise<
   };
 }
 
-export async function writeManifest(dir: string, manifest: unknown): Promise<string> {
+export async function writeManifest(dir: string, manifest: JsonValue): Promise<string> {
   const path = join(dir, "manifest.json");
   await writeBufferToFile(`${JSON.stringify(manifest, null, 2)}\n`, path);
   return path;
