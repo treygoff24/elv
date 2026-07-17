@@ -10,23 +10,16 @@ import { readRegistryCache, loadRegistry } from "../openapi/registry";
 import { COST_HINTS, HTTP_METHODS, RISKS, STREAM_KINDS } from "../openapi/types";
 import type { CostHint, HttpMethod, OperationCard, Risk, StreamKind } from "../openapi/types";
 import type { CommandResult, Hint, Warning } from "../core/types";
+import type { CliOptionValues } from "./options";
 
 type SearchResult = Omit<OpsListItem, "stream" | "upload_fields">;
 
-interface OpsSearchOptions {
-  limit?: string | number;
-}
+type OpsSearchOptions = Pick<CliOptionValues, "limit">;
 
-interface OpsListOptions {
-  group?: string;
-  method?: string;
-  risk?: string;
-  stream?: string;
-  cost?: string;
-  deprecated?: boolean;
-  uploads?: boolean;
-  limit?: string | number;
-}
+type OpsListOptions = Pick<
+  CliOptionValues,
+  "group" | "method" | "risk" | "stream" | "cost" | "deprecated" | "uploads" | "limit"
+>;
 
 interface NormalizedListOptions {
   group?: string;
@@ -52,10 +45,7 @@ interface OpsListItem {
   upload_fields: string[];
 }
 
-interface OpsSchemaOptions {
-  raw?: boolean;
-  example?: boolean;
-}
+type OpsSchemaOptions = Pick<CliOptionValues, "raw" | "example">;
 
 export async function handleOpsSearch(
   query: string,

@@ -28,9 +28,9 @@ import {
 } from "./pagination";
 import { requiresYes } from "./safety";
 import { OutTargetError } from "./files";
-import type { ValidateFunction } from "ajv";
+import type { ErrorObject, ValidateFunction } from "ajv";
 import type { OpenApiDocument } from "../openapi/compile-spec";
-import type { JsonValue } from "../util/json";
+import type { JsonInputValue, JsonObjectInput, JsonValue } from "../util/json";
 import { SchemaResolutionError, type OperationCard } from "../openapi/types";
 import type { AgentInput, Envelope, Hint, NormalizedError, RunOpts, Warning } from "./types";
 import type { HttpRequest } from "./request-builder";
@@ -38,12 +38,12 @@ import type { ResponseContext } from "./response-normalizer";
 
 type OperationRunOpts = RunOpts & PaginationOptions & { inline?: boolean };
 
-interface DryRunRequest {
+type DryRunRequest = JsonObjectInput & {
   operation_id?: string;
   method: OperationCard["method"];
   path: string;
   input: AgentInput;
-}
+};
 
 interface PreparedOperationRun
   extends
@@ -514,12 +514,12 @@ function validationFailure(
   validator: ValidateFunction,
 ): NormalizedError | null {
   if (validator(validationBody(op, input))) return null;
-  const first = validator.errors?.[0];
-  const param = ajvParam(first?.instancePath, first?.params);
+  const first = validator.errors![0]!;
+  const param = ajvParam(first.instancePath, first.params);
   return {
     type: "validation_error",
     code: "validation_error",
-    message: `body: ${first?.message ?? "invalid request body"}`,
+    message: `body: ${first.message}`,
     param,
     raw: validator.errors,
   };
@@ -544,7 +544,7 @@ function hasRequestPayload(op: OperationCard, input: AgentInput): boolean {
   return input.body !== undefined || Object.keys(input.files ?? {}).length > 0;
 }
 
-function validationBody(op: OperationCard, input: AgentInput): unknown {
+function validationBody(op: OperationCard, input: AgentInput): JsonInputValue {
   if (!op.requestBody?.multipart) return input.body ?? {};
   const props = asRecord(asRecord(op.requestBody.schema).properties);
   const files = Object.fromEntries(
@@ -590,7 +590,10 @@ function resolveRef(ref: string, spec: OpenApiDocument): JsonValue | undefined {
     );
 }
 
-function ajvParam(instancePath: string | undefined, params: unknown): string | null {
+function ajvParam(
+  instancePath: string | undefined,
+  params: ErrorObject["params"] | undefined,
+): string | null {
   const missing = asRecord(params).missingProperty;
   if (typeof missing === "string") return missing;
   const last = instancePath?.split("/").filter(Boolean).at(-1);
@@ -692,6 +695,8 @@ function minimalSpec(): OpenApiDocument {
   };
 }
 
+function asRecord(value: JsonInputValue): JsonObjectInput;
+function asRecord(value: unknown): Record<string, unknown>;
 function asRecord(value: unknown): Record<string, unknown> {
   return isRecord(value) ? value : {};
 }

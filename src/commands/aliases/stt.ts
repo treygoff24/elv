@@ -1,5 +1,6 @@
 import type { Command } from "commander";
 import { runOperation } from "../../core/client";
+import type { CliOptionValues } from "../options";
 import {
   type BuiltOperation,
   compact,
@@ -11,12 +12,10 @@ import {
   waitAfterCreate,
 } from "./shared";
 
-interface SttFlags {
+interface SttFlags extends Pick<CliOptionValues, "model" | "language"> {
   file?: string;
-  model?: string;
   timestamps?: string;
   diarize?: boolean;
-  language?: string;
   webhook?: string;
   wait?: boolean;
 }

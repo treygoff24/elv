@@ -1,17 +1,14 @@
 import { readFileSync } from "node:fs";
 import type { Command } from "commander";
-import { mergedOptions, numberValue } from "../options";
+import { mergedOptions, numberValue, type CliOptionValues } from "../options";
 import { compact, compactInput, runAlias, type BuiltOperation } from "./shared";
 
-interface MusicFlags {
+interface MusicFlags extends Pick<CliOptionValues, "model" | "format" | "timestamps"> {
   prompt?: string;
   promptFile?: string;
-  model?: string;
-  format?: string;
   lengthMs?: string | number;
   stream?: boolean;
   detailed?: boolean;
-  timestamps?: boolean;
 }
 
 export function buildMusicInput(flags: MusicFlags): BuiltOperation {

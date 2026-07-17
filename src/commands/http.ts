@@ -13,11 +13,14 @@ import type { HttpMethod, OperationCard } from "../openapi/types";
 import { ExitCode as Codes } from "../core/types";
 import { addFiles, addPairs } from "./input";
 import { paginationOptionsFromOptions, runOptsFromOptions } from "./options";
-import type { PaginationOptionValues, RunOptionValues } from "./options";
+import type { CliOptionValues, PaginationOptionValues, RunOptionValues } from "./options";
 
-interface HttpOptions extends RunOptionValues, PaginationOptionValues, Pick<RunOpts, "apiKey"> {
-  query?: string[];
-  bodyJson?: string;
+interface HttpOptions
+  extends
+    RunOptionValues,
+    PaginationOptionValues,
+    Pick<RunOpts, "apiKey">,
+    Pick<CliOptionValues, "query" | "bodyJson"> {
   file?: string[];
 }
 

@@ -1,6 +1,7 @@
 import { redact } from "./redaction";
 import { ENVELOPE_VERSION } from "./types";
 import type { Envelope, ErrorEnvelope, SuccessEnvelope } from "./types";
+import type { JsonInputValue } from "../util/json";
 
 export function writeEnvelope(env: Envelope): void {
   process.stdout.write(`${JSON.stringify(redact(env))}\n`);
@@ -17,7 +18,7 @@ export function failure(partial: Omit<ErrorEnvelope, "v" | "ok">): ErrorEnvelope
 interface DryRunInput {
   cmd: string;
   operationId?: string;
-  request: unknown;
+  request: JsonInputValue;
   creditsEstimated?: number | null;
   wouldRequireYes?: boolean;
   wouldExceedBudget?: boolean;

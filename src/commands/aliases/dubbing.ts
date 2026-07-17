@@ -1,6 +1,7 @@
 import { resolve } from "node:path";
 import type { Command } from "commander";
 import { runOperation } from "../../core/client";
+import type { CliOptionValues } from "../options";
 import {
   addPaginationFlags,
   type BuiltOperation,
@@ -22,9 +23,8 @@ interface DubbingCreateFlags {
   wait?: boolean;
 }
 
-interface DubbingIdFlags {
+interface DubbingIdFlags extends Pick<CliOptionValues, "language"> {
   id?: string;
-  language?: string;
 }
 
 export function buildDubbingCreateInput(flags: DubbingCreateFlags): BuiltOperation {

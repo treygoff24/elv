@@ -9,15 +9,14 @@ import type { AgentInput, CommandResult, RunOpts } from "../core/types";
 import type { PaginationOptions } from "../core/pagination";
 import { addFiles, addPairs } from "./input";
 import { paginationOptionsFromOptions, runOptsFromOptions } from "./options";
-import type { PaginationOptionValues, RunOptionValues } from "./options";
+import type { CliOptionValues, PaginationOptionValues, RunOptionValues } from "./options";
 
 interface CallOptions
-  extends RunOptionValues, PaginationOptionValues, Pick<RunOpts, "allowUnknown" | "unpack"> {
-  json?: string;
-  jsonFile?: string;
-  stdinJson?: boolean;
-  query?: string[];
-  path?: string[];
+  extends
+    RunOptionValues,
+    PaginationOptionValues,
+    Pick<RunOpts, "allowUnknown" | "unpack">,
+    Pick<CliOptionValues, "json" | "jsonFile" | "stdinJson" | "query" | "path"> {
   file?: string[];
 }
 

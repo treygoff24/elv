@@ -4,6 +4,7 @@ import { success } from "./envelope";
 import { isRecord } from "../util/json";
 import { shellArg } from "../util/shell";
 import type { HttpMethod, OperationCard } from "../openapi/types";
+import type { JsonObject, JsonValue } from "../util/json";
 import type { AgentInput, Envelope, FileRecord, RunOpts, SuccessEnvelope, Warning } from "./types";
 
 export interface PaginationOptions extends Pick<RunOpts, "out" | "hash"> {
@@ -111,7 +112,7 @@ export async function collectAllPages(options: CollectAllPagesOptions): Promise<
   let input = applyPaginationDefaults(options.op, options.input, options.limit ?? DEFAULT_LIMIT);
   let lastEnv: SuccessEnvelope | undefined;
   const warnings: Warning[] = [];
-  const items: unknown[] = [];
+  const items: JsonValue[] = [];
 
   for (let page = 0; page < cap; page += 1) {
     const env = await options.fetchPage(input);
@@ -147,11 +148,7 @@ export function allOutputTarget(options: PaginationOptions): string | undefined 
   return options.saveJson ?? options.out;
 }
 
-function cursorFromField(
-  record: Record<string, unknown>,
-  field: string,
-  cursorParam: string,
-): CursorInfo {
+function cursorFromField(record: JsonObject, field: string, cursorParam: string): CursorInfo {
   const value = record[field];
   if (value === undefined || value === null || value === "") {
     return {
@@ -167,9 +164,7 @@ function cursorFromField(
   return { hasMore: true, cursorParam, cursor: String(value), warnings: [] };
 }
 
-function fallbackCursor(
-  record: Record<string, unknown>,
-): { cursorParam: string; cursor: string } | undefined {
+function fallbackCursor(record: JsonObject): { cursorParam: string; cursor: string } | undefined {
   for (const [key, value] of Object.entries(record)) {
     if (value === undefined || value === null || value === "") continue;
     if (key.startsWith("next_")) {
@@ -203,9 +198,9 @@ function nextCommand(op: OperationCard, input: AgentInput, command: PaginationCo
 
 function limitData(
   op: OperationCard,
-  data: Record<string, unknown>,
+  data: JsonObject,
   limit: number,
-): { data: Record<string, unknown>; truncated: boolean } {
+): { data: JsonObject; truncated: boolean } {
   const key = itemKey(op, data);
   const items = key ? data[key] : undefined;
   if (!key || !Array.isArray(items) || items.length <= limit) return { data, truncated: false };
@@ -223,7 +218,7 @@ function limitData(
 async function allPagesEnvelope(
   options: CollectAllPagesOptions,
   env: SuccessEnvelope | undefined,
-  items: unknown[],
+  items: JsonValue[],
   warnings: Warning[],
 ): Promise<Envelope> {
   const file = await writeAllItems(options, items);
@@ -245,7 +240,7 @@ async function allPagesEnvelope(
 
 async function writeAllItems(
   options: CollectAllPagesOptions,
-  items: unknown[],
+  items: JsonValue[],
 ): Promise<FileRecord> {
   const target = resolveOutTarget(options.saveJson ?? options.out, false);
   const filename = target.file ?? deriveFilename(options.op.operationId, "all", "json");
@@ -256,17 +251,17 @@ async function writeAllItems(
   return { ...(await fileRecord(path, { hash: options.hash })), mime: "application/json" };
 }
 
-function itemsFromData(op: OperationCard, data: unknown): unknown[] {
-  if (Array.isArray(data)) return data;
+function itemsFromData(op: OperationCard, data: unknown): JsonValue[] {
+  if (Array.isArray(data)) return data as JsonValue[];
   const record = asRecord(data);
   if (!record) return [];
   const key = itemKey(op, record);
   const items = key === undefined ? undefined : record[key];
   if (Array.isArray(items)) return items;
-  return [data];
+  return [record];
 }
 
-function itemKey(op: OperationCard, data: Record<string, unknown>): string | undefined {
+function itemKey(op: OperationCard, data: JsonObject): string | undefined {
   const family = resourceFamily(op);
   if (family === "history" && Array.isArray(data.history)) return "history";
   if ((family === "voices_v1" || family === "voices_v2") && Array.isArray(data.voices))
@@ -302,6 +297,6 @@ function resourceFamily(op: OperationCard): Family {
   return "fallback";
 }
 
-function asRecord(value: unknown): Record<string, unknown> | undefined {
-  return isRecord(value) ? value : undefined;
+function asRecord(value: unknown): JsonObject | undefined {
+  return isRecord(value) ? (value as JsonObject) : undefined;
 }

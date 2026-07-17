@@ -1,6 +1,6 @@
 import type { Command } from "commander";
 import { runOperation } from "../../core/client";
-import { mergedOptions } from "../options";
+import { mergedOptions, type CliOptionValues } from "../options";
 import {
   type BuiltOperation,
   commandName,
@@ -15,12 +15,10 @@ import {
 import { resolveVoiceId } from "./voices";
 import type { VoiceSelector } from "./voices";
 
-interface VoiceChangeFlags extends VoiceSelector {
+interface VoiceChangeFlags
+  extends VoiceSelector, Pick<CliOptionValues, "model" | "format" | "removeBackgroundNoise"> {
   file?: string;
-  model?: string;
-  format?: string;
   stream?: boolean;
-  removeBackgroundNoise?: boolean;
 }
 
 export function buildVoiceChangeInput(flags: VoiceChangeFlags): BuiltOperation {

@@ -7,7 +7,7 @@ import { errorMessage } from "../util/error";
 import { parseJson, parseJsonRecord } from "../util/json";
 import { readPath } from "../util/jsonpath";
 import type { AgentInput, CommandResult, Envelope, RunOpts } from "./types";
-import type { JsonObject } from "../util/json";
+import type { JsonInputValue, JsonObject } from "../util/json";
 
 export interface WaitOptions extends Pick<RunOpts, "baseUrl" | "profile"> {
   operation?: string;
@@ -359,7 +359,7 @@ function finishCommand(state: CommandRunState, code: number | null): void {
   }
 }
 
-function commandEnvelopeError(message: string, raw?: unknown): Envelope {
+function commandEnvelopeError(message: string, raw?: JsonInputValue): Envelope {
   return failure({
     cmd: "elv wait",
     error: {

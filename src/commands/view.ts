@@ -12,10 +12,10 @@ import { isRecord, JsonParseError, parseJson } from "../util/json";
 import type { JsonValue } from "../util/json";
 import { readPath } from "../util/jsonpath";
 import { shellArg } from "../util/shell";
+import type { CliOptionValues } from "./options";
 
-interface ViewOptions {
+interface ViewOptions extends Pick<CliOptionValues, "limit"> {
   path?: string;
-  limit?: string | number;
 }
 
 export function buildViewResult(path: string, options: ViewOptions = {}): CommandResult {

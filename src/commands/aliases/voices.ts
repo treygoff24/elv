@@ -17,13 +17,13 @@ import {
   validationOrExit,
 } from "./shared";
 
-interface VoicesFlags extends Pick<CliOptionValues, "voiceId"> {
+interface VoicesFlags extends Pick<
+  CliOptionValues,
+  "voiceId" | "search" | "sort" | "removeBackgroundNoise"
+> {
   query?: string;
-  search?: string;
-  sort?: string;
   name?: string;
   file?: string;
-  removeBackgroundNoise?: boolean;
   description?: string;
 }
 

@@ -19,6 +19,7 @@ import { isRecord, parseJson as parseJsonValue } from "../util/json";
 import { errorMessage } from "../util/error";
 import { shellArg } from "../util/shell";
 import { containsCredential } from "./redaction";
+import { retryAfterMs } from "./retries";
 import type { HttpMethod, OperationCard } from "../openapi/types";
 import type { JsonObject, JsonValue } from "../util/json";
 import type {
@@ -991,15 +992,6 @@ function numberHeader(headers: Headers, name: string): number | null {
   if (!value) return null;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
-}
-
-function retryAfterMs(headers: Headers): number | null {
-  const value = headers.get("retry-after");
-  if (!value) return null;
-  const seconds = Number(value);
-  if (Number.isFinite(seconds)) return Math.max(0, seconds * 1000);
-  const dateMs = Date.parse(value);
-  return Number.isFinite(dateMs) ? Math.max(0, dateMs - Date.now()) : null;
 }
 
 function previewText(value: string): string {

@@ -36,7 +36,7 @@ const BUCKET_KEYS = new Set(["path", "query", "body", "headers", "files"]);
 export class InputNormalizationError extends Error {
   readonly detail: NormalizedError;
 
-  constructor(message: string, raw?: unknown, param?: string | null) {
+  constructor(message: string, raw?: JsonInputValue, param?: string | null) {
     super(message);
     this.name = "InputNormalizationError";
     this.detail = {

@@ -1,4 +1,5 @@
 import type { Command } from "commander";
+import type { CliOptionValues } from "../options";
 import {
   addPaginationFlags,
   compact,
@@ -11,10 +12,8 @@ import {
   type JsonBodyFlags,
 } from "./shared";
 
-interface AgentsFlags extends JsonBodyFlags {
+interface AgentsFlags extends JsonBodyFlags, Pick<CliOptionValues, "text" | "search"> {
   agentId?: string;
-  text?: string;
-  search?: string;
   testId?: string;
   invocationId?: string;
   branchId?: string;

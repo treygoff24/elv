@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import type { Command } from "commander";
 import { runOperation } from "../../core/client";
 import { loadConfig } from "../../core/config";
-import { mergedOptions, numberValue } from "../options";
+import { mergedOptions, numberValue, type CliOptionValues } from "../options";
 import {
   type BuiltOperation,
   commandName,
@@ -16,16 +16,21 @@ import {
 import { resolveVoiceId } from "./voices";
 import type { VoiceSelector } from "./voices";
 
-interface TtsFlags extends VoiceSelector {
-  text?: string;
-  textFile?: string;
-  model?: string;
-  format?: string;
-  language?: string;
-  timestamps?: boolean;
+interface TtsFlags
+  extends
+    VoiceSelector,
+    Pick<
+      CliOptionValues,
+      | "text"
+      | "textFile"
+      | "model"
+      | "format"
+      | "language"
+      | "timestamps"
+      | "optimizeStreamingLatency"
+      | "enableLogging"
+    > {
   stream?: boolean;
-  optimizeStreamingLatency?: string | number;
-  enableLogging?: boolean;
 }
 
 export function buildTtsInput(flags: TtsFlags): BuiltOperation {

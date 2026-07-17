@@ -1,6 +1,7 @@
 import type { Command } from "commander";
 import type { RunOpts } from "../core/types";
 import type { PaginationOptions } from "../core/pagination";
+import type { WaitOptions } from "../core/wait-operation";
 
 export interface RunOptionValues extends Pick<
   RunOpts,
@@ -13,27 +14,37 @@ export interface PaginationOptionValues extends Pick<PaginationOptions, "all" | 
   limit?: string | PaginationOptions["limit"];
 }
 
-export interface CliOptionValues extends RunOptionValues, PaginationOptionValues {
+export interface CliOptionValues
+  extends
+    RunOptionValues,
+    PaginationOptionValues,
+    Pick<
+      WaitOptions,
+      | "cmd"
+      | "failure"
+      | "intervalMs"
+      | "json"
+      | "operation"
+      | "statusPath"
+      | "success"
+      | "timeoutMs"
+    > {
   allowUnknown?: boolean;
   bodyJson?: string;
-  cmd?: string;
   debug?: boolean;
   enableLogging?: boolean;
   example?: boolean;
-  failure?: string;
   fields?: string;
   file?: string[] | string;
   format?: string;
   from?: string;
   group?: string;
-  json?: string;
   jsonFile?: string;
   language?: string;
   list?: boolean;
   method?: string;
   model?: string;
   offline?: boolean;
-  operation?: string;
   optimizeStreamingLatency?: string | number;
   path?: string[];
   query?: string[];
@@ -43,15 +54,11 @@ export interface CliOptionValues extends RunOptionValues, PaginationOptionValues
   search?: string;
   send?: string;
   sort?: string;
-  statusPath?: string;
   stream?: string;
   stdinJson?: boolean;
-  success?: string;
   text?: string;
   textFile?: string;
   timestamps?: boolean;
-  timeoutMs?: string | number;
-  intervalMs?: string | number;
   unpack?: boolean;
   uploads?: boolean;
   deprecated?: boolean;
@@ -115,11 +122,11 @@ export function paginationOptionsFromOptions(opts: PaginationOptionValues): Pagi
   };
 }
 
-export function optionString(value: unknown): string | undefined {
+export function optionString(value: CliOptionValues[keyof CliOptionValues]): string | undefined {
   return typeof value === "string" ? value : undefined;
 }
 
-export function optionStrings(value: unknown): string[] | undefined {
+export function optionStrings(value: CliOptionValues[keyof CliOptionValues]): string[] | undefined {
   return Array.isArray(value) && value.every((item) => typeof item === "string")
     ? value
     : undefined;
@@ -129,7 +136,7 @@ export function collect(value: string, previous: string[]): string[] {
   return [...previous, value];
 }
 
-export function numberValue(value: unknown): number | undefined {
+export function numberValue(value: string | number | undefined): number | undefined {
   if (value === undefined || value === "") return undefined;
   if (typeof value !== "string" && typeof value !== "number") return undefined;
   const parsed = Number(value);

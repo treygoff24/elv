@@ -10,7 +10,7 @@ import {
   vendoredSpecPath,
   writeRegistryCache,
 } from "./registry";
-import { parseJson } from "../util/json";
+import { parseJson, parseJsonRecord } from "../util/json";
 import { errorMessage } from "../util/error";
 import type { CompileSpecResult } from "./compile-spec";
 import type { RegistryCache, RegistryOptions, SpecCounts, SpecProvenance } from "./registry";
@@ -79,6 +79,11 @@ interface SpecDocument {
 interface ComparableSpec {
   compiled: CompileSpecResult;
   provenance: SpecProvenance | "unknown";
+}
+
+interface VendoredMetadata extends JsonObject {
+  source: string;
+  retrieved_at: string;
 }
 
 export class SpecInputError extends Error {
@@ -185,7 +190,7 @@ async function compileVendored(): Promise<{
   const metadata = readVendoredMetadata();
   return {
     compiled,
-    provenance: specProvenance(compiled, rawText, metadata?.source ?? path, metadata?.retrieved_at),
+    provenance: specProvenance(compiled, rawText, metadata.source, metadata.retrieved_at),
   };
 }
 
@@ -198,8 +203,8 @@ async function documentForUpdate(options: UpdateSpecOptions): Promise<SpecDocume
       document: parseSpecJson(rawText, path),
       rawText,
       source: "offline",
-      label: metadata?.source ?? path,
-      retrievedAt: metadata?.retrieved_at,
+      label: metadata.source,
+      retrievedAt: metadata.retrieved_at,
     };
   }
   const configuredUrl = options.specUrl ?? process.env.ELV_SPEC_URL ?? LIVE_SPEC_URL;
@@ -398,14 +403,7 @@ function countsForCache(cache: RegistryCache): SpecCounts {
   return { paths, total_operations, callable_operations, skipped_operations, schemas };
 }
 
-function readVendoredMetadata(): { source?: string; retrieved_at?: string } | null {
+function readVendoredMetadata(): VendoredMetadata {
   const path = vendoredSpecMetaPath();
-  try {
-    return parseJson(readFileSync(path, "utf8"), path) as {
-      source?: string;
-      retrieved_at?: string;
-    };
-  } catch {
-    return null;
-  }
+  return parseJsonRecord(readFileSync(path, "utf8"), path) as VendoredMetadata;
 }
