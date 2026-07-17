@@ -13,6 +13,9 @@ import {
   vendoredSpecPath,
 } from "../../src/openapi/registry";
 import { compilerSemanticsInputs, curationInputs } from "../../src/openapi/compile-spec";
+import type { OpenApiDocument } from "../../src/openapi/compile-spec";
+import type { OperationCard } from "../../src/openapi/types";
+import type { JsonValue } from "../../src/util/json";
 
 const packageVersion = (JSON.parse(readFileSync("package.json", "utf8")) as { version: string })
   .version;
@@ -22,7 +25,7 @@ let cacheDir: string;
 function registryFingerprintWithCompiler(
   sourceSha256: string,
   sourceSelector: string,
-  compiler: Record<string, unknown>,
+  compiler: ReturnType<typeof compilerSemanticsInputs>,
 ): string {
   return createHash("sha256")
     .update(
@@ -36,15 +39,15 @@ function registryFingerprintWithCompiler(
     .digest("hex");
 }
 
-function canonicalJson(value: unknown): string {
+function canonicalJson(value: JsonValue): string {
   if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
   if (value && typeof value === "object") {
-    return `{${Object.entries(value as Record<string, unknown>)
+    return `{${Object.entries(value)
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([key, entry]) => `${JSON.stringify(key)}:${canonicalJson(entry)}`)
       .join(",")}}`;
   }
-  return JSON.stringify(value) ?? "null";
+  return JSON.stringify(value)!;
 }
 
 afterEach(() => {
@@ -84,8 +87,8 @@ describe("OpenAPI registry cache", () => {
     const cachePath = registryCachePath({ cacheDir });
     const cached = JSON.parse(readFileSync(cachePath, "utf8")) as {
       version: string;
-      operations: unknown[];
-      bundledSpec: unknown;
+      operations: OperationCard[];
+      bundledSpec: OpenApiDocument;
     };
 
     expect(registry.size).toBe(338);
@@ -210,7 +213,7 @@ describe("OpenAPI registry cache", () => {
     const item = cache.operations.find((operation) => operation.operationId === "create_item");
     if (!item) throw new Error("expected create_item in compiled cache");
     item.risk = "destructive";
-    const compiler = compilerSemanticsInputs() as { risk: Record<string, string> };
+    const compiler = compilerSemanticsInputs();
     expect(compiler.risk.classifyRisk).toEqual(expect.any(String));
     compiler.risk.classifyRisk = `${compiler.risk.classifyRisk}\n// previous classifier`;
     cache.fingerprint = registryFingerprintWithCompiler(

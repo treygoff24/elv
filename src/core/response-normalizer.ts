@@ -16,6 +16,7 @@ import {
   writeBufferToFile,
 } from "./files";
 import { isRecord, parseJson as parseJsonValue } from "../util/json";
+import { errorMessage } from "../util/error";
 import { shellArg } from "../util/shell";
 import { containsCredential } from "./redaction";
 import type { HttpMethod, OperationCard } from "../openapi/types";
@@ -221,7 +222,7 @@ function invalidJsonSuccess(
   body: string,
   error: unknown,
 ): Envelope {
-  const parseError = error instanceof Error ? error.message : String(error);
+  const parseError = errorMessage(error);
   return failure({
     cmd: ctx.cmd,
     operation_id: op.operationId,
@@ -292,11 +293,7 @@ function viewHint(filePath: string, data: unknown): Hint {
   };
 }
 
-/**
- * Spill an already-built success envelope's data when it is too large to inline, keeping only
- * the small pagination cursor (`next`) inline. Runs after pagination processing so the `next`
- * command and item truncation survive even when the page itself exceeds the inline limit.
- */
+/** Run after pagination so its `next` command and item truncation survive a spill. */
 export function spillIfLarge(
   op: OperationCard,
   env: Envelope,
@@ -560,7 +557,7 @@ async function streamFailure(
       await options.audio.abort();
     }
   }
-  const parseError = error instanceof Error ? error.message : String(error);
+  const parseError = errorMessage(error);
   const interrupted = options.interrupted;
   return failure({
     cmd: ctx.cmd,
@@ -942,7 +939,7 @@ async function parseErrorBody(res: Response): Promise<unknown> {
     } catch (error) {
       return {
         detail: text,
-        parse_error: error instanceof Error ? error.message : String(error),
+        parse_error: errorMessage(error),
       };
     }
   }
@@ -966,7 +963,7 @@ function declaredContentType(op: OperationCard): string | undefined {
 }
 
 function contentType(headers: Headers): string {
-  return (headers.get("content-type") ?? "").split(";")[0]?.trim().toLowerCase() ?? "";
+  return (headers.get("content-type") ?? "").split(";")[0]!.trim().toLowerCase();
 }
 
 function isJson(value: string): boolean {

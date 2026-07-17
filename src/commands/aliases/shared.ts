@@ -5,9 +5,11 @@ import { runOperation } from "../../core/client";
 import { emitAndExit, exitCodeForError, validationError } from "../../core/errors";
 import { ExitCode } from "../../core/types";
 import { waitForOperation } from "../../core/wait-operation";
+import { errorMessage } from "../../util/error";
 import { isRecord, parseJsonRecord } from "../../util/json";
 import type { WaitOptions } from "../../core/wait-operation";
 import {
+  type CliOptionValues,
   mergedOptions,
   optionString,
   paginationOptionsFromCommand,
@@ -20,10 +22,7 @@ export interface BuiltOperation {
   input: AgentInput;
 }
 
-export interface JsonBodyFlags {
-  json?: string;
-  jsonFile?: string;
-}
+export type JsonBodyFlags = Pick<CliOptionValues, "json" | "jsonFile">;
 
 type RequiredWaitFields = Required<Pick<WaitOptions, "operation" | "statusPath" | "success">>;
 
@@ -72,10 +71,8 @@ function fieldsOpt(command: Command): string[] | undefined {
   return fields.length ? fields : undefined;
 }
 
-// Resolve the fetch options for a list command. --fields returns a projected
-// inline result, so it is mutually exclusive with the bulk-to-disk flags
-// (--all / --save-json) — combining them would silently ignore the persistence
-// request. Throwing here surfaces as a validation_error (exit 2) via runBuilt.
+// Projected fields must stay inline; accepting bulk-to-disk flags would silently
+// ignore the persistence request.
 function resolveListOpts(command: Command): {
   fields?: string[];
   fetch: { all?: boolean; limit?: number; saveJson?: string; inline?: boolean };
@@ -90,8 +87,6 @@ function resolveListOpts(command: Command): {
   return { fields, fetch: fields ? { inline: true, limit: pagination.limit } : pagination };
 }
 
-// Keep just the requested fields on the dominant collection of a list response,
-// turning a fat result (every voice's full object) into a compact id/name table.
 export function projectFields(env: SuccessEnvelope, fields: string[]): SuccessEnvelope {
   return { ...env, data: projectData(env.data, fields) };
 }
@@ -109,9 +104,7 @@ function projectData(data: unknown, fields: string[]): unknown {
   return data;
 }
 
-// Pick the collection to project. Prefer the longest array whose elements are
-// objects (the only kind a field projection applies to); fall back to the
-// longest array of any kind so an empty collection still resolves.
+// Empty collections contain no object-shaped elements, so fall back to any array.
 function longestArrayKey(data: Record<string, unknown>): string | undefined {
   const longestOf = (predicate: (value: unknown[]) => boolean): string | undefined => {
     let bestKey: string | undefined;
@@ -184,7 +177,7 @@ export async function runListAlias<T>(
 }
 
 function validationEnv(command: Command, error: unknown): ReturnType<typeof validationError> {
-  return validationError(commandName(command), message(error));
+  return validationError(commandName(command), errorMessage(error));
 }
 
 function validationExit(command: Command, error: unknown): never {
@@ -229,10 +222,6 @@ function stringAt(env: Envelope, keys: string[]): string | null {
   const data = env.data;
   for (const key of keys) if (typeof data[key] === "string") return data[key];
   return null;
-}
-
-function message(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 export function required(value: string | undefined, label: string): string {

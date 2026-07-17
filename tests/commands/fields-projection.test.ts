@@ -47,7 +47,7 @@ describe("projectFields", () => {
       ["name"],
     );
     expect(result.data).toMatchObject({
-      languages: [{ code: "en" }], // untouched
+      languages: [{ code: "en" }],
       voices: [{ name: "Bella" }, { name: "Bill" }],
     });
   });

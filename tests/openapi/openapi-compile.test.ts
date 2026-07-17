@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { compileSpec } from "../../src/openapi/compile-spec";
+import type { JsonObject } from "../../src/util/json";
 
 const snapshotPath = "spec/openapi.snapshot.json";
 const fixturePath = "fixtures/fake-openapi.json";
@@ -150,7 +151,7 @@ describe("OpenAPI compiler", () => {
   });
 
   it("throws on duplicate operationIds", async () => {
-    const spec = JSON.parse(readFileSync(fixturePath, "utf8")) as Record<string, unknown>;
+    const spec = JSON.parse(readFileSync(fixturePath, "utf8")) as JsonObject;
     const paths = spec.paths as Record<string, Record<string, { operationId?: string }>>;
     const itemPost = paths["/v1/items"]?.post;
     expect(itemPost).toBeDefined();

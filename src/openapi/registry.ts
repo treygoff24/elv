@@ -7,13 +7,14 @@ import { compileSpec, compilerSemanticsInputs, curationInputs } from "./compile-
 import { isRecord, parseJson } from "../util/json";
 import type { CompileSpecResult, OpenApiDocument } from "./compile-spec";
 import type { OperationCard } from "./types";
+import type { JsonObject, JsonValue } from "../util/json";
 
 export interface RegistryOptions {
   cacheDir?: string;
   version?: string;
   forceRecompile?: boolean;
   specPath?: string;
-  specDocument?: unknown;
+  specDocument?: JsonObject;
   /** Test seam for proving the authoritative cache survives an interrupted write. */
   beforeCacheRename?: (temporaryPath: string, targetPath: string) => void;
 }
@@ -32,15 +33,12 @@ export interface SpecProvenance extends SpecCounts {
   sha256: string;
 }
 
-export interface RegistryCache {
+export interface RegistryCache extends Omit<CompileSpecResult, "bundledSpec"> {
   schema: "elv.openapi.cache.v3";
   version: string;
   fingerprint: string;
   sourceSelector: string;
   generated_at: string;
-  totalOperations: number;
-  skippedOperations: number;
-  operations: OperationCard[];
   bundledSpec?: OpenApiDocument;
   provenance: SpecProvenance;
 }
@@ -168,16 +166,9 @@ function resolveCacheRoot(cacheDir?: string): string {
 
 function packageVersion(override?: string): string {
   if (override) return override;
-  for (const path of packageJsonCandidates()) {
-    if (!existsSync(path)) continue;
-    try {
-      const json = parseJson(readFileSync(path, "utf8"), path) as { version?: string };
-      if (json.version) return json.version;
-    } catch {
-      continue;
-    }
-  }
-  return "0.0.0";
+  const path = packageJsonCandidates().find(existsSync);
+  if (!path) throw new Error("package.json not found");
+  return (parseJson(readFileSync(path, "utf8"), path) as { version: string }).version;
 }
 
 function cacheSourceSha256(options: RegistryOptions, cache: RegistryCache): string | null {
@@ -257,15 +248,15 @@ function hashText(value: string | Buffer): string {
   return createHash("sha256").update(value).digest("hex");
 }
 
-function canonicalJson(value: unknown): string {
+function canonicalJson(value: JsonValue): string {
   if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
   if (value && typeof value === "object") {
-    return `{${Object.entries(value as Record<string, unknown>)
+    return `{${Object.entries(value)
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([key, entry]) => `${JSON.stringify(key)}:${canonicalJson(entry)}`)
       .join(",")}}`;
   }
-  return JSON.stringify(value) ?? "null";
+  return JSON.stringify(value)!;
 }
 
 export function vendoredSpecPath(moduleUrl: string | URL = import.meta.url): string {

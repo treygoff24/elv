@@ -2,6 +2,7 @@ import Ajv2020 from "ajv/dist/2020.js";
 import addFormats from "ajv-formats";
 import type { AnySchema, ValidateFunction } from "ajv";
 import type { OpenApiDocument } from "./compile-spec";
+import type { JsonValue } from "../util/json";
 import { SchemaResolutionError, type OperationCard } from "./types";
 
 const OPENAPI_SCHEMA_BASE = "elv://openapi";
@@ -30,7 +31,7 @@ export function getInputValidator(ajv: Ajv2020, op: OperationCard): ValidateFunc
   }
 }
 
-function absoluteDocumentRefs(value: unknown): unknown {
+function absoluteDocumentRefs(value: JsonValue): JsonValue {
   if (Array.isArray(value)) return value.map(absoluteDocumentRefs);
   if (!value || typeof value !== "object") return value;
   return Object.fromEntries(

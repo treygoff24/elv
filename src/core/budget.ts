@@ -15,11 +15,7 @@ interface EstimateDetail {
   warnings: Warning[];
 }
 
-export type BudgetPolicy =
-  | "not_configured"
-  | "bounded"
-  | "estimate_unavailable"
-  | "unknown_unbounded";
+type BudgetPolicy = "not_configured" | "bounded" | "estimate_unavailable" | "unknown_unbounded";
 
 export interface BudgetDecision {
   policy: BudgetPolicy;

@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { handleSpecDiff, handleSpecStatus, handleSpecUpdate } from "../../src/commands/spec";
 import { diffSpec, updateSpecCache } from "../../src/openapi/fetch-spec";
 import { rawSpecCachePath, registryCachePath } from "../../src/openapi/registry";
+import type { OperationCard } from "../../src/openapi/types";
 
 let cacheDir: string;
 const servers: Server[] = [];
@@ -29,7 +30,7 @@ describe("spec update", () => {
     const result = await updateSpecCache({ offline: true, cacheDir });
     const cache = JSON.parse(readFileSync(result.cachePath, "utf8")) as {
       schema: string;
-      operations: unknown[];
+      operations: OperationCard[];
       provenance: { sha256: string; schemas: number };
     };
 
@@ -268,7 +269,7 @@ describe("spec update", () => {
   });
 });
 
-function operation(operationId: string): Record<string, unknown> {
+function operation(operationId: string) {
   return { operationId, responses: { "200": { description: "ok" } } };
 }
 

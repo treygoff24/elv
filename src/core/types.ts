@@ -1,5 +1,3 @@
-/** Shared runtime contract types for elv. OpenAPI operation-card types live in src/openapi/types. */
-
 import type { HttpMethod } from "../openapi/types";
 
 export const ENVELOPE_VERSION = 1 as const;
@@ -108,22 +106,25 @@ export interface WsInfo {
   partial?: boolean;
 }
 
-export interface SuccessEnvelope {
+interface EnvelopeBase {
   v: typeof ENVELOPE_VERSION;
-  ok: true;
   cmd: string;
   operation_id?: string;
   http?: HttpInfo;
-  request?: RequestInfo;
-  concurrency?: ConcurrencyInfo;
   cost?: CostInfo;
-  data?: unknown;
-  data_summary?: DataSummary;
   files?: FileRecord[];
-  truncated?: boolean;
   warnings?: Warning[];
   hints?: Hint[];
   ws?: WsInfo;
+}
+
+export interface SuccessEnvelope extends EnvelopeBase {
+  ok: true;
+  request?: RequestInfo;
+  concurrency?: ConcurrencyInfo;
+  data?: unknown;
+  data_summary?: DataSummary;
+  truncated?: boolean;
 }
 
 /** §4 — normalized from all FOUR provider detail variants (array / rich-object / legacy / string). */
@@ -142,19 +143,10 @@ export interface RetryInfo {
   after_ms: number | null;
 }
 
-export interface ErrorEnvelope {
-  v: typeof ENVELOPE_VERSION;
+export interface ErrorEnvelope extends EnvelopeBase {
   ok: false;
-  cmd: string;
-  operation_id?: string;
-  http?: HttpInfo;
   error: NormalizedError;
   retry?: RetryInfo;
-  cost?: CostInfo;
-  files?: FileRecord[];
-  warnings?: Warning[];
-  hints?: Hint[];
-  ws?: WsInfo;
 }
 
 export type Envelope = SuccessEnvelope | ErrorEnvelope;

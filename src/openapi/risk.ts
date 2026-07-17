@@ -129,7 +129,7 @@ const EXTERNAL_SIDE_EFFECT_PATTERNS = [
   /(^|_)unshare_resource(_|$)/u,
 ];
 
-export function riskCurationInputs(): Record<string, unknown> {
+export function riskCurationInputs() {
   return {
     destructiveOperationIds: [...DESTRUCTIVE_OP_IDS].sort(),
     externalSideEffectOperationIds: [...EXTERNAL_SIDE_EFFECT_OP_IDS].sort(),

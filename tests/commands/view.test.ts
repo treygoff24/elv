@@ -97,9 +97,7 @@ describe("view command", () => {
     if (!env.ok) throw new Error("expected success");
     expect(env.data).toBeUndefined();
     expect(env.data_summary?.type).toBe("array");
-    // The hint must drill into an element (which always shrinks), not loop on --limit.
     expect(env.hints?.[0]?.cmd).toContain("--path 'voices.0'");
-    // The summary itself must stay small (size-bounded preview).
     expect(Buffer.byteLength(JSON.stringify(env.data_summary))).toBeLessThanOrEqual(8 * 1024);
   });
 

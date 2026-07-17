@@ -7,6 +7,7 @@ import { AudioWriter } from "./audio-writer";
 import { MAX_BINARY_FILE_BYTES, NdjsonEventWriter, redactWs, redactWsString } from "./events";
 import { isRecord, parseJson as parseJsonValue } from "../util/json";
 import type { FileRecord, WsInfo } from "../core/types";
+import type { JsonObject, JsonValue } from "../util/json";
 import type { SendScriptAction } from "./events";
 
 interface WsSessionOptions {
@@ -345,7 +346,7 @@ async function processMessage(
 ): Promise<void> {
   const raw = rawDataToString(data);
   await events.writeRaw(raw);
-  const parsed = parseJsonValue(raw, "WebSocket message");
+  const parsed = parseJsonValue(raw, "WebSocket message") as JsonValue;
   await audio.writeFromEvent(parsed);
   if (isPing(parsed) && socket.readyState === WebSocket.OPEN) {
     await sendJson(socket, { type: "pong", event_id: parsed.event_id });
@@ -374,7 +375,10 @@ async function sendBinaryFile(socket: WebSocket, path: string): Promise<void> {
   });
 }
 
-function sendJson(socket: WebSocket, value: Record<string, unknown>): Promise<void> {
+function sendJson(
+  socket: WebSocket,
+  value: JsonObject | { type: "pong"; event_id?: JsonValue },
+): Promise<void> {
   return new Promise((resolve, reject) => {
     socket.send(JSON.stringify(value), (error) => (error ? reject(error) : resolve()));
   });
@@ -397,6 +401,6 @@ function rawDataToBuffer(data: RawData): Buffer {
   return Buffer.from(data);
 }
 
-function isPing(value: unknown): value is { type: "ping"; event_id?: unknown } {
+function isPing(value: JsonValue): value is { type: "ping"; event_id?: JsonValue } {
   return isRecord(value) && value.type === "ping";
 }

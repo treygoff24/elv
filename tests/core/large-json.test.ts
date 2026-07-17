@@ -66,7 +66,6 @@ describe("large JSON spill", () => {
     expect(env.ok).toBe(true);
     if (!env.ok) throw new Error("expected success");
     expect(env.data).toBeUndefined();
-    // Array preview is size-bounded so a summary of large objects stays small.
     expect(env.data_summary).toMatchObject({ type: "array", count: 30 });
     expect(env.data_summary?.preview_count).toBeGreaterThan(0);
     expect(env.data_summary?.preview_count).toBeLessThanOrEqual(20);

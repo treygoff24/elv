@@ -1,3 +1,8 @@
+import { errorMessage } from "./error";
+
+export type JsonValue = string | number | boolean | null | JsonObject | readonly JsonValue[];
+export type JsonObject = { [key: string]: JsonValue };
+
 export class JsonParseError extends Error {
   override name = "JsonParseError";
 
@@ -28,8 +33,4 @@ export function parseJsonRecord(
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }

@@ -5,6 +5,7 @@ import { applyPaginationDefaults, type PaginationOptions } from "../core/paginat
 import { estimateCredits } from "../core/budget";
 import { loadRegistry } from "../openapi/registry";
 import { classifyRisk } from "../openapi/risk";
+import { errorMessage } from "../util/error";
 import { parseJson } from "../util/json";
 import type { AgentInput, CommandResult, Envelope, RunOpts, Warning } from "../core/types";
 import type { HttpMethod, OperationCard } from "../openapi/types";
@@ -46,7 +47,7 @@ export async function runHttp(
   try {
     opts = httpRunOpts(options);
   } catch (error) {
-    return validationError(cmd, error instanceof Error ? error.message : String(error));
+    return validationError(cmd, errorMessage(error));
   }
 
   try {
@@ -104,7 +105,7 @@ function parseHttpInput(
   } catch (error) {
     return {
       ok: false,
-      env: validationError(cmd, error instanceof Error ? error.message : String(error)),
+      env: validationError(cmd, errorMessage(error)),
     };
   }
 }

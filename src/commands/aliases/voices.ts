@@ -1,4 +1,5 @@
 import type { Command } from "commander";
+import type { CliOptionValues } from "../options";
 import { runOperation } from "../../core/client";
 import { emitAndExit, validationError } from "../../core/errors";
 import { ExitCode } from "../../core/types";
@@ -16,11 +17,10 @@ import {
   validationOrExit,
 } from "./shared";
 
-interface VoicesFlags {
+interface VoicesFlags extends Pick<CliOptionValues, "voiceId"> {
   query?: string;
   search?: string;
   sort?: string;
-  voiceId?: string;
   name?: string;
   file?: string;
   removeBackgroundNoise?: boolean;
@@ -35,10 +35,7 @@ interface VoiceRecord {
   [key: string]: unknown;
 }
 
-export interface VoiceSelector {
-  voiceId?: string;
-  voice?: string;
-}
+export type VoiceSelector = Pick<CliOptionValues, "voiceId" | "voice">;
 
 type VoiceListData = {
   voices?: VoiceRecord[];
@@ -200,8 +197,6 @@ async function runFind(flags: VoicesFlags, command: Command): Promise<never> {
     limit: RESOLVER_PAGE_SIZE,
   });
   if (!env.ok) emit(env);
-  // Emit only the matched voices — drop the upstream pagination fields
-  // (has_more, next_page_token, next), which are noise for a name lookup.
   const matched = findMatchingVoices(query, voicesFrom(env));
   const result: SuccessEnvelope = { ...env, data: { voices: matched, count: matched.length } };
   emit(result);

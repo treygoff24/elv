@@ -8,12 +8,11 @@ import {
   runAlias,
   runListAlias,
   type BuiltOperation,
+  type JsonBodyFlags,
 } from "./shared";
 
-interface AgentsFlags {
+interface AgentsFlags extends JsonBodyFlags {
   agentId?: string;
-  json?: string;
-  jsonFile?: string;
   text?: string;
   search?: string;
   testId?: string;

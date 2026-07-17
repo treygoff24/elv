@@ -328,7 +328,6 @@ describe("aliases mock server (black-box, integration gate)", () => {
       expect(startMs).toBe(USAGE_FROM_MS);
       expect(endMs).toBe(USAGE_TO_MS);
 
-      // Regression guard: seconds form would be three orders of magnitude smaller.
       expect(startMs).not.toBe(Math.floor(USAGE_FROM_MS / 1000));
       expect(endMs).not.toBe(Math.floor(USAGE_TO_MS / 1000));
     },

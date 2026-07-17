@@ -11,9 +11,11 @@ import {
   writeRegistryCache,
 } from "./registry";
 import { parseJson } from "../util/json";
+import { errorMessage } from "../util/error";
 import type { CompileSpecResult } from "./compile-spec";
 import type { RegistryCache, RegistryOptions, SpecCounts, SpecProvenance } from "./registry";
 import type { OperationCard } from "./types";
+import type { JsonObject } from "../util/json";
 
 const LIVE_SPEC_URL = "https://api.elevenlabs.io/openapi.json";
 const FETCH_TIMEOUT_MS = 30_000;
@@ -26,7 +28,7 @@ export interface UpdateSpecOptions extends RegistryOptions {
   specUrl?: string;
 }
 
-export interface SpecDiff {
+interface SpecDiff {
   baseline: SpecProvenance | "unknown";
   candidate: SpecProvenance;
   counts: { baseline: SpecCounts; candidate: SpecCounts };
@@ -67,7 +69,7 @@ export interface SpecStatus {
 }
 
 interface SpecDocument {
-  document: unknown;
+  document: JsonObject;
   rawText: string;
   source: "offline" | "file" | "url";
   label: string;
@@ -146,7 +148,7 @@ async function compileCandidate(options: UpdateSpecOptions): Promise<{
   try {
     compiled = await compileSpec({ document: source.document });
   } catch (error) {
-    const message = `Invalid OpenAPI spec from ${source.label}: ${error instanceof Error ? error.message : String(error)}`;
+    const message = `Invalid OpenAPI spec from ${source.label}: ${errorMessage(error)}`;
     if (source.source === "url") throw new SpecProviderError(message);
     throw new SpecInputError(message, { source: source.label });
   }
@@ -229,10 +231,9 @@ function readBoundedFile(path: string): string {
   try {
     value = readFileSync(path);
   } catch (error) {
-    throw new SpecInputError(
-      `Unable to read OpenAPI spec ${path}: ${error instanceof Error ? error.message : String(error)}`,
-      { path },
-    );
+    throw new SpecInputError(`Unable to read OpenAPI spec ${path}: ${errorMessage(error)}`, {
+      path,
+    });
   }
   if (value.byteLength > MAX_SPEC_BYTES)
     throw new SpecInputError(
@@ -242,23 +243,22 @@ function readBoundedFile(path: string): string {
   return value.toString("utf8");
 }
 
-function parseSpecJson(rawText: string, path: string): unknown {
+function parseSpecJson(rawText: string, path: string): JsonObject {
   try {
-    return parseJson(rawText, path);
+    return parseJson(rawText, path) as JsonObject;
   } catch (error) {
-    throw new SpecInputError(
-      `Invalid JSON in OpenAPI spec ${path}: ${error instanceof Error ? error.message : String(error)}`,
-      { path },
-    );
+    throw new SpecInputError(`Invalid JSON in OpenAPI spec ${path}: ${errorMessage(error)}`, {
+      path,
+    });
   }
 }
 
-function parseFetchedJson(rawText: string, url: string): unknown {
+function parseFetchedJson(rawText: string, url: string): JsonObject {
   try {
-    return parseJson(rawText, url);
+    return parseJson(rawText, url) as JsonObject;
   } catch (error) {
     throw new SpecProviderError(
-      `Failed to parse fetched OpenAPI spec from ${url}: ${error instanceof Error ? error.message : String(error)}`,
+      `Failed to parse fetched OpenAPI spec from ${url}: ${errorMessage(error)}`,
     );
   }
 }
@@ -268,9 +268,7 @@ async function fetchSpec(url: string): Promise<string> {
   try {
     response = await fetch(url, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
   } catch (error) {
-    throw new SpecProviderError(
-      `Failed to fetch OpenAPI spec from ${url}: ${error instanceof Error ? error.message : String(error)}`,
-    );
+    throw new SpecProviderError(`Failed to fetch OpenAPI spec from ${url}: ${errorMessage(error)}`);
   }
   const requestedOrigin = new URL(url).origin;
   const responseOrigin = response.url ? new URL(response.url).origin : requestedOrigin;
@@ -303,9 +301,7 @@ async function fetchSpec(url: string): Promise<string> {
     return Buffer.concat(chunks).toString("utf8");
   } catch (error) {
     if (error instanceof SpecProviderError) throw error;
-    throw new SpecProviderError(
-      `Failed to fetch OpenAPI spec from ${url}: ${error instanceof Error ? error.message : String(error)}`,
-    );
+    throw new SpecProviderError(`Failed to fetch OpenAPI spec from ${url}: ${errorMessage(error)}`);
   }
 }
 

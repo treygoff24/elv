@@ -1,4 +1,5 @@
 import { loadRegistry, readRegistryCache } from "../openapi/registry";
+import { errorMessage } from "../util/error";
 import { isRecord } from "../util/json";
 import { suggestIds } from "../util/suggest";
 import { budgetDecision, estimateDetail } from "./budget";
@@ -29,24 +30,31 @@ import { requiresYes } from "./safety";
 import { OutTargetError } from "./files";
 import type { ValidateFunction } from "ajv";
 import type { OpenApiDocument } from "../openapi/compile-spec";
-import { SchemaResolutionError, type HttpMethod, type OperationCard } from "../openapi/types";
+import type { JsonValue } from "../util/json";
+import { SchemaResolutionError, type OperationCard } from "../openapi/types";
 import type { AgentInput, Envelope, Hint, NormalizedError, RunOpts, Warning } from "./types";
 import type { HttpRequest } from "./request-builder";
 import type { ResponseContext } from "./response-normalizer";
 
 type OperationRunOpts = RunOpts & PaginationOptions & { inline?: boolean };
 
-interface PreparedOperationRun {
-  cmd: string;
+interface DryRunRequest {
+  operation_id?: string;
+  method: OperationCard["method"];
+  path: string;
+  input: AgentInput;
+}
+
+interface PreparedOperationRun
+  extends
+    Required<Pick<ResponseContext, "cmd" | "creditsEstimated">>,
+    Pick<ResponseContext, "requestPath" | "method"> {
   op: OperationCard;
   input: AgentInput;
   opts: OperationRunOpts;
   command: PaginationCommand;
-  dryRunRequest: Record<string, unknown>;
-  creditsEstimated: number | null;
+  dryRunRequest: DryRunRequest;
   warnings?: Warning[];
-  requestPath?: string;
-  method?: HttpMethod;
 }
 
 type ExecutableOperationRun = Omit<PreparedOperationRun, "dryRunRequest">;
@@ -570,13 +578,16 @@ function hydrateBodySchema(
   };
 }
 
-function resolveRef(ref: string, spec: OpenApiDocument): unknown {
+function resolveRef(ref: string, spec: OpenApiDocument): JsonValue | undefined {
   if (!ref.startsWith("#/")) return undefined;
   return ref
     .slice(2)
     .split("/")
     .map((part) => part.replace(/~1/gu, "/").replace(/~0/gu, "~"))
-    .reduce<unknown>((current, part) => asRecord(current)[part], spec);
+    .reduce<JsonValue | undefined>(
+      (current, part) => asRecord(current)[part] as JsonValue | undefined,
+      spec,
+    );
 }
 
 function ajvParam(instancePath: string | undefined, params: unknown): string | null {
@@ -656,7 +667,7 @@ export function envelopeForThrown(cmd: string, operationId: string, error: unkno
     error: {
       type: "runtime_error",
       code: "internal_error",
-      message: error instanceof Error ? error.message : String(error),
+      message: errorMessage(error),
       raw: error,
     },
     retry: { recommended: false, after_ms: null },
@@ -664,7 +675,7 @@ export function envelopeForThrown(cmd: string, operationId: string, error: unkno
       {
         type: "runtime_error",
         code: "internal_error",
-        message: error instanceof Error ? error.message : String(error),
+        message: errorMessage(error),
       },
       operationId,
       cmd,

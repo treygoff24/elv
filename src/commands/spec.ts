@@ -1,5 +1,6 @@
 import { failure, success } from "../core/envelope";
 import { ExitCode } from "../core/types";
+import { errorMessage } from "../util/error";
 import {
   diffSpec,
   specStatus,
@@ -40,7 +41,7 @@ export async function handleSpecDiff(options: SpecUpdateOptions = {}): Promise<C
   }
 }
 
-function specResultData(result: SpecUpdateResult): Record<string, unknown> {
+function specResultData(result: SpecUpdateResult) {
   return {
     operations: result.operations,
     total_operations: result.totalOperations,
@@ -94,7 +95,7 @@ function specProviderFailure(cmd: string, error: unknown): CommandResult {
       error: {
         type: "provider_error",
         code: error instanceof SpecProviderError ? "spec_fetch_failed" : "spec_update_failed",
-        message: error instanceof Error ? error.message : String(error),
+        message: errorMessage(error),
         raw: error,
       },
       retry: { recommended: false, after_ms: null },

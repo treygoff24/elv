@@ -8,6 +8,7 @@ import {
   riskCurationInputs,
 } from "./risk";
 import { parseJson } from "../util/json";
+import type { JsonObject, JsonValue } from "../util/json";
 import type {
   BodyCard,
   ExampleCard,
@@ -27,15 +28,14 @@ const BODY_TYPE_PREFERENCE = [
   "text/plain",
 ];
 
-export type JsonObject = Record<string, unknown>;
 export interface OpenApiDocument extends JsonObject {
   paths: Record<string, JsonObject>;
-  components: { schemas: Record<string, unknown> } & JsonObject;
+  components: { schemas: Record<string, JsonValue> } & JsonObject;
 }
 
 interface CompileSpecOptions {
   sourcePath?: string;
-  document?: unknown;
+  document?: JsonObject;
 }
 
 export interface CompileSpecResult {
@@ -114,7 +114,7 @@ async function sourceForBundle(options: CompileSpecOptions): Promise<string | Js
   return parseJson(await readFile(resolve(sourcePath), "utf8"), sourcePath) as JsonObject;
 }
 
-function extractParameters(parameters: unknown[], spec: OpenApiDocument): ParamCard[] {
+function extractParameters(parameters: JsonValue[], spec: OpenApiDocument): ParamCard[] {
   return parameters
     .map((parameter) => resolveMaybeRef(parameter, spec))
     .map(asObject)
@@ -128,7 +128,10 @@ function extractParameters(parameters: unknown[], spec: OpenApiDocument): ParamC
     }));
 }
 
-function extractRequestBody(requestBody: unknown, spec: OpenApiDocument): BodyCard | undefined {
+function extractRequestBody(
+  requestBody: JsonValue | undefined,
+  spec: OpenApiDocument,
+): BodyCard | undefined {
   if (requestBody === undefined) return undefined;
   const body = resolveMaybeRef(requestBody, spec);
   const content = asObject(asObject(body).content);
@@ -204,14 +207,14 @@ const SECRET_RESULT_OP_IDS = new Set([
   "get_conversation_signed_link",
 ]);
 
-export function curationInputs(): Record<string, unknown> {
+export function curationInputs() {
   return {
     risk: riskCurationInputs(),
     secretResultOperationIds: [...SECRET_RESULT_OP_IDS].sort(),
   };
 }
 
-export function compilerSemanticsInputs(): Record<string, unknown> {
+export function compilerSemanticsInputs() {
   return {
     functions: functionSources({
       bundle,
@@ -274,7 +277,7 @@ function extractExamples(operation: JsonObject): ExampleCard[] {
   return examples;
 }
 
-function fileFieldsForSchema(schema: unknown, spec: OpenApiDocument): string[] {
+function fileFieldsForSchema(schema: JsonValue | undefined, spec: OpenApiDocument): string[] {
   const resolved = resolveMaybeRef(schema, spec);
   const properties = asObject(asObject(resolved).properties);
   return Object.entries(properties)
@@ -288,7 +291,11 @@ function fileFieldsForSchema(schema: unknown, spec: OpenApiDocument): string[] {
     .map(([name]) => name);
 }
 
-function isBinarySchema(schema: unknown, spec: OpenApiDocument, seen = new Set<string>()): boolean {
+function isBinarySchema(
+  schema: JsonValue | undefined,
+  spec: OpenApiDocument,
+  seen = new Set<string>(),
+): boolean {
   const ref = refValue(schema);
   if (ref) {
     if (seen.has(ref)) return false;
@@ -320,43 +327,46 @@ function isJsonContentType(contentType: string | undefined): boolean {
   return value === "application/json" || value.endsWith("+json");
 }
 
-export function resolveMaybeRef(value: unknown, spec: OpenApiDocument): unknown {
+export function resolveMaybeRef(
+  value: JsonValue | undefined,
+  spec: OpenApiDocument,
+): JsonValue | undefined {
   const ref = refValue(value);
   return ref ? resolveRef(ref, spec) : value;
 }
 
-export function resolveRef(ref: string, spec: OpenApiDocument): unknown {
+export function resolveRef(ref: string, spec: OpenApiDocument): JsonValue | undefined {
   if (!ref.startsWith("#/")) throw new Error(`Unsupported external ref after bundle: ${ref}`);
   return ref
     .slice(2)
     .split("/")
     .map((part) => part.replace(/~1/gu, "/").replace(/~0/gu, "~"))
-    .reduce<unknown>((current, part) => asObject(current)[part], spec);
+    .reduce<JsonValue | undefined>((current, part) => asObject(current)[part], spec);
 }
 
 export function schemaNameFromRef(ref: string): string {
   return ref.slice(ref.lastIndexOf("/") + 1);
 }
 
-function refValue(value: unknown): string | undefined {
+function refValue(value: JsonValue | undefined): string | undefined {
   const ref = asObject(value).$ref;
   return typeof ref === "string" ? ref : undefined;
 }
 
-function asObject(value: unknown): JsonObject {
+function asObject(value: JsonValue | undefined): JsonObject {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as JsonObject) : {};
 }
 
-function asArray(value: unknown): unknown[] {
+function asArray(value: JsonValue | undefined): JsonValue[] {
   return Array.isArray(value) ? value : [];
 }
 
-function stringArray(value: unknown): string[] {
+function stringArray(value: JsonValue | undefined): string[] {
   return Array.isArray(value)
     ? value.filter((entry): entry is string => typeof entry === "string")
     : [];
 }
 
-function stringValue(value: unknown): string | undefined {
+function stringValue(value: JsonValue | undefined): string | undefined {
   return typeof value === "string" ? value : undefined;
 }

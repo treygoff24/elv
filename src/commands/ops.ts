@@ -10,16 +10,7 @@ import { readRegistryCache, loadRegistry } from "../openapi/registry";
 import type { CostHint, HttpMethod, OperationCard, Risk, StreamKind } from "../openapi/types";
 import type { CommandResult, Hint, Warning } from "../core/types";
 
-interface SearchResult {
-  operation_id: string;
-  method: OperationCard["method"];
-  path: string;
-  group: string[];
-  summary?: string;
-  risk: Risk;
-  cost_hint: CostHint;
-  deprecated: boolean;
-}
+type SearchResult = Omit<OpsListItem, "stream" | "upload_fields">;
 
 interface OpsSearchOptions {
   limit?: string | number;

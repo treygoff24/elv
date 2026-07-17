@@ -21,6 +21,7 @@ import {
   validateBinaryFiles,
 } from "../ws/events";
 import { runWsSession, WsSessionError } from "../ws/session";
+import { errorMessage } from "../util/error";
 import { shellArg } from "../util/shell";
 import type { CommandResult, RunOpts } from "../core/types";
 import type { WsCatalogEntry, WsProtocol } from "../ws/catalog";
@@ -208,7 +209,7 @@ function resolveTargetForInput(
   try {
     return resolveTarget(target, entry, query, baseUrl);
   } catch (error) {
-    throw new ScriptValidationError(error instanceof Error ? error.message : String(error));
+    throw new ScriptValidationError(errorMessage(error));
   }
 }
 
@@ -394,7 +395,7 @@ function parseScriptFile(
         : action,
     );
   } catch (error) {
-    throw new ScriptValidationError(error instanceof Error ? error.message : String(error));
+    throw new ScriptValidationError(errorMessage(error));
   }
 }
 
@@ -402,7 +403,7 @@ function validateScriptFiles(script: SendScriptAction[]): void {
   try {
     validateBinaryFiles(script);
   } catch (error) {
-    throw new ScriptValidationError(error instanceof Error ? error.message : String(error));
+    throw new ScriptValidationError(errorMessage(error));
   }
 }
 
@@ -459,7 +460,7 @@ function errorEnvelope(error: unknown): CommandResult {
       exitCode: ExitCode.ProviderError,
     };
   }
-  const message = error instanceof Error ? error.message : String(error);
+  const message = errorMessage(error);
   return {
     env: failure({
       cmd: "elv ws",

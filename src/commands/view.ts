@@ -7,6 +7,7 @@ import { SMALL_JSON_LIMIT, summarizeData } from "../core/response-normalizer";
 import { containsCredential } from "../core/redaction";
 import { ExitCode } from "../core/types";
 import type { CommandResult, Hint } from "../core/types";
+import { errorMessage } from "../util/error";
 import { isRecord, JsonParseError, parseJson } from "../util/json";
 import { readPath } from "../util/jsonpath";
 import { shellArg } from "../util/shell";
@@ -73,7 +74,7 @@ export function buildViewResult(path: string, options: ViewOptions = {}): Comman
     try {
       value = readPath(parsed, options.path);
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = errorMessage(error);
       return { env: validationError(cmd, message), exitCode: ExitCode.InputValidation };
     }
     if (value === undefined) {

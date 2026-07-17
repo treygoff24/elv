@@ -3,6 +3,7 @@ import { failure } from "./envelope";
 import { exitCodeForError, validationError } from "./errors";
 import { runOperation } from "./client";
 import { ExitCode } from "./types";
+import { errorMessage } from "../util/error";
 import { parseJson, parseJsonRecord } from "../util/json";
 import { readPath } from "../util/jsonpath";
 import type { AgentInput, CommandResult, Envelope, RunOpts } from "./types";
@@ -139,7 +140,7 @@ async function safeRun(run: () => Promise<Envelope>): Promise<Envelope> {
   try {
     return await run();
   } catch (error) {
-    return commandEnvelopeError(error instanceof Error ? error.message : String(error));
+    return commandEnvelopeError(errorMessage(error));
   }
 }
 
@@ -154,7 +155,7 @@ function statusObservation(
   } catch (error) {
     return {
       result: {
-        env: validationError("elv wait", error instanceof Error ? error.message : String(error)),
+        env: validationError("elv wait", errorMessage(error)),
         exitCode: ExitCode.InputValidation,
       },
     };
@@ -188,12 +189,11 @@ function parseOptions(
   }
 
   try {
-    // Validate unsupported path syntax before the first poll.
     readPath({}, statusPath);
   } catch (error) {
     return {
       ok: false,
-      env: validationError(cmd, error instanceof Error ? error.message : String(error)),
+      env: validationError(cmd, errorMessage(error)),
     };
   }
 
@@ -209,7 +209,7 @@ function parseOptions(
   } catch (error) {
     return {
       ok: false,
-      env: validationError(cmd, error instanceof Error ? error.message : String(error)),
+      env: validationError(cmd, errorMessage(error)),
     };
   }
 
@@ -223,7 +223,7 @@ function parseOptions(
     } catch (error) {
       return {
         ok: false,
-        env: validationError(cmd, error instanceof Error ? error.message : String(error)),
+        env: validationError(cmd, errorMessage(error)),
       };
     }
   }
@@ -246,7 +246,7 @@ function parseOptions(
   } catch (error) {
     return {
       ok: false,
-      env: validationError(cmd, error instanceof Error ? error.message : String(error)),
+      env: validationError(cmd, errorMessage(error)),
     };
   }
 }

@@ -238,7 +238,7 @@ function serviceGroups(
     .map(([name, operations]) => ({ name, operations }));
 }
 
-function specSummary(cache: RegistryCache | null, operations: number): Record<string, unknown> {
+function specSummary(cache: RegistryCache | null, operations: number) {
   const provenance = cache?.provenance;
   return {
     source: provenance?.source ?? "registry_cache",

@@ -1,3 +1,5 @@
+import type { JsonValue } from "../util/json";
+
 export type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "HEAD";
 
 export class SchemaResolutionError extends Error {
@@ -29,7 +31,7 @@ export interface ParamCard {
   location: "path" | "query" | "header";
   required: boolean;
   /** JSON Schema fragment, bundled (internal $ref preserved). */
-  schema: unknown;
+  schema: JsonValue;
   description?: string;
 }
 
@@ -39,22 +41,21 @@ export interface BodyCard {
   /** $ref into components for Ajv validate-by-$ref (matches the bundle step). */
   schemaRef?: string;
   /** Inline schema when no top-level $ref is available. */
-  schema?: unknown;
+  schema?: JsonValue;
   multipart: boolean;
-  /** Multipart fields that are file/binary parts. */
   fileFields?: string[];
 }
 
 export interface ResponseCard {
   status: string;
   contentType?: string;
-  schema?: unknown;
+  schema?: JsonValue;
   binary: boolean;
 }
 
 export interface ExampleCard {
   summary?: string;
-  value: unknown;
+  value: JsonValue | undefined;
 }
 
 export interface OperationCard {

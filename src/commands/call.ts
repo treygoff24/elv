@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { exitCodeForError, validationError } from "../core/errors";
 import { runOperation } from "../core/client";
 import { ExitCode } from "../core/types";
+import { errorMessage } from "../util/error";
 import { parseJsonRecord } from "../util/json";
 import type { AgentInput, CommandResult, RunOpts } from "../core/types";
 import type { PaginationOptions } from "../core/pagination";
@@ -32,7 +33,7 @@ export async function handleCall(
     opts = callRunOpts(options);
   } catch (error) {
     return {
-      env: validationError(cmd, error instanceof Error ? error.message : String(error)),
+      env: validationError(cmd, errorMessage(error)),
       exitCode: ExitCode.InputValidation,
     };
   }
@@ -71,7 +72,7 @@ function parseCallInput(
   } catch (error) {
     return {
       ok: false,
-      env: validationError(cmd, error instanceof Error ? error.message : String(error)),
+      env: validationError(cmd, errorMessage(error)),
     };
   }
 
@@ -82,7 +83,7 @@ function parseCallInput(
   } catch (error) {
     return {
       ok: false,
-      env: validationError(cmd, error instanceof Error ? error.message : String(error)),
+      env: validationError(cmd, errorMessage(error)),
     };
   }
   return { ok: true, input };
