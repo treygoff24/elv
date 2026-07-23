@@ -35,9 +35,9 @@ describe("OpenAPI compiler", () => {
     const compiled = await compileSpec({ sourcePath: snapshotPath });
     const ids = compiled.operations.map((op) => op.operationId);
 
-    expect(compiled.totalOperations).toBe(339);
+    expect(compiled.totalOperations).toBe(352);
     expect(compiled.skippedOperations).toBe(1);
-    expect(compiled.operations).toHaveLength(338);
+    expect(compiled.operations).toHaveLength(351);
     expect(new Set(ids).size).toBe(ids.length);
     expect(() => JSON.stringify(compiled.operations)).not.toThrow();
 
@@ -86,6 +86,19 @@ describe("OpenAPI compiler", () => {
       "dubbing_target_transcript_get",
       "dubbing_target_transcript_segment_update",
       "dubbing_target_transcript_regenerate",
+      "resolve_conversation_reference_route",
+      "create_crawl_job_route",
+      "list_crawl_jobs_route",
+      "get_crawl_job_route",
+      "cancel_crawl_job_route",
+      "get_finetunes",
+      "create_finetune",
+      "get_finetune",
+      "update_finetune",
+      "delete_finetune",
+      "export_batch_call",
+      "get_knowledge_base_bulk_dependent_agents_route",
+      "post_knowledge_base_bulk_delete_route",
     ];
     const aliasIds = [
       "add_voice",
@@ -138,6 +151,75 @@ describe("OpenAPI compiler", () => {
     expect(byId.get("edit_voice")?.requestBody?.fileFields).toEqual(["files"]);
     expect(byId.get("request_pvc_manual_verification")?.requestBody?.fileFields).toEqual(["files"]);
     expect(byId.get("video_to_music")?.requestBody?.fileFields).toEqual(["videos"]);
+    expect(byId.get("create_finetune")?.requestBody?.fileFields).toEqual(["files"]);
+  });
+
+  it("includes the single-use STT token query parameter", async () => {
+    const compiled = await compileSpec({ sourcePath: snapshotPath });
+
+    expect(
+      compiled.operations.find((op) => op.operationId === "speech_to_text")?.queryParams,
+    ).toEqual(
+      expect.arrayContaining([expect.objectContaining({ name: "token", location: "query" })]),
+    );
+  });
+
+  it("compiles July 27 batch export and bulk knowledge-base operations", async () => {
+    const compiled = await compileSpec({ sourcePath: snapshotPath });
+    const byId = new Map(compiled.operations.map((op) => [op.operationId, op]));
+
+    expect(byId.get("export_batch_call")).toMatchObject({
+      method: "GET",
+      pathTemplate: "/v1/convai/batch-calling/{batch_id}/export",
+      risk: "read",
+      returnsBinary: true,
+      streamKind: "none",
+      responses: expect.arrayContaining([
+        expect.objectContaining({ contentType: "text/csv", binary: true }),
+      ]),
+    });
+    expect(byId.get("get_knowledge_base_bulk_dependent_agents_route")).toMatchObject({
+      method: "POST",
+      risk: "read",
+      requestBody: {
+        schemaRef:
+          "#/components/schemas/Body_Get_dependent_agents_for_multiple_documents_v1_convai_knowledge_base_dependent_agents_post",
+      },
+      queryParams: expect.arrayContaining([
+        expect.objectContaining({ name: "cursor" }),
+        expect.objectContaining({
+          name: "page_size",
+          schema: expect.objectContaining({ default: 30, minimum: 1, maximum: 100 }),
+        }),
+      ]),
+    });
+    expect(byId.get("post_knowledge_base_bulk_delete_route")).toMatchObject({
+      method: "POST",
+      pathTemplate: "/v1/convai/knowledge-base/bulk-delete",
+      risk: "destructive",
+      requestBody: {
+        schemaRef:
+          "#/components/schemas/Body_Bulk_delete_knowledge_base_documents_v1_convai_knowledge_base_bulk_delete_post",
+      },
+    });
+
+    for (const schemaName of [
+      "Body_Get_dependent_agents_for_multiple_documents_v1_convai_knowledge_base_dependent_agents_post",
+      "Body_Bulk_delete_knowledge_base_documents_v1_convai_knowledge_base_bulk_delete_post",
+    ]) {
+      expect(compiled.bundledSpec.components.schemas[schemaName]).toMatchObject({
+        required: ["document_ids"],
+        properties: {
+          document_ids: {
+            type: "array",
+            items: { type: "string" },
+            minItems: 1,
+            maxItems: 20,
+            uniqueItems: true,
+          },
+        },
+      });
+    }
   });
 
   it("bundles instead of dereferencing recursive schemas", async () => {

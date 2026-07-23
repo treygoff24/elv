@@ -4,7 +4,7 @@ import { runPreparedOperation } from "../../src/core/client";
 import { requiresYes } from "../../src/core/safety";
 import { compileSpec } from "../../src/openapi/compile-spec";
 import { riskCurationInputs } from "../../src/openapi/risk";
-import { errorRecord, parseEnvelope, runCli } from "../helpers/cli-result";
+import { errorRecord, parseEnvelope, recordValue, runCli } from "../helpers/cli-result";
 import type { AgentInput } from "../../src/core/types";
 
 afterEach(() => vi.unstubAllGlobals());
@@ -71,5 +71,68 @@ describe("curated confirmation contract", () => {
     const result = await runCli(args);
     expect(result.code).toBe(4);
     expect(errorRecord(parseEnvelope(result.stdout)).code).toBe("confirmation");
+  });
+
+  it("keeps July 27 POST bulk lookup ungated and bulk delete confirmed in dry-runs", async () => {
+    const lookup = await runCli([
+      "call",
+      "get_knowledge_base_bulk_dependent_agents_route",
+      "--json",
+      '{"body":{"document_ids":["doc_1"]}}',
+      "--dry-run",
+    ]);
+    expect(lookup.code).toBe(0);
+    expect(recordValue(parseEnvelope(lookup.stdout).data).would_require_yes).toBe(false);
+
+    const deletion = await runCli([
+      "call",
+      "post_knowledge_base_bulk_delete_route",
+      "--json",
+      '{"body":{"document_ids":["doc_1"]}}',
+      "--dry-run",
+    ]);
+    expect(deletion.code).toBe(0);
+    expect(recordValue(parseEnvelope(deletion.stdout).data).would_require_yes).toBe(true);
+
+    const rawLookup = await runCli([
+      "http",
+      "POST",
+      "/v1/convai/knowledge-base/dependent-agents",
+      "--body-json",
+      '{"document_ids":["doc_1"]}',
+      "--dry-run",
+    ]);
+    expect(rawLookup.code).toBe(0);
+    expect(recordValue(parseEnvelope(rawLookup.stdout).data).would_require_yes).toBe(false);
+
+    const rawDeletion = await runCli([
+      "http",
+      "POST",
+      "/v1/convai/knowledge-base/bulk-delete",
+      "--body-json",
+      '{"document_ids":["doc_1"]}',
+      "--dry-run",
+    ]);
+    expect(rawDeletion.code).toBe(0);
+    expect(recordValue(parseEnvelope(rawDeletion.stdout).data).would_require_yes).toBe(true);
+
+    for (const result of [
+      await runCli([
+        "call",
+        "post_knowledge_base_bulk_delete_route",
+        "--json",
+        '{"body":{"document_ids":["doc_1"]}}',
+      ]),
+      await runCli([
+        "http",
+        "POST",
+        "/v1/convai/knowledge-base/bulk-delete",
+        "--body-json",
+        '{"document_ids":["doc_1"]}',
+      ]),
+    ]) {
+      expect(result.code).toBe(4);
+      expect(errorRecord(parseEnvelope(result.stdout)).code).toBe("confirmation");
+    }
   });
 });

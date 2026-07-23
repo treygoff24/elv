@@ -87,17 +87,26 @@ export function nextCursor(op: OperationCard, data: unknown): CursorInfo {
   const record = asRecord(data);
   if (!record) return { hasMore: false, warnings: [] };
 
-  const hasMore = record.has_more === true;
-  if (!hasMore) return { hasMore: false, warnings: [] };
+  if (record.has_more === false) return { hasMore: false, warnings: [] };
 
   const family = resourceFamily(op);
-  if (family === "history")
-    return cursorFromField(record, "last_history_item_id", "start_after_history_item_id");
-  if (family === "voices_v2") return cursorFromField(record, "next_page_token", "next_page_token");
-  if (family === "convai") return cursorFromField(record, "next_cursor", "cursor");
+  const cursor =
+    family === "history"
+      ? cursorFromField(record, "last_history_item_id", "start_after_history_item_id")
+      : family === "voices_v2"
+        ? cursorFromField(record, "next_page_token", "next_page_token")
+        : family === "convai"
+          ? cursorFromField(record, "next_cursor", "cursor")
+          : fallbackCursor(record);
+  if (
+    cursor?.cursor &&
+    (record.has_more === true || op.queryParams.some((param) => param.name === cursor.cursorParam))
+  ) {
+    return { hasMore: true, ...cursor, warnings: [] };
+  }
+  if (record.has_more !== true) return { hasMore: false, warnings: [] };
+  if (cursor && "warnings" in cursor) return cursor;
 
-  const fallback = fallbackCursor(record);
-  if (fallback) return { hasMore: true, ...fallback, warnings: [] };
   return {
     hasMore: true,
     warnings: [
@@ -193,7 +202,9 @@ function nextCommand(op: OperationCard, input: AgentInput, command: PaginationCo
     const query = Object.entries(input.query ?? {})
       .map(([key, value]) => ` --query ${shellArg(`${key}=${String(value)}`)}`)
       .join("");
-    return `elv http ${method} ${shellArg(path)}${query}`;
+    const body =
+      input.body === undefined ? "" : ` --body-json ${shellArg(JSON.stringify(input.body))}`;
+    return `elv http ${method} ${shellArg(path)}${query}${body}`;
   }
   return `elv call ${op.operationId} --json ${shellArg(JSON.stringify(input))}`;
 }
@@ -257,6 +268,11 @@ function itemsFromData(op: OperationCard, data: unknown): JsonValue[] {
   if (Array.isArray(data)) return data as JsonValue[];
   const record = asRecord(data);
   if (!record) return [];
+  if (op.operationId === "get_knowledge_base_bulk_dependent_agents_route") {
+    return ["agents", "branches"].flatMap((key) =>
+      Array.isArray(record[key]) ? (record[key] as JsonValue[]) : [],
+    );
+  }
   const key = itemKey(op, record);
   const items = key === undefined ? undefined : record[key];
   if (Array.isArray(items)) return items;

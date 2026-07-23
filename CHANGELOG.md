@@ -4,6 +4,21 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Refreshed the vendored ElevenLabs OpenAPI document to the July 27, 2026 revision: 352 documented operations, 351 callable operations, 277 paths, and 1,372 schemas at SHA-256 `494d96419d152f22c717162b89cd2c4c0e5b913d1f4fd39d935dfe83fce529dc`. The July 27 OpenAPI-only additions are `export_batch_call`, `get_knowledge_base_bulk_dependent_agents_route`, and `post_knowledge_base_bulk_delete_route`.
+- Added `music finetunes` lifecycle aliases and `--finetune-id` to regular, streaming, and detailed Music generation.
+- Added configured STT webhook delivery through `--webhook [--webhook-id ID]` and env-sourced single-use tokens through `--token-env ENV_NAME`.
+
+### Fixed
+
+- Generated `ops schema --example` commands now populate required shaped arrays and nested required object fields instead of emitting invalid empty placeholders.
+- Binary `text/csv` responses, including batch-call export, spill to `.csv` files and are never returned inline as `data`.
+- Rejected the obsolete `stt --webhook <url>` form with an actionable migration message instead of sending a URL in the provider's boolean `webhook` field.
+- Classified crawl cancellation and the July 27 bulk knowledge-base delete route as destructive because they delete associated knowledge-base documents or folders. Classified the July 27 bulk dependent-agent lookup as read-only despite its POST method.
+
 ## [0.2.0] - 2026-07-16
 
 ### Added

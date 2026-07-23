@@ -51,4 +51,49 @@ describe("compact schema", () => {
     expect(example.cmd).toContain("text");
     expect(example.cmd).toContain("--out ./out");
   });
+
+  it("fills required shaped arrays with one placeholder item in examples", async () => {
+    const compiled = await compileSpec({ sourcePath: "spec/openapi.snapshot.json" });
+    for (const operationId of [
+      "get_knowledge_base_bulk_dependent_agents_route",
+      "post_knowledge_base_bulk_delete_route",
+    ]) {
+      const op = compiled.operations.find((candidate) => candidate.operationId === operationId);
+      expect(op).toBeDefined();
+
+      const example = buildExampleCommand(op!, compiled.bundledSpec);
+
+      expect(example.cmd).toContain('"document_ids":["<document_ids>"]');
+      expect(example.cmd).not.toContain('"document_ids":[]');
+    }
+  });
+
+  it("marks binary CSV export examples with an output target", async () => {
+    const compiled = await compileSpec({ sourcePath: "spec/openapi.snapshot.json" });
+    const op = compiled.operations.find(
+      (candidate) => candidate.operationId === "export_batch_call",
+    );
+    expect(op).toBeDefined();
+
+    const example = buildExampleCommand(op!, compiled.bundledSpec);
+
+    expect(example.cmd).toContain("elv call export_batch_call --json");
+    expect(example.cmd).toContain('"batch_id":"<batch_id>"');
+    expect(example.cmd).toContain("--out ./out");
+  });
+
+  it("recursively fills required object properties inside required arrays", async () => {
+    const compiled = await compileSpec({ sourcePath: "spec/openapi.snapshot.json" });
+    const op = compiled.operations.find(
+      (candidate) => candidate.operationId === "get_or_create_rag_indexes",
+    );
+    expect(op).toBeDefined();
+
+    const example = buildExampleCommand(op!, compiled.bundledSpec);
+
+    expect(example.cmd).toContain(
+      '"items":[{"document_id":"<document_id>","create_if_missing":false,"model":',
+    );
+    expect(example.cmd).not.toContain('"items":[{}]');
+  });
 });

@@ -22,4 +22,10 @@ describe("published coverage counts", () => {
       expect(text, path).toMatch(new RegExp(`\\b${metadata.callable_operations}\\b`, "u"));
     }
   });
+
+  it("ships the API coverage page linked from the README", () => {
+    const manifest = JSON.parse(readFileSync("package.json", "utf8")) as { files: string[] };
+
+    expect(manifest.files).toContain("docs/api-coverage.md");
+  });
 });
