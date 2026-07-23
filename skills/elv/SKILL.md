@@ -5,7 +5,7 @@ description: >-
   generate speech (TTS), transcribe audio (STT), create sound effects or music,
   clone, convert, or isolate voices, dub video/audio, edit Dubbing Project
   transcripts, and manage ElevenLabs voices, account-visible models,
-  conversational agents, workspaces, history, and usage. elv invokes all 338
+  conversational agents, workspaces, history, and usage. elv invokes all 348
   operations compiled from its pinned ElevenLabs OpenAPI document, plus raw REST
   and protocol-aware WebSocket calls.
   It is agent-first: every command is non-interactive and prints exactly one JSON
@@ -53,7 +53,7 @@ entry with a suggested next command (e.g. `elv config doctor` on an auth failure
    `voice-change`, `voice-isolate`, `dubbing`, `dubbing-project`, `voices`,
    `models`, `agents`, `history`, `usage`, `workspace`. Use these first when one
    fits.
-2. `elv call <operation_id> --json '{...}'` for all 338 callable operations in
+2. `elv call <operation_id> --json '{...}'` for all 348 callable operations in
    the pinned spec. Use this when no alias fits.
 3. Escape hatches when the registry is not enough: `elv http <METHOD> <path>`
    for forward-compatible REST, `elv ws <catalog|url>` for protocol-aware
@@ -84,10 +84,10 @@ elv spec status                           # active spec provenance
 
 `--example` prints a ready-to-run `call` with the input buckets filled in. Add
 `--raw` to `ops schema` for the raw JSON Schema. `elv <command> --help` prints
-that command's own flags and arguments. The pinned July 16, 2026 document has
-339 published operations at SHA-256
-`de0476611805f3ee4e6a6c76dcdd6cc9686b8daee5757e6465d2974094c844ce`;
-338 are callable and one deprecated signed-URL route is skipped. Use `spec diff`
+that command's own flags and arguments. The pinned July 23, 2026 document has
+349 published operations at SHA-256
+`d79f40a567cadc1e9c6933dca59cc8c80e2655490008c43758ad1c6fe0290e4f`;
+348 are callable and one deprecated signed-URL route is skipped. Use `spec diff`
 to inspect current drift and `spec update` to refresh the validated cache.
 
 ## Safety gates
@@ -218,9 +218,14 @@ Actual availability depends on the account and rollout.
 | TTS by voice name | `elv tts --voice "Rachel" --text "Hello" --out out.mp3` |
 | TTS with timestamps | `elv tts --voice-id VOICE_ID --text "Hello" --timestamps --out out.mp3` (writes `out.mp3` plus a sidecar `out.timestamps.json` with the alignment data) |
 | Speech to text | `elv stt --file note.m4a --model scribe_v2` |
+| Async STT webhook | `elv stt --file note.m4a --model scribe_v2 --webhook --webhook-id WEBHOOK_ID` |
+| STT single-use token | `elv stt --file note.m4a --model scribe_v2 --token-env SCRIBE_TOKEN` |
 | Sound effect | `elv sfx --prompt "thunderclap" --duration 5 --out sfx.mp3` |
 | Music | `elv music --prompt "lofi beat" --model music_v2 --length-ms 30000 --out track.mp3` |
 | Music detailed SSE | `elv music detailed-stream --prompt "lofi beat" --model music_v2 --out ./music-session` (audio + metadata NDJSON in `files[]`) |
+| List Music Finetunes | `elv music finetunes list --limit 20` |
+| Train Music Finetune | `elv music finetunes create --name "Live Jazz" --primary-genre jazz --file take-1.wav --file take-2.wav --model music_v2 --dry-run` |
+| Generate with Finetune | `elv music --prompt "warm jazz trio" --finetune-id FINETUNE_ID --out track.mp3` |
 | Convert voice (speech to speech) | `elv voice-change --voice-id VOICE_ID --file in.mp3 --out out.mp3` |
 | Isolate voice from noise | `elv voice-isolate --file in.mp3 --out clean.mp3` |
 | Clone a voice (instant) | `elv voices clone-instant --name "My Voice" --file sample.mp3` |

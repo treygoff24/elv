@@ -4,6 +4,19 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Refreshed the vendored ElevenLabs OpenAPI document to the July 23, 2026 revision: 349 documented operations, 348 callable operations, 274 paths, and 1,367 schemas at SHA-256 `d79f40a567cadc1e9c6933dca59cc8c80e2655490008c43758ad1c6fe0290e4f`.
+- Added `music finetunes` lifecycle aliases and `--finetune-id` to regular, streaming, and detailed Music generation.
+- Added configured STT webhook delivery through `--webhook [--webhook-id ID]` and env-sourced single-use tokens through `--token-env ENV_NAME`.
+
+### Fixed
+
+- Rejected the obsolete `stt --webhook <url>` form with an actionable migration message instead of sending a URL in the provider's boolean `webhook` field.
+- Classified crawl cancellation as destructive because it deletes the associated knowledge-base documents and folders.
+
 ## [0.2.0] - 2026-07-16
 
 ### Added

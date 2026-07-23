@@ -72,6 +72,51 @@ describe("pagination cursor derivation", () => {
     });
   });
 
+  it("follows crawl next_cursor without has_more but honors explicit false", () => {
+    const operation = op({
+      operationId: "list_crawl_jobs_route",
+      pathTemplate: "/v1/convai/knowledge-base/crawl",
+      queryParams: [
+        {
+          name: "cursor",
+          location: "query",
+          required: false,
+          schema: { type: "string" },
+        },
+      ],
+    });
+    expect(nextCursor(operation, { crawl_jobs: [{ id: "job_1" }], next_cursor: "cur_2" })).toEqual({
+      hasMore: true,
+      cursorParam: "cursor",
+      cursor: "cur_2",
+      warnings: [],
+    });
+    expect(
+      nextCursor(operation, {
+        crawl_jobs: [{ id: "job_1" }],
+        next_cursor: "cur_2",
+        has_more: false,
+      }),
+    ).toEqual({ hasMore: false, warnings: [] });
+  });
+
+  it("does not treat subscription next_* fields as cursors", () => {
+    const operation = op({
+      operationId: "get_user_subscription_info",
+      pathTemplate: "/v1/user/subscription",
+    });
+    const data = {
+      next_character_count_reset_unix: 1_800_000_000,
+      next_invoice: { amount_due_cents: 1000 },
+    };
+
+    expect(nextCursor(operation, data)).toEqual({ hasMore: false, warnings: [] });
+    const env = addPaginationToEnvelope(ok(data), operation, {}, { command: { kind: "call" } });
+    expect(env.ok).toBe(true);
+    if (!env.ok) throw new Error("expected success");
+    expect(JSON.stringify(env.data)).not.toContain('"next"');
+  });
+
   it("warns instead of inventing a next command when has_more has no cursor", () => {
     const operation = op({ operationId: "unknown_page", pathTemplate: "/v1/unknown" });
     const env = addPaginationToEnvelope(
@@ -136,6 +181,56 @@ describe("pagination cursor derivation", () => {
         },
       });
       expect(calls).toBe(1);
+    } finally {
+      rmSync(out, { recursive: true, force: true });
+    }
+  });
+
+  it("--all collects crawl pages that omit has_more", async () => {
+    const out = mkdtempSync(join(tmpdir(), "elv-pages-"));
+    try {
+      const operation = op({
+        operationId: "list_crawl_jobs_route",
+        pathTemplate: "/v1/convai/knowledge-base/crawl",
+        queryParams: [
+          {
+            name: "page_size",
+            location: "query",
+            required: false,
+            schema: { type: "integer" },
+          },
+          {
+            name: "cursor",
+            location: "query",
+            required: false,
+            schema: { type: "string" },
+          },
+        ],
+      });
+      const inputs: unknown[] = [];
+      const env = await collectAllPages({
+        op: operation,
+        input: {},
+        out,
+        command: { kind: "call" },
+        fetchPage: async (input) => {
+          inputs.push(input);
+          return input.query?.cursor === "cur_2"
+            ? ok({ crawl_jobs: [{ id: "job_2" }], next_cursor: null })
+            : ok({ crawl_jobs: [{ id: "job_1" }], next_cursor: "cur_2" });
+        },
+      });
+
+      expect(inputs).toEqual([
+        { query: { page_size: 20 } },
+        { query: { page_size: 20, cursor: "cur_2" } },
+      ]);
+      expect(env.ok).toBe(true);
+      if (!env.ok) throw new Error("expected success");
+      expect(JSON.parse(readFileSync(env.files![0]!.path, "utf8"))).toEqual([
+        { id: "job_1" },
+        { id: "job_2" },
+      ]);
     } finally {
       rmSync(out, { recursive: true, force: true });
     }

@@ -34,9 +34,9 @@ describe("OpenAPI compiler", () => {
     const compiled = await compileSpec({ sourcePath: snapshotPath });
     const ids = compiled.operations.map((op) => op.operationId);
 
-    expect(compiled.totalOperations).toBe(339);
+    expect(compiled.totalOperations).toBe(349);
     expect(compiled.skippedOperations).toBe(1);
-    expect(compiled.operations).toHaveLength(338);
+    expect(compiled.operations).toHaveLength(348);
     expect(new Set(ids).size).toBe(ids.length);
     expect(() => JSON.stringify(compiled.operations)).not.toThrow();
 
@@ -85,6 +85,16 @@ describe("OpenAPI compiler", () => {
       "dubbing_target_transcript_get",
       "dubbing_target_transcript_segment_update",
       "dubbing_target_transcript_regenerate",
+      "resolve_conversation_reference_route",
+      "create_crawl_job_route",
+      "list_crawl_jobs_route",
+      "get_crawl_job_route",
+      "cancel_crawl_job_route",
+      "get_finetunes",
+      "create_finetune",
+      "get_finetune",
+      "update_finetune",
+      "delete_finetune",
     ];
     const aliasIds = [
       "add_voice",
@@ -137,6 +147,17 @@ describe("OpenAPI compiler", () => {
     expect(byId.get("edit_voice")?.requestBody?.fileFields).toEqual(["files"]);
     expect(byId.get("request_pvc_manual_verification")?.requestBody?.fileFields).toEqual(["files"]);
     expect(byId.get("video_to_music")?.requestBody?.fileFields).toEqual(["videos"]);
+    expect(byId.get("create_finetune")?.requestBody?.fileFields).toEqual(["files"]);
+  });
+
+  it("includes the single-use STT token query parameter", async () => {
+    const compiled = await compileSpec({ sourcePath: snapshotPath });
+
+    expect(
+      compiled.operations.find((op) => op.operationId === "speech_to_text")?.queryParams,
+    ).toEqual(
+      expect.arrayContaining([expect.objectContaining({ name: "token", location: "query" })]),
+    );
   });
 
   it("bundles instead of dereferencing recursive schemas", async () => {

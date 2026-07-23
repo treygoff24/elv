@@ -38,6 +38,11 @@ describe("risk classifier", () => {
     expect(classifyRisk(op("query_agent_knowledge_base_rag_route", "POST"))).toBe("read");
   });
 
+  it("classifies crawl cancellation as destructive", () => {
+    expect(classifyRisk(op("cancel_crawl_job_route", "POST"))).toBe("destructive");
+    expect(classifyRisk(op("cancel_batch_call", "POST"))).toBe("external_side_effect");
+  });
+
   it("classifies outbound side effects and curated cost hints", () => {
     expect(classifyRisk(op("handle_twilio_outbound_call", "POST"))).toBe("external_side_effect");
     expect(classifyRisk(op("whatsapp_outbound_message", "POST"))).toBe("external_side_effect");

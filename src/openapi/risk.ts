@@ -1,7 +1,12 @@
 import type { CostHint, OperationCard, Risk } from "./types";
 
 // Curated overrides for operations whose OpenAPI metadata understates risk/cost.
-const DESTRUCTIVE_OP_IDS = new Set(["disable", "set_third_party_disabling_policy"]);
+const DESTRUCTIVE_OP_IDS = new Set([
+  // Unlike cancel_batch_call, crawl cancellation deletes associated knowledge-base content.
+  "cancel_crawl_job_route",
+  "disable",
+  "set_third_party_disabling_policy",
+]);
 
 const EXTERNAL_SIDE_EFFECT_OP_IDS = new Set([
   "add_member",

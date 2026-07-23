@@ -8,7 +8,7 @@ Independent project; not affiliated with or endorsed by ElevenLabs.
 
 The ElevenLabs MCP server sucks, and the official skills basically expect your agent to hand-roll raw API calls through brittle wrappers. Worse, the MCP exposes a thin slice of what ElevenLabs can actually do. The API has more than three hundred operations; the MCP surfaces a fraction of them.
 
-So we built `elv`: a simple, token-efficient, agent-first CLI over ElevenLabs' published API. The vendored July 16, 2026 OpenAPI document contains 339 operations; `elv` compiles 338 of them and deliberately skips one deprecated signed-URL route whose replacement is available. Each command returns one JSON envelope and an exit code an agent can branch on before parsing the result.
+So we built `elv`: a simple, token-efficient, agent-first CLI over ElevenLabs' published API. The vendored July 23, 2026 OpenAPI document contains 349 operations; `elv` compiles 348 of them and deliberately skips one deprecated signed-URL route whose replacement is available. Each command returns one JSON envelope and an exit code an agent can branch on before parsing the result.
 
 ## What is this?
 
@@ -34,7 +34,7 @@ The short version of the contract: run a command, check the exit code, and read 
 
 Three layers sit over the ElevenLabs OpenAPI spec, from most general to most convenient.
 
-The generic runner, `elv call <operation_id> --json '{...}'`, can invoke all 338 operations compiled from the pinned OpenAPI document. Nothing is hidden behind a hand-written subset. Escape hatches cover published endpoints that have not reached the pinned registry yet: `elv http <METHOD> <path>` makes an arbitrary REST call against the configured base URL, `elv ws <catalog|url>` runs a scripted WebSocket session, and `elv wait` polls an operation until a status field resolves. Known raw REST requests inherit registry metadata. Otherwise, safety and budget behavior depends on what protocol information is available.
+The generic runner, `elv call <operation_id> --json '{...}'`, can invoke all 348 operations compiled from the pinned OpenAPI document. Nothing is hidden behind a hand-written subset. Escape hatches cover published endpoints that have not reached the pinned registry yet: `elv http <METHOD> <path>` makes an arbitrary REST call against the configured base URL, `elv ws <catalog|url>` runs a scripted WebSocket session, and `elv wait` polls an operation until a status field resolves. Known raw REST requests inherit registry metadata. Otherwise, safety and budget behavior depends on what protocol information is available.
 
 Fourteen thin aliases wrap common workflows: `tts`, `stt`, `music`, `sfx`, `voice-change`, `voice-isolate`, `dubbing`, `dubbing-project`, `voices`, `agents`, `models`, `history`, `usage`, and `workspace`. Each one builds an input and calls the same runner as `call`. Discovery is built in too: `elv capabilities` reports the machine contract and service map; `elv ops list`, `ops search`, `ops get`, and `ops schema` inspect the registry; and `elv spec status`, `spec diff`, and `spec update` expose and refresh the active spec provenance.
 
@@ -113,8 +113,8 @@ The fourteen aliases are sugar over the same runner as `call`.
 | Alias | Purpose |
 | --- | --- |
 | `tts` | Text-to-speech (voice id or name, text or file, optional stream and timestamps) |
-| `stt` | Speech-to-text transcription, with optional asynchronous wait |
-| `music` | Music generation, including detailed SSE audio and metadata |
+| `stt` | Speech-to-text transcription, configured-webhook delivery, and env-sourced single-use tokens |
+| `music` | Music generation, detailed SSE audio and metadata, and Music Finetunes |
 | `sfx` | Text-to-sound-effects generation |
 | `voice-change` | Speech-to-speech voice conversion |
 | `voice-isolate` | Background-noise removal |
@@ -134,9 +134,27 @@ elv usage --from 2026-06-01 --to 2026-06-25
 elv dubbing get --id abc123
 elv agents tests create --json-file test.json
 elv workspace members list
+elv music finetunes list --limit 10
 ```
 
 `agents simulate` remains as a compatibility alias but calls an operation ElevenLabs marks deprecated. New automation should use `agents tests create` followed by `agents tests run`.
+
+Music Finetunes are managed under `music finetunes`. Training uses repeatable `--file` inputs and is subject to ElevenLabs account entitlement, charges, and ownership/copyright rules:
+
+```bash
+elv music finetunes create --name "Live Jazz" --primary-genre jazz \
+  --file take-1.wav --file take-2.wav --model music_v2 --dry-run
+elv music --prompt "A warm jazz trio" --finetune-id FINETUNE_ID --out track.mp3
+elv music finetunes update --finetune-id FINETUNE_ID --json '{"visibility":"workspace"}'
+elv music finetunes delete --finetune-id FINETUNE_ID --yes
+```
+
+For asynchronous STT, configure a workspace webhook first, then pass boolean `--webhook` and optionally `--webhook-id`. A single-use Scribe token is read from an environment variable so its value never enters argv:
+
+```bash
+elv stt --file note.m4a --model scribe_v2 --webhook --webhook-id WEBHOOK_ID
+elv stt --file note.m4a --model scribe_v2 --token-env SCRIBE_TOKEN
+```
 
 ### The generic runner
 
@@ -150,7 +168,7 @@ elv call text_to_speech_full \
 elv call delete_voice --path voice_id=VOICE_ID --yes
 ```
 
-Large or paginated results never flood stdout. The list aliases (`voices list`, `history list`, `agents list`, `dubbing list`) and `call`/`http` take `--limit <n>` (sets the page size and caps what gets inlined), `--all` to fetch every page to disk (requires `--save-json`/`--out`), and `--save-json <path>` to write the full result somewhere you choose. A large single page spills to disk but still returns the `next` page command inline so you can keep paging. Inspect any spilled file without loading it into context with `elv view <path> [--path <dotted>] [--limit <n>]`.
+Large or paginated results never flood stdout. The list aliases (`voices list`, `history list`, `agents list`, `dubbing list`, `music finetunes list`) and `call`/`http` take `--limit <n>` (sets the page size and caps what gets inlined), `--all` to fetch every page to disk (requires `--save-json`/`--out`), and `--save-json <path>` to write the full result somewhere you choose. A large single page spills to disk but still returns the `next` page command inline so you can keep paging. Inspect any spilled file without loading it into context with `elv view <path> [--path <dotted>] [--limit <n>]`.
 
 To skip the spill entirely when you only need a couple of fields per row, the list aliases take `--fields <csv>`: `elv voices list --fields voice_id,name` projects each voice down to those keys and returns the whole list inline (sub-KB instead of ~100 KB). For arbitrary spilled files, `elv view <path> --path 'voices[].name'` does the same projection with a `[]` array wildcard.
 
@@ -200,7 +218,7 @@ If a paid stream becomes malformed after valid data, the error envelope keeps an
 
 ## Configuration and auth
 
-Set `ELEVENLABS_API_KEY` and `elv` sends it as the `xi-api-key` header. Never pass the key as a CLI argument. Request credentials are redacted from envelopes and logs. Provider responses that create a token, signed URL, API key, or similar credential are deliberately written to a mode `0600` file instead of returned inline; the envelope marks that file `sensitive: true`.
+Set `ELEVENLABS_API_KEY` and `elv` sends it as the `xi-api-key` header. Never pass the key as a CLI argument. STT single-use tokens likewise use `--token-env ENV_NAME`, never the token value. Request credentials are redacted from envelopes and logs. Provider responses that create a token, signed URL, API key, or similar credential are deliberately written to a mode `0600` file instead of returned inline; the envelope marks that file `sensitive: true`.
 
 ```bash
 export ELEVENLABS_API_KEY=your_key_here
