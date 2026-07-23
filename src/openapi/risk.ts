@@ -1,7 +1,13 @@
 import type { CostHint, OperationCard, Risk } from "./types";
 
 // Curated overrides for operations whose OpenAPI metadata understates risk/cost.
-const DESTRUCTIVE_OP_IDS = new Set(["disable", "set_third_party_disabling_policy"]);
+const DESTRUCTIVE_OP_IDS = new Set([
+  "post_knowledge_base_bulk_delete_route",
+  // Unlike cancel_batch_call, crawl cancellation deletes associated knowledge-base content.
+  "cancel_crawl_job_route",
+  "disable",
+  "set_third_party_disabling_policy",
+]);
 
 const EXTERNAL_SIDE_EFFECT_OP_IDS = new Set([
   "add_member",
@@ -38,7 +44,10 @@ const EXTERNAL_SIDE_EFFECT_OP_IDS = new Set([
   "whatsapp_outbound_message",
 ]);
 
-const READ_OP_IDS = new Set(["query_agent_knowledge_base_rag_route"]);
+const READ_OP_IDS = new Set([
+  "get_knowledge_base_bulk_dependent_agents_route",
+  "query_agent_knowledge_base_rag_route",
+]);
 
 const GENERATE_OP_IDS = new Set([
   "add_language",

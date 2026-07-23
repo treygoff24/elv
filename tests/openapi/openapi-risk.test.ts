@@ -36,6 +36,13 @@ describe("risk classifier", () => {
 
   it("classifies the POST knowledge-base query as read-only", () => {
     expect(classifyRisk(op("query_agent_knowledge_base_rag_route", "POST"))).toBe("read");
+    expect(classifyRisk(op("get_knowledge_base_bulk_dependent_agents_route", "POST"))).toBe("read");
+  });
+
+  it("classifies crawl cancellation as destructive", () => {
+    expect(classifyRisk(op("cancel_crawl_job_route", "POST"))).toBe("destructive");
+    expect(classifyRisk(op("cancel_batch_call", "POST"))).toBe("external_side_effect");
+    expect(classifyRisk(op("post_knowledge_base_bulk_delete_route", "POST"))).toBe("destructive");
   });
 
   it("classifies outbound side effects and curated cost hints", () => {

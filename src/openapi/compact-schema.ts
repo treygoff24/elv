@@ -146,7 +146,9 @@ function compactObjectValue(
       compactValue(property, spec, visited),
     ]),
   );
-  return Object.keys(nested).length > 0 ? { type: "object", properties: nested } : "object";
+  return Object.keys(nested).length > 0
+    ? { type: "object", properties: nested, required: asStringArray(object.required) }
+    : "object";
 }
 
 function isObjectShape(type: string | undefined, object: JsonObject): boolean {
@@ -181,8 +183,16 @@ function placeholderFor(name: string, shape: CompactValue): JsonValue {
   if (Array.isArray(object.enum)) return object.enum[0] ?? `<${name}>`;
   if (object.type === "integer" || object.type === "number") return 0;
   if (object.type === "boolean") return false;
-  if (object.type === "array") return [];
-  if (object.type === "object") return {};
+  if (object.type === "array")
+    return object.items === undefined ? [] : [placeholderFor(name, object.items as CompactValue)];
+  if (object.type === "object") {
+    const properties = asObject(object.properties);
+    const required = asStringArray(object.required).filter((key) => properties[key] !== undefined);
+    if (required.length === 0) return {};
+    return Object.fromEntries(
+      required.map((key) => [key, placeholderFor(key, properties[key] as CompactValue)]),
+    );
+  }
   return `<${name}>`;
 }
 

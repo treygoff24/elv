@@ -39,14 +39,29 @@ describe("capabilities machine contract", () => {
     expect(record(data.spec)).toMatchObject({
       source: expect.any(String),
       sha256: expect.any(String),
-      callable_operations: expect.any(Number),
-      skipped_operations: expect.any(Number),
+      paths: 277,
+      total_operations: 352,
+      callable_operations: 351,
+      skipped_operations: 1,
+      schemas: 1372,
     });
 
     const groups = array(data.service_groups).map((entry) => String(record(entry).name));
     expect(groups).toEqual([...groups].sort());
     const aliases = array(data.alias_families).map((entry) => String(record(entry).name));
     expect(aliases).toEqual([...aliases].sort());
+    const music = array(data.alias_families)
+      .map((entry) => record(entry))
+      .find((entry) => entry.name === "music");
+    expect(music).toMatchObject({
+      operation_ids: expect.arrayContaining([
+        "create_finetune",
+        "delete_finetune",
+        "get_finetune",
+        "get_finetunes",
+        "update_finetune",
+      ]),
+    });
     const websockets = array(data.websockets).map((entry) => String(record(entry).name));
     expect(websockets).toEqual([...websockets].sort());
 
