@@ -58,6 +58,18 @@ describe("capabilities machine contract", () => {
     expect(groups).toEqual([...groups].sort());
     const aliases = array(data.alias_families).map((entry) => String(record(entry).name));
     expect(aliases).toEqual([...aliases].sort());
+    const music = array(data.alias_families)
+      .map(record)
+      .find((entry) => entry.name === "music");
+    expect(music).toMatchObject({
+      operation_ids: expect.arrayContaining([
+        "create_finetune",
+        "delete_finetune",
+        "get_finetune",
+        "get_finetunes",
+        "update_finetune",
+      ]),
+    });
     const websockets = array(data.websockets).map((entry) => String(record(entry).name));
     expect(websockets).toEqual([...websockets].sort());
 

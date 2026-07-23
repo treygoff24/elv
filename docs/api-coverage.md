@@ -4,16 +4,16 @@
 
 ## Pinned REST contract
 
-The vendored OpenAPI document was retrieved from `https://api.elevenlabs.io/openapi.json` on July 16, 2026:
+The vendored OpenAPI document was retrieved from `https://api.elevenlabs.io/openapi.json` on July 23, 2026:
 
 | Measure | Value |
 | --- | ---: |
-| SHA-256 | `de0476611805f3ee4e6a6c76dcdd6cc9686b8daee5757e6465d2974094c844ce` |
-| Paths | 268 |
-| Documented operations | 339 |
-| Callable operations | 338 |
+| SHA-256 | `d79f40a567cadc1e9c6933dca59cc8c80e2655490008c43758ad1c6fe0290e4f` |
+| Paths | 274 |
+| Documented operations | 349 |
+| Callable operations | 348 |
 | Skipped operations | 1 |
-| Schemas | 1,345 |
+| Schemas | 1,367 |
 
 The skipped operation is `get_signed_url_deprecated`, an obsolete route marked `x-skip-spec` by the source document. Its replacement, `get_conversation_signed_link`, is callable.
 
@@ -67,6 +67,8 @@ ElevenLabs marks `eleven_turbo_v2_5`, `eleven_turbo_v2`, and `scribe_v1` depreca
 The generic runner covers every new operation in the pinned document. The high-use additions also have aliases:
 
 - `music detailed-stream` for Music SSE audio and metadata
+- `music finetunes` for listing, training, inspecting, updating, and deleting Music Finetunes; every Music generation alias accepts `--finetune-id`
+- `stt --webhook [--webhook-id ID]` for configured webhook delivery and `--token-env ENV_NAME` for a single-use Scribe token
 - `agents tests` and `agents test-runs` for the preferred testing workflow
 - `agents rag-query` for read-only knowledge-base retrieval diagnostics
 - `workspace members` and `workspace service-accounts`
@@ -80,6 +82,6 @@ Credential-producing responses, including service-account keys, single-use token
 
 Speech Engine upstream is an inverted protocol: ElevenLabs opens a WebSocket connection to a server the customer hosts. An outbound scripted CLI is the wrong runtime shape, so it is not a named `elv ws` target. The REST operations that configure Speech Engine resources remain available through `call`.
 
-ElevenCreative product areas such as Image & Video, Avatars, Ads, Assets, Flows, Templates, Music Finetunes, and the transcript or subtitle editors were visible as UI products but not as published paths in the pinned OpenAPI document or public API index. `elv` does not reverse-engineer private endpoints. Add those areas when ElevenLabs publishes a stable API contract.
+ElevenCreative product areas such as Image & Video, Avatars, Ads, Assets, Flows, Templates, and the transcript or subtitle editors remain outside the published OpenAPI document. `elv` does not reverse-engineer private endpoints. Music Finetunes are now published and compiled, but availability may still be enterprise- or account-gated.
 
 Public docs, beta and enterprise entitlements, server behavior, and the live OpenAPI document can change independently. `elv spec diff` is the check for current REST drift; the pinned counts above are a reproducible baseline, not a claim about unpublished backend capabilities.

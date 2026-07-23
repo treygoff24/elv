@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { Command } from "commander";
 import { describe, expect, it } from "vitest";
 import {
@@ -22,7 +23,14 @@ import {
   buildDubbingTranscriptUpdateSegmentInput,
 } from "../../src/commands/aliases/dubbing-project";
 import { registerAliases } from "../../src/commands/aliases/index";
-import { buildMusicInput } from "../../src/commands/aliases/music";
+import {
+  buildMusicFinetuneCreateInput,
+  buildMusicFinetuneDeleteInput,
+  buildMusicFinetuneGetInput,
+  buildMusicFinetunesListInput,
+  buildMusicFinetuneUpdateInput,
+  buildMusicInput,
+} from "../../src/commands/aliases/music";
 import {
   buildServiceAccountCreateInput,
   buildServiceAccountsListInput,
@@ -41,6 +49,7 @@ describe("current API workflow aliases", () => {
         lengthMs: "30000",
         timestamps: true,
         format: "mp3_44100_128",
+        finetuneId: "finetune_1",
       }),
     ).toEqual({
       operationId: "compose_detailed_stream",
@@ -51,8 +60,80 @@ describe("current API workflow aliases", () => {
           model_id: "music_v2",
           music_length_ms: 30000,
           with_timestamps: true,
+          finetune_id: "finetune_1",
         },
       },
+    });
+  });
+
+  it("passes a Music Finetune id through every generation form", () => {
+    for (const flags of [{}, { stream: true }, { detailed: true }]) {
+      expect(buildMusicInput({ ...flags, finetuneId: "finetune_1" }).input.body).toMatchObject({
+        finetune_id: "finetune_1",
+      });
+    }
+  });
+
+  it("builds Music Finetune lifecycle inputs", () => {
+    expect(
+      buildMusicFinetunesListInput({
+        visibility: "workspace",
+        createdBy: "self",
+        sort: "name",
+        sortDirection: "asc",
+      }),
+    ).toEqual({
+      operationId: "get_finetunes",
+      input: {
+        query: {
+          visibility: "workspace",
+          created_by: "self",
+          sort: "name",
+          sort_direction: "asc",
+        },
+      },
+    });
+    expect(buildMusicFinetuneGetInput({ finetuneId: "finetune_1" })).toEqual({
+      operationId: "get_finetune",
+      input: { path: { finetune_id: "finetune_1" } },
+    });
+    expect(
+      buildMusicFinetuneCreateInput({
+        name: "My Finetune",
+        primaryGenre: "jazz",
+        file: ["/tmp/one.wav", "/tmp/two.wav"],
+        tag: ["warm", "live"],
+        visibility: "workspace",
+        model: "music_v2",
+      }),
+    ).toEqual({
+      operationId: "create_finetune",
+      input: {
+        files: { files: ["/tmp/one.wav", "/tmp/two.wav"] },
+        body: {
+          name: "My Finetune",
+          primary_genre: "jazz",
+          tags: ["warm", "live"],
+          visibility: "workspace",
+          model_id: "music_v2",
+        },
+      },
+    });
+    expect(
+      buildMusicFinetuneUpdateInput({
+        finetuneId: "finetune_1",
+        json: '{"name":"Renamed Finetune"}',
+      }),
+    ).toEqual({
+      operationId: "update_finetune",
+      input: {
+        path: { finetune_id: "finetune_1" },
+        body: { name: "Renamed Finetune" },
+      },
+    });
+    expect(buildMusicFinetuneDeleteInput({ finetuneId: "finetune_1" })).toEqual({
+      operationId: "delete_finetune",
+      input: { path: { finetune_id: "finetune_1" } },
     });
   });
 
@@ -219,6 +300,11 @@ describe("current API workflow aliases", () => {
     const registry = await loadRegistry();
     for (const operationId of [
       "compose_detailed_stream",
+      "create_finetune",
+      "delete_finetune",
+      "get_finetune",
+      "get_finetunes",
+      "update_finetune",
       "list_chat_response_tests_route",
       "get_agent_response_test_route",
       "create_agent_response_test_route",
@@ -331,6 +417,134 @@ describe("current API workflow aliases", () => {
     const request = recordValue(data.request);
     const input = recordValue(request.input);
     expect(recordValue(input.body)).toMatchObject({ prompt: "Jazz trio", with_timestamps: true });
+  });
+
+  it("dry-runs repeated Music Finetune uploads and gates deletion", async () => {
+    const create = await runCli([
+      "music",
+      "finetunes",
+      "create",
+      "--name",
+      "Test Finetune",
+      "--primary-genre",
+      "jazz",
+      "--file",
+      "package.json",
+      "--file",
+      "package.json",
+      "--model",
+      "music_v2",
+      "--dry-run",
+    ]);
+    expect(create.code).toBe(0);
+    const createInput = recordValue(
+      recordValue(recordValue(parseEnvelope(create.stdout).data).request).input,
+    );
+    expect(recordValue(createInput.files).files).toEqual([
+      expect.stringMatching(/package\.json$/u),
+      expect.stringMatching(/package\.json$/u),
+    ]);
+    expect(recordValue(createInput.body)).toMatchObject({
+      name: "Test Finetune",
+      primary_genre: "jazz",
+      model_id: "music_v2",
+    });
+
+    const deletion = await runCli(["music", "finetunes", "delete", "--finetune-id", "finetune_1"]);
+    expect(deletion.code).toBe(4);
+    expect(errorRecord(parseEnvelope(deletion.stdout)).code).toBe("confirmation");
+  });
+
+  it("uses configured STT webhooks and env-sourced redacted tokens", async () => {
+    const webhook = await runCli([
+      "stt",
+      "--file",
+      "package.json",
+      "--model",
+      "scribe_v2",
+      "--webhook",
+      "--webhook-id",
+      "webhook_1",
+      "--dry-run",
+    ]);
+    expect(webhook.code).toBe(0);
+    const webhookInput = recordValue(
+      recordValue(recordValue(parseEnvelope(webhook.stdout).data).request).input,
+    );
+    expect(recordValue(webhookInput.body)).toMatchObject({
+      webhook: true,
+      webhook_id: "webhook_1",
+    });
+
+    const token = randomUUID();
+    const tokenResult = await runCli(
+      [
+        "stt",
+        "--file",
+        "package.json",
+        "--model",
+        "scribe_v2",
+        "--token-env",
+        "ELV_TEST_STT_TOKEN",
+        "--dry-run",
+      ],
+      { ELV_TEST_STT_TOKEN: token },
+    );
+    expect(tokenResult.code).toBe(0);
+    expect(tokenResult.stdout).not.toContain(token);
+    expect(tokenResult.stderr).not.toContain(token);
+    const tokenInput = recordValue(
+      recordValue(recordValue(parseEnvelope(tokenResult.stdout).data).request).input,
+    );
+    expect(recordValue(tokenInput.query).token).toBe("[REDACTED]");
+  });
+
+  it("rejects legacy STT webhook URLs, orphan webhook ids, and missing token env", async () => {
+    const legacy = await runCli([
+      "stt",
+      "--file",
+      "package.json",
+      "--webhook",
+      "https://example.test/hook",
+      "--dry-run",
+    ]);
+    expect(legacy.code).toBe(2);
+    expect(errorRecord(parseEnvelope(legacy.stdout)).message).toContain(
+      "configure a workspace webhook, then use --webhook [--webhook-id ID]",
+    );
+
+    const orphanId = await runCli([
+      "stt",
+      "--file",
+      "package.json",
+      "--webhook-id",
+      "webhook_1",
+      "--dry-run",
+    ]);
+    expect(orphanId.code).toBe(2);
+    expect(errorRecord(parseEnvelope(orphanId.stdout)).message).toContain(
+      "--webhook-id requires --webhook",
+    );
+
+    const missingToken = await runCli(
+      ["stt", "--file", "package.json", "--token-env", "ELV_TEST_STT_TOKEN", "--dry-run"],
+      { ELV_TEST_STT_TOKEN: "" },
+    );
+    expect(missingToken.code).toBe(2);
+    expect(errorRecord(parseEnvelope(missingToken.stdout)).message).toContain(
+      "--token-env ELV_TEST_STT_TOKEN is unset or empty",
+    );
+  });
+
+  it("previews crawl cancellation as destructive through call and raw HTTP", async () => {
+    for (const args of [
+      ["call", "cancel_crawl_job_route", "--path", "crawl_job_id=crawl_1", "--dry-run"],
+      ["http", "POST", "/v1/convai/knowledge-base/crawl/crawl_1/cancel", "--dry-run"],
+    ]) {
+      const result = await runCli(args);
+      expect(result.code).toBe(0);
+      expect(recordValue(parseEnvelope(result.stdout).data).would_require_yes).toBe(true);
+    }
   });
 
   it("marks the compatibility simulation alias deprecated in dry-run results", async () => {

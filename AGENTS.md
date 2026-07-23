@@ -31,7 +31,7 @@ elv ops schema text_to_speech_full --example   # runnable skeleton
 elv spec status
 ```
 
-The pinned July 16, 2026 spec contains 339 documented operations at SHA-256 `de0476611805f3ee4e6a6c76dcdd6cc9686b8daee5757e6465d2974094c844ce`; 338 are callable and one deprecated signed-URL route is skipped. Use `elv call <operation_id> --json …` for that compiled REST surface. Use aliases (`tts`, `stt`, `music`, `sfx`, `voice-isolate`, `dubbing-project`, `voices`, `models`, `agents`, `workspace`, …) for common workflows. `elv http` is the forward-compatible REST escape hatch.
+The pinned July 23, 2026 spec contains 349 documented operations at SHA-256 `d79f40a567cadc1e9c6933dca59cc8c80e2655490008c43758ad1c6fe0290e4f`; 348 are callable and one deprecated signed-URL route is skipped. Use `elv call <operation_id> --json …` for that compiled REST surface. Use aliases (`tts`, `stt`, `music`, `sfx`, `voice-isolate`, `dubbing-project`, `voices`, `models`, `agents`, `workspace`, …) for common workflows. `elv http` is the forward-compatible REST escape hatch.
 
 `elv models list` reports account-visible `/v1/models` results, not every model across every product. Current examples should prefer `scribe_v2` over deprecated `scribe_v1`, Flash over deprecated Turbo, and `agents tests create` plus `agents tests run` over deprecated `agents simulate`.
 
@@ -73,7 +73,7 @@ When the registry is not enough:
 
 The WebSocket catalog includes `tts-realtime`, `tts-multi`, `stt-realtime`, `convai`, and `convai-monitor`. Realtime STT scripts may use binary file actions. Monitoring is receive-only without `--send`; outbound agent or monitor actions require `--yes`. Use `--dry-run` before a session. Speech Engine upstream is excluded because ElevenLabs connects to a server you host rather than accepting an outbound client connection.
 
-`elv music detailed-stream` parses the Music SSE response into audio plus metadata NDJSON files. `dubbing-project` edits source and target transcripts; `workspace` lists members and manages service accounts.
+`elv music detailed-stream` parses the Music SSE response into audio plus metadata NDJSON files. `music finetunes` manages Finetune training and metadata; generation accepts `--finetune-id`. STT webhook delivery uses bare `--webhook` with an optional configured `--webhook-id`; single-use tokens use `--token-env ENV_NAME` so the token value never appears in argv. `dubbing-project` edits source and target transcripts; `workspace` lists members and manages service accounts.
 
 The public API contract does not include ElevenCreative's UI-only Image & Video, Avatars, Ads, Flows, or editor workflows. `elv` does not reverse-engineer private endpoints.
 

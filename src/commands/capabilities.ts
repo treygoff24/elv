@@ -78,8 +78,17 @@ const ALIAS_FAMILIES = [
   },
   {
     name: "music",
-    description: "Generate music with regular or streaming responses.",
-    operation_ids: ["compose_detailed_stream", "generate", "stream_compose"],
+    description: "Generate music and manage Music Finetunes.",
+    operation_ids: [
+      "compose_detailed_stream",
+      "create_finetune",
+      "delete_finetune",
+      "generate",
+      "get_finetune",
+      "get_finetunes",
+      "stream_compose",
+      "update_finetune",
+    ],
   },
   {
     name: "sfx",

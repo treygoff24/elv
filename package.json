@@ -33,6 +33,7 @@
     "spec/openapi.snapshot.json",
     "spec/openapi.snapshot.meta.json",
     "docs/agent-setup.md",
+    "docs/api-coverage.md",
     "skills",
     "AGENTS.md",
     "README.md"

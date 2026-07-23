@@ -17,21 +17,37 @@ interface SttFlags {
   timestamps?: string;
   diarize?: boolean;
   language?: string;
-  webhook?: string;
+  webhook?: boolean | string;
+  webhookId?: string;
+  tokenEnv?: string;
   wait?: boolean;
 }
 
 export function buildSttInput(flags: SttFlags): BuiltOperation {
+  if (typeof flags.webhook === "string") {
+    throw new Error(
+      "--webhook no longer accepts a URL; configure a workspace webhook, then use --webhook [--webhook-id ID]",
+    );
+  }
+  if (flags.webhookId && flags.webhook !== true) {
+    throw new Error("--webhook-id requires --webhook");
+  }
+  const token = flags.tokenEnv ? process.env[flags.tokenEnv] : undefined;
+  if (flags.tokenEnv && !token) {
+    throw new Error(`--token-env ${flags.tokenEnv} is unset or empty; set it and retry`);
+  }
   return {
     operationId: "speech_to_text",
     input: compactInput({
       files: { file: requiredPath(flags.file, "--file") },
+      query: compact({ token }),
       body: compact({
         model_id: flags.model,
         timestamps_granularity: flags.timestamps,
         diarize: flags.diarize,
         language_code: flags.language,
-        webhook: flags.webhook,
+        webhook: flags.webhook === true ? true : undefined,
+        webhook_id: flags.webhookId,
       }),
     }),
   };
@@ -50,7 +66,9 @@ export function registerSttCommand(
       .option("--timestamps <granularity>", "timestamp granularity (e.g. word, segment)")
       .option("--diarize", "enable speaker diarization")
       .option("--language <code>", "expected language code")
-      .option("--webhook <url>", "webhook URL for async completion")
+      .option("--webhook [legacy-url]", "deliver asynchronously to a configured workspace webhook")
+      .option("--webhook-id <id>", "configured workspace webhook id (requires --webhook)")
+      .option("--token-env <name>", "read a single-use STT token from an environment variable")
       .option("--wait", "poll until transcription completes")
       .action(async (options: SttFlags, command: Command) => {
         const opts = validationOrExit(command, () => aliasRunOpts(command));

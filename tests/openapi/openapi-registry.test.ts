@@ -88,11 +88,11 @@ describe("OpenAPI registry cache", () => {
       bundledSpec: unknown;
     };
 
-    expect(registry.size).toBe(338);
+    expect(registry.size).toBe(348);
     expect(registry.get("text_to_speech_full")?.risk).toBe("generate");
     expect(existsSync(cachePath)).toBe(true);
     expect(cached.version).toBe(packageVersion);
-    expect(cached.operations).toHaveLength(338);
+    expect(cached.operations).toHaveLength(348);
     expect(() => JSON.stringify(cached.bundledSpec)).not.toThrow();
   });
 
