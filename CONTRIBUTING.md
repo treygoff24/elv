@@ -13,8 +13,10 @@ npm install
 Before opening a pull request, run the full local gate:
 
 ```bash
-npm run build && npm run typecheck && npm test && npm run lint
+npm run gate
 ```
+
+That is `scripts/gate.sh`, and it is the canonical command: format check, lint, typecheck, build, tests, and the offline envelope smoke matrix, fail-fast in that order. Run the pieces individually while iterating if you like, but the gate is what must pass.
 
 Integration tests that need the ElevenLabs API run only when `ELEVENLABS_API_KEY` is set. They skip when the variable is absent, so CI must stay green without an API key.
 

@@ -2,6 +2,27 @@
 
 Agent-first ElevenLabs CLI. Every command is non-interactive and prints **exactly one JSON object** to stdout: success or error. Branch on exit code first; parse the envelope when you need details.
 
+## Working in this repo
+
+The canonical gate is `npm run gate` (`scripts/gate.sh`). It runs, fail-fast:
+
+```bash
+npm run format:check   # oxfmt — NOT prettier
+npm run lint           # oxlint — NOT eslint; it rejects eslint-era flags such as --no-cache
+npm run typecheck      # tsc --noEmit
+npm run build          # tsup -> dist/cli.js
+npm run test           # vitest run
+npm run smoke          # offline envelope matrix against the built dist/cli.js
+```
+
+Run `npm run gate` before and after a change. Never reach for `npx prettier` or `npx eslint`: they are not installed here and will fetch a foreign formatter that rewrites touched TypeScript with incompatible wrapping. `npm run format` (no `--check`) is the only rewriter. Lint one path with `npx oxlint src/cli.ts`; oxlint has no `--no-cache`.
+
+`npm run smoke` runs the offline JSON-envelope matrix in `scripts/smoke-matrix.tsv` — a fast contract check that every listed command still prints one `v:1` envelope with the documented exit code, no network and no credits. Point it at any build with `ELV_BIN="$(command -v elv)" npm run smoke`. `npm run smoke:pack` does the same against an unpacked `npm pack` tarball, staging the repo's `node_modules` so no network install is needed.
+
+`dist/cli.js` is what an installed `elv` actually executes (`npm link` symlinks the global bin at it), so **a source fix is not live until you rebuild**. `npm run build` is the reinstall. Verify the installed runtime, not just the source tree: `elv --version`, then `ELV_BIN="$(command -v elv)" npm run smoke`.
+
+Searching: `spec/openapi.snapshot.json` is one ~1.8 MB line, so a broad `rg` or `git grep` that hits it floods and truncates the output you wanted. A checked-in `.ignore` keeps ripgrep out of it and `.gitattributes` marks it binary for git. Search it on purpose with `rg --no-ignore <pattern> spec/openapi.snapshot.json`, or better, use `elv ops search` / `elv ops get` / `elv ops schema`. `src/commands/aliases/README.md` maps that directory; the shared helper is `shared.ts`.
+
 ## One envelope per command
 
 Stdout is always a single `SuccessEnvelope` or `ErrorEnvelope` (`v: 1`, `ok: true|false`). Binary and large payloads go to disk; paths appear in `files[]`. Never expect human prose, spinners, or multiple JSON lines.
@@ -82,6 +103,9 @@ The public API contract does not include ElevenCreative's UI-only Image & Video,
 Set `ELEVENLABS_API_KEY` (sent as `xi-api-key`; never pass keys as CLI args). Optional `ELV_CACHE_DIR`, `--base-url`, and named **profiles** in config for base URL, output dir, and default `max_credits`.
 
 ```bash
-elv config get
+elv config get      # -> cacheDir, outputDir, baseUrl, profile, apiKeyPresent
 elv config doctor
+elv spec status     # -> cache_path: the exact compiled-registry file
 ```
+
+Do not guess where the compiled registry lives. `elv spec status` prints the resolved `cache_path` (`$ELV_CACHE_DIR`, else `~/.cache/elv`, then the package version, then `openapi.compact.json`) and whether an active registry is present. A repo-local `.elv/` directory is **not** a registry cache: it holds an optional `config.json` for profiles and, if you point `output_dir` there, response artifacts. When no active registry is compiled, commands fall back to the vendored `spec/openapi.snapshot.json`.

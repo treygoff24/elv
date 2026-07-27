@@ -261,8 +261,14 @@ function registerSpecCommands(program: Command): void {
     spec
       .command("status")
       .description("Show vendored and active OpenAPI provenance")
-      .action(async () => {
-        const result = await handleSpecStatus();
+      // Accepted no-op. status is already local-only, but it is the obvious
+      // cold-start smoke and every sibling spec subcommand takes --offline;
+      // rejecting it here made `elv spec status --offline` a dead end.
+      .option("--offline", "accepted no-op: spec status never reaches the network")
+      .action(async (options: CliOptionValues) => {
+        const result = await handleSpecStatus({
+          cmd: options.offline ? "elv spec status --offline" : "elv spec status",
+        });
         emitAndExit(result.env, result.exitCode);
       }),
   );
@@ -300,6 +306,11 @@ function registerSpecCommands(program: Command): void {
   );
 }
 
+// Registered parents (ops/config/spec) answer a bare invocation from their own
+// action. Alias parents carry no action and reach the same help envelope through
+// the commander.help branch of envelopeForError. Keeping the action here also
+// keeps a mistyped subcommand under these parents an excess-argument validation
+// error (exit 2) rather than an unknown-command not-found (exit 9).
 function parentCommand(program: Command, name: string, description: string): Command {
   return program
     .command(name)
@@ -492,14 +503,15 @@ function envelopeForError(
         exitCode: ExitCode.Success,
       };
     }
+    // A parent command invoked without a subcommand. Commander treats this as
+    // an error; we treat it as discovery and answer with the parent's help
+    // envelope, the same shape `elv <parent> --help` returns. Reporting it as a
+    // validation error made nested alias parents behave differently from
+    // ops/config/spec and turned a natural discovery step into a dead end.
     if (error.code === "commander.help") {
-      const subcommands = resolveCommandPath(program, argv)
-        .commands.map((sub) => sub.name())
-        .filter((name) => name !== "help");
-      const detail = subcommands.length ? ` (one of: ${subcommands.join(", ")})` : "";
       return {
-        env: validationError(cmd, `missing subcommand${detail}`, { raw: { subcommands } }),
-        exitCode: ExitCode.InputValidation,
+        env: success({ cmd, data: commandHelpData(resolveCommandPath(program, argv)) }),
+        exitCode: ExitCode.Success,
       };
     }
     if (error.code === "commander.unknownCommand") {

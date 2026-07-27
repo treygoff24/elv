@@ -197,6 +197,31 @@ describe("CLI JSON output contract", () => {
     }
   }, 10_000);
 
+  // Alias parents and nested alias parents used to report a missing-subcommand
+  // validation error while ops/config/spec answered with help, so discovery
+  // behaved differently depending on which branch of the tree you probed.
+  it("alias parents and nested alias parents emit the same help envelope", () => {
+    for (const argv of [["agents"], ["voices"], ["workspace"], ["agents", "tests"]]) {
+      const { stdout, code } = runCli(argv);
+      expect(code).toBe(0);
+      const envelope = parseEnvelope(stdout);
+      expect(envelope.ok).toBe(true);
+      expect(envelope.cmd).toBe(["elv", ...argv].join(" "));
+      const data = recordValue(envelope.data, "data");
+      expect(data.command).toBe(argv[argv.length - 1]);
+      expect(arrayValue(data.subcommands, "subcommands").length).toBeGreaterThan(0);
+    }
+  }, 20_000);
+
+  it("spec status accepts --offline as a no-op instead of rejecting it", () => {
+    const { stdout, code } = runCli(["spec", "status", "--offline"]);
+    expect(code).toBe(0);
+    const envelope = parseEnvelope(stdout);
+    expect(envelope.ok).toBe(true);
+    expect(envelope.cmd).toBe("elv spec status --offline");
+    expect(recordValue(envelope.data, "data").cache_path).toBeTypeOf("string");
+  });
+
   it("subcommand --help emits per-command metadata instead of the global list", () => {
     const { stdout: ttsStdout, code: ttsCode } = runCli(["tts", "--help"]);
     expect(ttsCode).toBe(0);

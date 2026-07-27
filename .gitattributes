@@ -1,0 +1,6 @@
+# The vendored OpenAPI snapshot is a ~1.8 MB single-line generated document.
+# `-diff` makes git treat it as binary, so `git grep` reports "Binary file ...
+# matches" instead of dumping the whole line into a scan, and `git diff` stops
+# emitting a useless one-line diff. Use `elv spec diff` to compare snapshots and
+# `git grep -a` / `rg --no-ignore` when you really do need to search inside it.
+spec/openapi.snapshot.json -diff linguist-generated=true

@@ -46,7 +46,10 @@
     "test": "vitest run",
     "lint": "oxlint",
     "format": "oxfmt src tests",
-    "format:check": "oxfmt --check src tests"
+    "format:check": "oxfmt --check src tests",
+    "gate": "sh scripts/gate.sh",
+    "smoke": "sh scripts/smoke.sh",
+    "smoke:pack": "sh scripts/pack-smoke.sh"
   },
   "dependencies": {
     "@apidevtools/json-schema-ref-parser": "^11",
