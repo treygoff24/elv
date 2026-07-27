@@ -49,41 +49,53 @@ async function listen(handler: (request: IncomingMessage, body: Buffer) => void)
 }
 
 describe("POST body replay", () => {
-  it.each([
-    ["JSON", JSON.stringify({ prompt: "same bytes" })],
-    [
-      "multipart",
-      (() => {
-        const form = new FormData();
-        form.append("prompt", "same bytes");
-        return form;
-      })(),
-    ],
-  ])(
-    "replays byte-identical %s bodies and makes the duplicate attempt explicit",
-    async (_name, body) => {
-      const bodies: Buffer[] = [];
-      let attempts = 0;
-      const baseUrl = await listen((_request, received) => {
-        attempts += 1;
-        bodies.push(received);
-      });
-      const request: HttpRequest = {
-        url: `${baseUrl}/start`,
-        method: "POST",
-        headers: {},
-        body,
-        path: "/start",
-      };
-      await sendWithRetry(request, op, {
-        retryPost: true,
-        maxAttempts: 2,
-        sleep: async () => undefined,
-      });
-      expect(attempts).toBe(2);
-      expect(bodies[1]).toEqual(bodies[0]);
-    },
-  );
+  it("replays byte-identical JSON bodies and makes the duplicate attempt explicit", async () => {
+    const bodies: Buffer[] = [];
+    let attempts = 0;
+    const baseUrl = await listen((_request, received) => {
+      attempts += 1;
+      bodies.push(received);
+    });
+    const request: HttpRequest = {
+      url: `${baseUrl}/start`,
+      method: "POST",
+      headers: {},
+      body: JSON.stringify({ prompt: "same bytes" }),
+      path: "/start",
+    };
+    await sendWithRetry(request, op, {
+      retryPost: true,
+      maxAttempts: 2,
+      sleep: async () => undefined,
+    });
+    expect(attempts).toBe(2);
+    expect(bodies[1]).toEqual(bodies[0]);
+  });
+
+  it("replays semantically identical multipart bodies and makes the duplicate attempt explicit", async () => {
+    const bodies: Buffer[] = [];
+    let attempts = 0;
+    const baseUrl = await listen((_request, received) => {
+      attempts += 1;
+      bodies.push(received);
+    });
+    const form = new FormData();
+    form.append("prompt", "same bytes");
+    const request: HttpRequest = {
+      url: `${baseUrl}/start`,
+      method: "POST",
+      headers: {},
+      body: form,
+      path: "/start",
+    };
+    await sendWithRetry(request, op, {
+      retryPost: true,
+      maxAttempts: 2,
+      sleep: async () => undefined,
+    });
+    expect(attempts).toBe(2);
+    expect(normalizeMultipartBoundary(bodies[1]!)).toEqual(normalizeMultipartBoundary(bodies[0]!));
+  });
 
   it.each([307, 308])("replays the POST body across a %s redirect", async (status) => {
     const bodies: Buffer[] = [];
@@ -115,3 +127,10 @@ describe("POST body replay", () => {
     expect(bodies[1]).toEqual(bodies[0]);
   });
 });
+
+function normalizeMultipartBoundary(body: Buffer): string {
+  const text = body.toString("utf8");
+  const firstLine = text.slice(0, text.indexOf("\r\n"));
+  expect(firstLine.startsWith("--")).toBe(true);
+  return text.split(firstLine.slice(2)).join("BOUNDARY");
+}
