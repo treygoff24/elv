@@ -1,8 +1,10 @@
 # elv agent usage
 
-Agent-first ElevenLabs CLI. Every command is non-interactive and prints **exactly one JSON object** to stdout: success or error. Branch on exit code first; parse the envelope when you need details.
+Agent-first ElevenLabs CLI. Branch on exit code first; parse the envelope when you need details.
 
 ## Working in this repo
+
+This file ships in the npm tarball (`files` in `package.json`), so everything below is user-facing documentation, not scratch notes — keep repo-internal state out of it. The published package is `eleven-agent-cli`; the binary it installs is `elv`.
 
 The canonical gate is `npm run gate` (`scripts/gate.sh`). It runs, fail-fast:
 
@@ -52,7 +54,7 @@ elv ops schema text_to_speech_full --example   # runnable skeleton
 elv spec status
 ```
 
-The pinned July 16, 2026 spec contains 339 documented operations at SHA-256 `de0476611805f3ee4e6a6c76dcdd6cc9686b8daee5757e6465d2974094c844ce`; 338 are callable and one deprecated signed-URL route is skipped. Use `elv call <operation_id> --json …` for that compiled REST surface. Use aliases (`tts`, `stt`, `music`, `sfx`, `voice-isolate`, `dubbing-project`, `voices`, `models`, `agents`, `workspace`, …) for common workflows. `elv http` is the forward-compatible REST escape hatch.
+The pinned July 16, 2026 spec contains 339 documented operations (source URL, retrieval date, and SHA-256 in `spec/openapi.snapshot.meta.json`); 338 are callable and one deprecated signed-URL route is skipped. Use `elv call <operation_id> --json …` for that compiled REST surface. Use aliases (`tts`, `stt`, `music`, `sfx`, `voice-isolate`, `dubbing-project`, `voices`, `models`, `agents`, `workspace`, …) for common workflows. `elv http` is the forward-compatible REST escape hatch.
 
 `elv models list` reports account-visible `/v1/models` results, not every model across every product. Current examples should prefer `scribe_v2` over deprecated `scribe_v1`, Flash over deprecated Turbo, and `agents tests create` plus `agents tests run` over deprecated `agents simulate`.
 
