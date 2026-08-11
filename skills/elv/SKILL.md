@@ -1,290 +1,133 @@
 ---
 name: elv
 description: >-
-  Use the elv CLI for ElevenLabs audio and voice work from the command line:
-  generate speech (TTS), transcribe audio (STT), create sound effects or music,
-  clone, convert, or isolate voices, dub video/audio, edit Dubbing Project
-  transcripts, and manage ElevenLabs voices, account-visible models,
-  conversational agents, workspaces, history, and usage. elv invokes all 363
-  operations compiled from its pinned ElevenLabs OpenAPI document, plus raw REST
-  and protocol-aware WebSocket calls.
-  It is agent-first: every command is non-interactive and prints exactly one JSON
-  envelope to stdout, with binary and large output written to disk. Reach for elv
-  whenever the user wants ElevenLabs text-to-speech, speech-to-text, voice
-  cloning, sound effects, music, dubbing, or any ElevenLabs REST/WebSocket call.
+  Use elv for any ElevenLabs API workflow: text to speech, transcription,
+  music, sound effects, voices, dubbing, agents, workspace administration,
+  usage or history, raw REST, and realtime WebSockets. Also use it to discover
+  the installed ElevenLabs contract or safely preview an operation. elv is
+  agent-first: every command returns one JSON envelope, while media and large
+  results are written to files.
 ---
 
 # elv
 
-`elv` is an agent-first CLI over the ElevenLabs OpenAPI spec. Binary is `elv`
-(or `node dist/cli.js`). Requires Node >= 22.
+Use the installed `elv` binary for ElevenLabs work. In this repository,
+`node dist/cli.js` is the development equivalent. The installed runtime and its
+vendored operation registry are the source of truth; discover instead of
+guessing flags, operation IDs, models, or API coverage.
 
-## The contract
+The shipped August 11, 2026 registry documents 364 operations: 363 callable
+and one skipped deprecated route. Confirm the active contract with
+`elv capabilities` and `elv spec status` when freshness matters.
 
-Every command writes exactly one JSON object to stdout: a success envelope
-(`{"v":1,"ok":true,...}`) or an error envelope (`{"v":1,"ok":false,...}`). No
-prose, no spinners, no multiple JSON lines, no interactive prompts. Binary
-results and large JSON go to disk; their paths appear in `files[]`.
+## Run loop
 
-Branch on the exit code first. Parse the envelope only when you need detail.
+1. **Orient.** When the runtime or auth state is uncertain, run `elv --version`
+   and `elv config get`. On an auth failure, run `elv config doctor`.
+   Completion: the intended binary is active and the envelope reports whether
+   an API key is present without exposing it.
+2. **Route.** Prefer a named alias when it matches the job; otherwise use
+   `ops` discovery and `call`. Reach for `http`, `ws`, or `wait` only when their
+   distinct capability is required. Completion: one command family clearly
+   owns the request.
+3. **Shape.** Read `elv <command> --help`. For a generic operation, run
+   `elv ops get <operation_id>` and then
+   `elv ops schema <operation_id> --example`. Completion: every required input
+   has a value and no flag or field is invented.
+4. **Preflight.** Use `--dry-run` for generation, mutation, outbound activity,
+   WebSocket sends, or an unfamiliar raw write. Set `--max-credits` when spend
+   must be bounded. Completion: the preview identifies the target, redacted
+   request, confirmation requirement, and budget result before network activity.
+5. **Execute.** Add `--yes` only after the intended side effect and target are
+   confirmed. Branch on the process exit code before parsing the envelope.
+   Completion: exactly one envelope is returned and its exit code agrees with
+   `ok`.
+6. **Close.** Inspect `data` or each path in `files[]`; use `elv view` rather
+   than loading a large spill into context. Completion: the requested result is
+   verified, or the error envelope supplies the next safe action.
 
-| Code | Meaning |
-| ---- | ------- |
-| 0 | Success |
-| 2 | Input / validation (bad params, local pre-flight) |
-| 3 | Auth / permission |
-| 4 | Confirmation required: add `--yes` |
-| 5 | Budget ceiling: raise `--max-credits` or lower the op cost |
-| 6 | Out of credits at provider |
-| 7 | Transient / retryable, retries exhausted |
-| 8 | Provider error (other 4xx/5xx) |
-| 9 | Not found (404, unknown operation_id) |
+## Route map
 
-A success envelope carries `operation_id`, `http`, `cost`, and either `data`
-inline or `files[]` plus a `data_summary`. An error envelope carries
-`error.type`, `error.code`, `error.message`, `retry`, and often a `hints[]`
-entry with a suggested next command (e.g. `elv config doctor` on an auth failure,
-`elv voices list` when a voice id is not found).
+| Need | Route |
+| --- | --- |
+| Common media or account workflow | Alias: `tts`, `stt`, `music`, `sfx`, `voice-change`, `voice-isolate`, `dubbing`, `dubbing-project`, `voices`, `models`, `agents`, `history`, `usage`, `workspace` |
+| Unknown capability or input shape | `capabilities`, then `ops search|get|schema` |
+| Published operation without a useful alias | `elv call <operation_id>` |
+| Forward-compatible REST path | `elv http <METHOD> <path>` |
+| Streaming or realtime protocol | `elv ws <catalog-name|url>` |
+| Long-running operation | `elv wait` |
 
-## Three ways to act
+Bare parent commands are discovery: they return a success envelope containing
+their subcommands. Choose a listed leaf command before supplying action inputs.
 
-1. Aliases for the common workflows. Fourteen thin commands that build the request
-   and call the same core runner as `call`: `tts`, `stt`, `music`, `sfx`,
-   `voice-change`, `voice-isolate`, `dubbing`, `dubbing-project`, `voices`,
-   `models`, `agents`, `history`, `usage`, `workspace`. Use these first when one
-   fits.
-2. `elv call <operation_id> --json '{...}'` for all 363 callable operations in
-   the pinned spec. Use this when no alias fits.
-3. Escape hatches when the registry is not enough: `elv http <METHOD> <path>`
-   for forward-compatible REST, `elv ws <catalog|url>` for protocol-aware
-   WebSocket sessions (run `elv ws --list` for the catalog), and `elv wait` to
-   poll an operation until a status field resolves.
+Load the reference for the branch you are taking:
 
-They share the envelope and configuration contract. Known raw REST paths inherit
-registry safety and cost metadata. WebSocket safety and cost behavior is based
-on the selected protocol; an unknown raw target cannot inherit metadata that the
-CLI does not have.
+- For operation discovery, generic calls, raw REST, pagination, polling, or
+  config/spec questions, read
+  [`references/discovery-and-calls.md`](references/discovery-and-calls.md).
+- For TTS, STT, music, sound effects, voices, or dubbing recipes, read
+  [`references/media-workflows.md`](references/media-workflows.md).
+- For conversational agents, workspace administration, Dubbing Project edits,
+  or WebSockets, read
+  [`references/agents-workspace-ws.md`](references/agents-workspace-ws.md).
 
-Bare parent commands are discovery. `elv voices`, `elv ops`, `elv config`, and
-`elv spec` print their subcommands in a success envelope and exit 0; run the
-listed subcommand when you are ready to act. Mistyped subcommands return either
-validation or not-found errors, depending on the parent; follow the envelope hint.
+## Envelope contract
 
-## Discovery
+Stdout is exactly one `v:1` success or error envelope. There is no interactive
+prompt, spinner, or prose stream. Binary and large results go to disk and appear
+in `files[]`.
 
-When you do not know the operation id or its shape:
+Branch on the exit code first:
 
-```bash
-elv capabilities                           # bounded machine contract + service map
-elv ops list --risk generate --limit 20    # filter the operation inventory
-elv ops search "text to speech"          # find operation ids by keyword
-elv ops get text_to_speech_full          # method, path, params, risk
-elv ops schema text_to_speech_full --example   # runnable elv call skeleton
-elv spec status                           # active spec provenance
-```
+| Code | Meaning | Default response |
+| --- | --- | --- |
+| 0 | Success | Inspect `data` or `files[]` |
+| 2 | Input or local validation | Correct the request; do not retry unchanged |
+| 3 | Auth or permission | Run `elv config doctor`; fix credentials or access |
+| 4 | Confirmation required | Confirm intent, then add `--yes` |
+| 5 | Budget ceiling | Lower scope or raise `--max-credits` deliberately |
+| 6 | Provider credits exhausted | Stop or replenish credits |
+| 7 | Retryable failure exhausted | Retry only when duplicate effects are safe |
+| 8 | Other provider error | Inspect `error` and `hints[]`; do not assume retryability |
+| 9 | Not found | Re-discover the resource or operation ID |
 
-`--example` prints a ready-to-run `call` with the input buckets filled in. Add
-`--raw` to `ops schema` for the raw JSON Schema. `elv <command> --help` prints
-that command's own flags and arguments. The pinned August 11, 2026 document has
-364 published operations at SHA-256
-`d1a4847203cef628b0c43760b0c74ecd88fa280034bb47c973874ae911f6153a`;
-363 are callable and one deprecated signed-URL route is skipped. Use `spec diff`
-to inspect current drift and `spec update` to refresh the validated cache.
+A success usually carries `operation_id`, `http`, `cost`, and either `data` or
+`files[]`. An error carries `error.type`, `error.code`, `error.message`,
+`retry`, and often `hints[]`.
 
-## Safety gates
+## Safety invariants
 
-No interactive prompts ever. Destructive operations (DELETE), outbound
-calls/messages, cross-residency voice replication, API-key mutation, and member
-changes require `--yes`. GET reads are never gated.
+- Put the API key in `ELEVENLABS_API_KEY`; credentials never belong in CLI
+  arguments, JSON files committed to a repo, logs, or prompts.
+- Treat `--dry-run` as request preview, not as a secret sanitizer. Secret-create
+  bodies can contain values whose field names are not recognized; preview them
+  with placeholders.
+- Destructive, outbound, credential, member, and other curated side effects
+  require `--yes`. A missing confirmation exits 4 without performing the call.
+- `--max-credits` blocks a bounded operation before network activity when the
+  estimate exceeds the ceiling. Generation and supported realtime sessions fail
+  closed when a configured ceiling cannot bound them; an unknown raw operation
+  can only report `unknown_unbounded`.
+- A repeated paid generation may charge twice. After interruption, inspect the
+  envelope and provider state before repeating it.
+- Credential-bearing responses are file-only with mode `0600` and
+  `sensitive:true`; `elv view` refuses to render them.
 
-### Confirmation failure
+## Result discipline
 
-```bash
-elv call delete_voice --path voice_id=VOICE_ID
-# exit 4, {"ok":false,"error":{"type":"confirmation_required","code":"confirmation",...}}
-```
+Use `--out <file-or-directory>` when the destination matters. Otherwise files
+land under the configured output directory. The envelope records path, MIME
+type, byte size, and SHA-256.
 
-Add `--yes` only after confirming the deletion is intended.
-
-`--max-credits N` (or `ELV_MAX_CREDITS`) blocks a credit-consuming op pre-flight,
-before any network call, when the estimate exceeds the ceiling:
-
-```bash
-elv tts --voice-id VOICE --text "Long script..." --max-credits 5
-# exit 5, {"ok":false,"error":{"type":"budget_exceeded","code":"budget",...}}
-```
-
-Estimates are calibrated: TTS Flash/Turbo about 0.5 credits/char, standard TTS
-about 1.0/char, STT about 27 credits/min. A configured ceiling fails closed for
-generation and STT/agent WebSocket sessions whose cost cannot be estimated. Raw
-or non-generation operations with unknown cost report `unknown_unbounded`; the
-ceiling is not a guarantee there.
-
-`--dry-run` validates and returns a redacted request preview without touching the
-network. It runs before the `--yes` and budget gates, so the preview tells you
-in advance what would happen:
-
-```bash
-elv tts --voice-id VOICE --text "Hello" --dry-run
-# ok:true, data:{ dry_run:true, request:{...redacted...},
-#   credits_estimated, would_require_yes, would_exceed_budget }
-```
-
-Do not `--dry-run` secret-create ops with real secret values; redaction keys on
-field names and may echo a secret passed as a plain value.
-
-Provider responses containing tokens, signed URLs, API keys, or similar
-credentials are file-only: the file mode is `0600`, the envelope marks it
-`sensitive: true`, and `elv view` refuses to display it.
-
-## Output handling
-
-Binary output goes to a file. Pass `--out <file-or-dir>`; otherwise it lands in
-the output directory (default `~/.cache/elv/out`, override with `ELV_OUTPUT_DIR`
-or a profile `output_dir`). An extensionless `--out` is treated as a directory.
-The envelope's `files[]` gives each path, mime, byte size, and sha256.
-
-Large JSON (long lists, big responses) also spills to disk: the envelope returns
-`files[]` plus a `data_summary` (type, count, a short preview) and a `hints[]`
-entry instead of flooding stdout. Inspect a spilled file WITHOUT loading it into
-context with `elv view`:
+For spilled JSON or NDJSON:
 
 ```bash
-elv view <path>                              # full content if small, else a summary
-elv view <path> --path data.voices.0.name    # drill into a dotted JSON path
-elv view <path> --path voices --limit 5       # first N items of an array
-elv view <path> --path 'voices[].name'        # project one field across every item
+elv view <path>
+elv view <path> --path data.voices.0.name
+elv view <path> --path 'voices[].name' --limit 20
 ```
 
-`elv view` reads the spilled JSON (or NDJSON), applies an optional `--path`
-(dotted, with numeric array indices and a `[]` array wildcard) and `--limit`, and
-returns the slice inline when small or a `data_summary` plus a narrow-further hint
-when still large. `voices[].name` flattens to `["Bella ...", "Bill ...", ...]`;
-`voices[]` returns the array itself.
-
-Pagination works on the list aliases (`voices list`, `history list`,
-`agents list`, `dubbing list`) and on `call`/`http`: `--limit N` sets the page
-size and caps inlined items, `--all` walks every page and writes the full set to
-the `--save-json`/`--out` target (one of which is required with `--all`),
-`--save-json <path>` chooses the output path. A large single page spills to disk
-but still returns the `next` page command inline so you can keep paging.
-
-When you only need a couple of fields per row, skip the spill: the list aliases
-take `--fields <csv>` and return the whole list projected and inline.
-`elv voices list --fields voice_id,name` is a sub-KB envelope instead of a ~100 KB
-spill, which is the fastest way to get an id/name table to pick from.
-
-## Auth
-
-Set `ELEVENLABS_API_KEY` in the environment; elv sends it as the `xi-api-key`
-header. Never pass the key as a CLI argument. Request credentials are redacted
-from envelopes and logs. Credential-producing provider responses follow the
-restrictive file-only contract above. Check setup with `elv config get` and
-`elv config doctor`.
-
-## Models
-
-`elv models list` returns the account-visible `/v1/models` response. It is not
-an exhaustive catalog of STT, realtime STT, Sound Effects, Text to Voice, Music,
-or other product model IDs. Alias model values pass through as strings. A
-profile's `default_model_id` applies to TTS REST and named TTS WebSocket calls
-when no model is supplied.
-
-Current documented families are:
-
-- TTS: `eleven_v3`, `eleven_multilingual_v2`, `eleven_flash_v2_5`, `eleven_flash_v2`
-- Text to Voice: `eleven_ttv_v3`, `eleven_multilingual_ttv_v2`
-- Speech to Speech: `eleven_multilingual_sts_v2`, `eleven_english_sts_v2`
-- STT: `scribe_v2`, `scribe_v2_realtime`
-- Sound Effects: `eleven_text_to_sound_v2`
-- Music: `music_v2`, `music_v1`
-
-Deprecated: replace `eleven_turbo_v2_5` with `eleven_flash_v2_5`,
-`eleven_turbo_v2` with `eleven_flash_v2`, and `scribe_v1` with `scribe_v2`.
-Actual availability depends on the account and rollout.
-
-## Recipes
-
-| Task | Command |
-| ---- | ------- |
-| Check balance / tier / usage | `elv usage` |
-| Character usage over a range | `elv usage --from 2026-06-01 --to 2026-06-25` |
-| List models | `elv models list` |
-| List voices | `elv voices list` |
-| List voices (compact id/name) | `elv voices list --fields voice_id,name` |
-| Search voices (name / labels) | `elv voices list --search "narration"` |
-| Find a voice by name | `elv voices find "Rachel"` (matches exact name, else unique substring) |
-| Get one voice | `elv voices get VOICE_ID` (or `--voice-id VOICE_ID`) |
-| Text to speech | `elv tts --voice-id VOICE_ID --text "Hello" --model eleven_flash_v2_5 --out out.mp3` |
-| TTS by voice name | `elv tts --voice "Rachel" --text "Hello" --out out.mp3` |
-| TTS with timestamps | `elv tts --voice-id VOICE_ID --text "Hello" --timestamps --out out.mp3` (writes `out.mp3` plus a sidecar `out.timestamps.json` with the alignment data) |
-| Speech to text | `elv stt --file note.m4a --model scribe_v2` |
-| Async STT webhook | `elv stt --file note.m4a --model scribe_v2 --webhook --webhook-id WEBHOOK_ID` |
-| STT single-use token | `elv stt --file note.m4a --model scribe_v2 --token-env SCRIBE_TOKEN` |
-| Sound effect | `elv sfx --prompt "thunderclap" --duration 5 --out sfx.mp3` |
-| Music | `elv music --prompt "lofi beat" --model music_v2 --length-ms 30000 --out track.mp3` |
-| Music detailed SSE | `elv music detailed-stream --prompt "lofi beat" --model music_v2 --out ./music-session` (audio + metadata NDJSON in `files[]`) |
-| List Music Finetunes | `elv music finetunes list --limit 20` |
-| Train Music Finetune | `elv music finetunes create --name "Live Jazz" --primary-genre jazz --file take-1.wav --file take-2.wav --model music_v2 --dry-run` |
-| Generate with Finetune | `elv music --prompt "warm jazz trio" --finetune-id FINETUNE_ID --out track.mp3` |
-| Convert voice (speech to speech) | `elv voice-change --voice-id VOICE_ID --file in.mp3 --out out.mp3` |
-| Isolate voice from noise | `elv voice-isolate --file in.mp3 --out clean.mp3` |
-| Clone a voice (instant) | `elv voices clone-instant --name "My Voice" --file sample.mp3` |
-| Create a dub, wait for it | `elv dubbing create --file in.mp4 --source en --target es --wait` |
-| Get dubbed audio | `elv dubbing audio --id DUB_ID --language es --out dubbed.mp3` |
-| List agents | `elv agents list` |
-| Create agent test | `elv agents tests create --json-file test.json` |
-| Run agent tests | `elv agents tests run --agent-id AGENT_ID --json-file run.json` |
-| Agent RAG diagnostic | `elv agents rag-query --agent-id AGENT_ID --query "refund policy"` |
-| List Agent Procedures | `elv agents procedures list --agent-id AGENT_ID --branch-id BRANCH_ID` |
-| List voice accents | `elv voices accents --language en` |
-| Preview cross-residency voice replication | `elv voices replicate --voice-id VOICE_ID --target-workspace-id WORKSPACE_ID --dry-run` |
-| List workspace members | `elv workspace members list` |
-| Create service account | `elv workspace service-accounts create --name deployer --yes` (credential response is file-only) |
-| Get Dubbing Project transcript | `elv dubbing-project transcript get --project-id PROJECT_ID` |
-| Atomically update Dubbing v2 source segments | `elv dubbing-project transcript update-segments --project-id PROJECT_ID --json-file segments.json --dry-run` |
-| Speech history | `elv history list --limit 20` |
-| Any operation by id | `elv call <operation_id> --json '{"path":{...},"query":{...},"body":{...}}'` |
-| Inspect a spilled JSON result | `elv view <path> --path data.voices.0` |
-| Raw REST call | `elv http GET /v1/user` |
-| Scripted WebSocket session | `elv ws tts-realtime --query voice_id=VOICE --send script.ndjson --out ./session` |
-| Realtime STT WebSocket | `elv ws stt-realtime --query entity_detection=true --send transcribe.ndjson --out ./session` (supports `send_binary_file` and arbitrary published query fields) |
-| Receive conversation monitor | `elv ws convai-monitor --query conversation_id=ID --out ./monitor` |
-| Poll a long job | `elv wait --operation get_dubbed_metadata --json '{"path":{"dubbing_id":"abc"}}' --status-path '$.data.status' --success 'dubbed' --failure 'failed' --interval-ms 2000 --timeout-ms 600000` (`--failure` is optional; success-only polling works) |
-
-`agents simulate` remains for compatibility but invokes an operation ElevenLabs
-marks deprecated. Prefer `agents tests create` followed by `agents tests run`.
-
-The WebSocket catalog is `tts-realtime`, `tts-multi`, `stt-realtime`, `convai`,
-and `convai-monitor`. TTS, STT, agent, and monitor scripts have protocol-specific
-validation. Outbound agent or monitor actions require `--yes`; receive-only
-monitoring does not. Use `--dry-run` before connecting. Speech Engine upstream
-is not a client target because ElevenLabs connects to a server you host.
-
-The public API does not expose ElevenCreative's UI-only Image & Video, Avatars,
-Ads, Flows, or other private editor workflows. Do not reverse-engineer private
-endpoints.
-
-### call input shape
-
-`call` takes one `--json` object with `path`, `query`, `body`, and `files`
-buckets. You can also build it from flags: `--path key=value`, `--query key=value`,
-`--file field=path`, repeated as needed. `--json-file <path>` and `--stdin-json`
-read the JSON from a file or stdin. `--allow-unknown` routes flat top-level keys
-into the body.
-
-```bash
-elv call text_to_speech_full \
-  --json '{"path":{"voice_id":"21m00Tcm4TlvDq8ikWAM"},"body":{"text":"Hello","model_id":"eleven_v3"}}' \
-  --out ./out
-```
-
-### Common flags
-
-Every command accepts `--dry-run`, `--yes`, `--max-credits <n>`, `--out <path>`,
-`--base-url <url>`, `--profile <name>`, `--debug`, and `--retry-post`. The list
-aliases (`voices list`, `history list`, `agents list`, `dubbing list`) and
-`call`/`http` take `--limit <n>` (page size + inline cap), `--all` (walk every
-page to a file; requires `--save-json`/`--out`), and `--save-json <path>`; the
-list aliases also take `--fields <csv>` to project rows to a chosen set of fields
-inline. Every command's own flags are documented in `elv <command> --help`.
+For list work, request only what is needed: `--fields <csv>` projects rows,
+`--limit N` bounds a page and inline result, and `--all` writes every page to
+`--save-json` or `--out`. Prefer these controls over reading a large response
+and trimming it afterward.

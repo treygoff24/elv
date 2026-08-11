@@ -189,4 +189,4 @@ Confirm Node is 22 or newer, delete `node_modules` and reinstall with `npm ci`, 
 
 ## You're done
 
-When `elv config doctor` exits 0 and the dry-run in Step 5 returns a success envelope, the install is verified. For the runtime contract (envelope shape, safety flags, budget caps), read [AGENTS.md](../AGENTS.md). [API coverage](./api-coverage.md) records the pinned contract and deliberate exclusions. For day-to-day usage, the shipped skill is at [skills/elv/SKILL.md](../skills/elv/SKILL.md).
+When `elv config doctor` exits 0 and the dry-run in Step 5 returns a success envelope, the install is verified. For the runtime contract (envelope shape, safety flags, budget caps), read [AGENTS.md](../AGENTS.md). [API coverage](./api-coverage.md) records the pinned contract and deliberate exclusions. For day-to-day usage, start with [skills/elv/SKILL.md](../skills/elv/SKILL.md); it points to branch-specific references in the same directory only when a workflow needs them.

@@ -15,6 +15,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Added configured STT webhook delivery through `--webhook [--webhook-id ID]` and env-sourced single-use tokens through `--token-env ENV_NAME`.
 - Added `agents procedures`, Dubbing v2 atomic `update-segments`, and `voices accents|replicate` aliases over the refreshed contract.
 - Documented realtime STT `entity_detection` through arbitrary WebSocket `--query` fields, Dubbing v2 transcript editing, and the published Procedures and voice-replication surfaces.
+- Rebuilt the shipped `elv` skill around a checkable execution loop, with branch-specific references for discovery and generic calls, media workflows, and agents/workspace/WebSockets.
 
 ### Fixed
 
