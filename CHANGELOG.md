@@ -16,6 +16,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
+- Bare parent commands such as `elv voices` now return a help success envelope and exit 0 instead of treating discovery as validation failure.
+- `elv spec status --offline` is accepted as a no-op compatibility flag, matching the other `spec` subcommands.
 - Generated `ops schema --example` commands now populate required shaped arrays and nested required object fields instead of emitting invalid empty placeholders.
 - Binary `text/csv` responses, including batch-call export, spill to `.csv` files and are never returned inline as `data`.
 - Rejected the obsolete `stt --webhook <url>` form with an actionable migration message instead of sending a URL in the provider's boolean `webhook` field.

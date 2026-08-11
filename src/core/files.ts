@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import {
   createReadStream,
   createWriteStream,
@@ -129,11 +129,11 @@ export function resolveOutTarget(
 }
 
 export async function streamToFile(
-  body: globalThis.ReadableStream | Readable,
+  body: globalThis.ReadableStream | Readable | null,
   path: string,
 ): Promise<void> {
   mkdirSync(dirname(path), { recursive: true });
-  const tmpPath = `${path}.tmp-${process.pid}-${Date.now()}`;
+  const tmpPath = tempPathFor(path);
   try {
     await pipeline(toNodeReadable(body), createWriteStream(tmpPath));
     await rename(tmpPath, await collisionPathForFile(path, tmpPath));
@@ -164,7 +164,7 @@ export async function writeBufferToFile(
 
 export function tempFileWriter(path: string): TempFileWriter {
   mkdirSync(dirname(path), { recursive: true });
-  const tmpPath = `${path}.tmp-${process.pid}-${Date.now()}`;
+  const tmpPath = tempPathFor(path);
   return new TempFileWriterImpl(path, tmpPath, createWriteStream(tmpPath));
 }
 
@@ -229,7 +229,12 @@ function absolute(path: string): string {
   return isAbsolute(path) ? path : resolve(process.cwd(), path);
 }
 
-export function toNodeReadable(body: globalThis.ReadableStream | Readable): Readable {
+export function toNodeReadable(body: globalThis.ReadableStream | Readable | null): Readable {
+  if (body === null) return Readable.from([]);
   if (body instanceof Readable) return body;
   return Readable.fromWeb(body as Parameters<typeof Readable.fromWeb>[0]);
+}
+
+function tempPathFor(path: string): string {
+  return `${path}.tmp-${process.pid}-${randomUUID()}`;
 }

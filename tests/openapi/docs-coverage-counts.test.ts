@@ -28,4 +28,11 @@ describe("published coverage counts", () => {
 
     expect(manifest.files).toContain("docs/api-coverage.md");
   });
+
+  it("does not ship the obsolete bare-parent exit-2 guidance", () => {
+    const text = readFileSync("skills/elv/SKILL.md", "utf8");
+
+    expect(text).toContain("Bare parent commands are discovery");
+    expect(text).not.toMatch(/Parent alias commands need a subcommand|elv voices` alone exits 2/u);
+  });
 });

@@ -1,8 +1,9 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, type RequestListener, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { handleSpecDiff, handleSpecStatus, handleSpecUpdate } from "../../src/commands/spec";
 import { diffSpec, updateSpecCache } from "../../src/openapi/fetch-spec";
@@ -47,6 +48,35 @@ describe("spec update", () => {
       schemas: 1402,
     });
     expect(existsSync(rawSpecCachePath({ cacheDir }))).toBe(false);
+  });
+
+  it("rejects vendored metadata missing string provenance fields", async () => {
+    cacheDir = mkdtempSync(join(tmpdir(), "elv-bad-meta-"));
+    const packageRoot = join(cacheDir, "node_modules", "eleven-agent-cli");
+    const specDir = join(packageRoot, "spec");
+    mkdirSync(specDir, { recursive: true });
+    writeFileSync(join(packageRoot, "package.json"), '{"version":"1.2.3"}');
+    writeFileSync(
+      join(specDir, "openapi.snapshot.json"),
+      readFileSync("fixtures/fake-openapi.json"),
+    );
+    writeFileSync(
+      join(specDir, "openapi.snapshot.meta.json"),
+      '{"retrieved_at":"2026-08-11T00:00:00Z"}',
+    );
+
+    const result = await handleSpecUpdate({
+      offline: true,
+      cacheDir,
+      moduleUrl: pathToFileURL(join(packageRoot, "dist", "cli.js")),
+    });
+
+    expect(result.exitCode).toBe(2);
+    expect(result.env.ok).toBe(false);
+    if (result.env.ok) throw new Error("expected failure");
+    expect(result.env.error.message).toContain(
+      "expected source, retrieved_at, sha256, and non-negative integer counts",
+    );
   });
 
   it("updates from a local spec file", async () => {

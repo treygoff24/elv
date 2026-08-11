@@ -65,9 +65,10 @@ registry safety and cost metadata. WebSocket safety and cost behavior is based
 on the selected protocol; an unknown raw target cannot inherit metadata that the
 CLI does not have.
 
-Parent alias commands need a subcommand. `elv voices` alone exits 2 and lists
-the valid subcommands; run `elv voices list`. (`elv ops`, `elv config`, and
-`elv spec` print their subcommands and exit 0.)
+Bare parent commands are discovery. `elv voices`, `elv ops`, `elv config`, and
+`elv spec` print their subcommands in a success envelope and exit 0; run the
+listed subcommand when you are ready to act. Mistyped subcommands return either
+validation or not-found errors, depending on the parent; follow the envelope hint.
 
 ## Discovery
 

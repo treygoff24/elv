@@ -773,7 +773,7 @@ function eventStreamState(
     ndjson,
     eventCount: 0,
     audioBytes: 0,
-    body: toNodeReadable(res.body!),
+    body: toNodeReadable(res.body),
   };
 }
 
@@ -871,7 +871,7 @@ async function streamResponseFile(
   const target = resolveOutTarget(ctx.out, false);
   const filename = target.file ?? deriveFilename(op.operationId, undefined, extensionForMime(mime));
   const path = join(target.dir, filename);
-  await streamToFile(res.body!, path);
+  await streamToFile(res.body, path);
   const record = await fileRecord(path, { hash: ctx.hash });
   return { ...record, mime };
 }

@@ -23,11 +23,25 @@ cd "$(dirname "$0")/.."
 
 unset ELEVENLABS_API_KEY || true
 
+created_cache=0
+reason_file=
+cleanup() {
+  rm -f "$reason_file"
+  if [ "$created_cache" = 1 ]; then rm -rf "$ELV_CACHE_DIR"; fi
+}
+
 if [ -z "${ELV_CACHE_DIR:-}" ]; then
   ELV_CACHE_DIR=$(mktemp -d "${TMPDIR:-/tmp}/elv-smoke-cache.XXXXXX")
   export ELV_CACHE_DIR
-  trap 'rm -rf "$ELV_CACHE_DIR"' EXIT INT TERM
+  created_cache=1
+  trap cleanup EXIT INT TERM
 fi
+test -d "$ELV_CACHE_DIR" || {
+  echo "smoke: ELV_CACHE_DIR is not a directory: $ELV_CACHE_DIR" >&2
+  exit 1
+}
+reason_file=$(mktemp "$ELV_CACHE_DIR/elv-smoke-reason.XXXXXX")
+trap cleanup EXIT INT TERM
 
 MATRIX=${1:-scripts/smoke-matrix.tsv}
 test -f "$MATRIX" || {
@@ -74,13 +88,13 @@ while IFS="$tab" read -r want args; do
     continue
   fi
 
-  if ! printf '%s' "$out" | node scripts/assert-envelope.mjs "$want" >/dev/null 2>/tmp/elv-smoke-reason.$$; then
-    printf 'FAIL  elv %s\n      %s\n' "$args" "$(cat /tmp/elv-smoke-reason.$$)" >&2
-    rm -f /tmp/elv-smoke-reason.$$
+  if ! printf '%s' "$out" | node scripts/assert-envelope.mjs "$want" >/dev/null 2>"$reason_file"; then
+    printf 'FAIL  elv %s\n      %s\n' "$args" "$(cat "$reason_file")" >&2
+    : >"$reason_file"
     failed=$((failed + 1))
     continue
   fi
-  rm -f /tmp/elv-smoke-reason.$$
+  : >"$reason_file"
 
   printf 'ok    elv %s (exit %s)\n' "$args" "$rc"
   passed=$((passed + 1))

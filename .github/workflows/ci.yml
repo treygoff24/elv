@@ -23,14 +23,8 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build
-        run: npm run build
+      - name: Gate
+        run: npm run gate
 
-      - name: Typecheck
-        run: npm run typecheck
-
-      - name: Test
-        run: npm test
-
-      - name: Lint
-        run: npm run lint
+      - name: Pack smoke
+        run: npm run smoke:pack

@@ -49,6 +49,42 @@ describe("response normalization", () => {
     expect(readFileSync(env.files![0]!.path, "utf8")).toBe("mp3-bytes");
   });
 
+  it("writes an empty file when a binary success has no body", async () => {
+    const out = mkdtempSync(join(tmpdir(), "elv-out-empty-"));
+    const env = await normalizeResponse(
+      op({
+        returnsBinary: true,
+        responses: [{ status: "200", contentType: "audio/mpeg", binary: true }],
+        streamKind: "audio_bytes",
+      }),
+      new Response(null, { status: 200, headers: { "content-type": "audio/mpeg" } }),
+      { cmd: "elv call response_demo", out },
+    );
+
+    expect(env.ok).toBe(true);
+    if (!env.ok) throw new Error("expected success");
+    expect(env.files).toHaveLength(1);
+    expect(readFileSync(env.files![0]!.path)).toHaveLength(0);
+  });
+
+  it.each(["sse_events", "json_events"] as const)(
+    "writes an empty event file when a %s success has no body",
+    async (streamKind) => {
+      const out = mkdtempSync(join(tmpdir(), "elv-out-empty-events-"));
+      const env = await normalizeResponse(
+        op({ returnsJson: false, streamKind }),
+        new Response(null, { status: 200, headers: { "content-type": "text/event-stream" } }),
+        { cmd: "elv call response_demo", out },
+      );
+
+      expect(env.ok).toBe(true);
+      if (!env.ok) throw new Error("expected success");
+      expect(env.files).toHaveLength(1);
+      expect(env.files![0]!.mime).toBe("application/x-ndjson");
+      expect(readFileSync(env.files![0]!.path)).toHaveLength(0);
+    },
+  );
+
   it("writes text/csv responses to a .csv file without inline data", async () => {
     const out = mkdtempSync(join(tmpdir(), "elv-csv-"));
     const env = await normalizeResponse(

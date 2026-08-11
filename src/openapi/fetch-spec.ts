@@ -123,7 +123,7 @@ export async function diffSpec(options: UpdateSpecOptions = {}): Promise<SpecUpd
 }
 
 export async function specStatus(options: RegistryOptions = {}): Promise<SpecStatus> {
-  const vendored = await compileVendored();
+  const vendored = await compileVendored(options.moduleUrl);
   const active = readRegistryCache(options);
   const activeProvenance = active?.provenance ?? "unknown";
   return {
@@ -173,18 +173,18 @@ async function activeBaseline(options: RegistryOptions): Promise<ComparableSpec>
       provenance: cached.provenance,
     };
   }
-  return compileVendored();
+  return compileVendored(options.moduleUrl);
 }
 
-async function compileVendored(): Promise<{
+async function compileVendored(moduleUrl: string | URL = import.meta.url): Promise<{
   compiled: CompileSpecResult;
   provenance: SpecProvenance;
 }> {
-  const path = vendoredSpecPath();
+  const path = vendoredSpecPath(moduleUrl);
   const rawText = readBoundedFile(path);
   const document = parseSpecJson(rawText, path);
   const compiled = await compileSpec({ document });
-  const metadata = readVendoredMetadata();
+  const metadata = readVendoredMetadata(moduleUrl);
   return {
     compiled,
     provenance: specProvenance(compiled, rawText, metadata.source, metadata.retrieved_at),
@@ -193,9 +193,9 @@ async function compileVendored(): Promise<{
 
 async function documentForUpdate(options: UpdateSpecOptions): Promise<SpecDocument> {
   if (options.offline) {
-    const path = vendoredSpecPath();
+    const path = vendoredSpecPath(options.moduleUrl);
     const rawText = readBoundedFile(path);
-    const metadata = readVendoredMetadata();
+    const metadata = readVendoredMetadata(options.moduleUrl);
     return {
       document: parseSpecJson(rawText, path),
       rawText,
@@ -402,7 +402,34 @@ function countsForCache(cache: RegistryCache): SpecCounts {
   return { paths, total_operations, callable_operations, skipped_operations, schemas };
 }
 
-function readVendoredMetadata(): VendoredMetadata {
-  const path = vendoredSpecMetaPath();
-  return parseJsonRecord(readFileSync(path, "utf8"), path) as VendoredMetadata;
+function readVendoredMetadata(moduleUrl: string | URL = import.meta.url): VendoredMetadata {
+  const path = vendoredSpecMetaPath(moduleUrl);
+  let metadata: JsonObject;
+  try {
+    metadata = parseJsonRecord(readFileSync(path, "utf8"), path);
+  } catch (error) {
+    throw new SpecInputError(`Invalid vendored OpenAPI metadata ${path}: ${errorMessage(error)}`, {
+      path,
+    });
+  }
+  if (
+    typeof metadata.source === "string" &&
+    typeof metadata.retrieved_at === "string" &&
+    typeof metadata.sha256 === "string" &&
+    isNonNegativeInteger(metadata.paths) &&
+    isNonNegativeInteger(metadata.total_operations) &&
+    isNonNegativeInteger(metadata.callable_operations) &&
+    isNonNegativeInteger(metadata.skipped_operations) &&
+    isNonNegativeInteger(metadata.schemas)
+  ) {
+    return { ...metadata, source: metadata.source, retrieved_at: metadata.retrieved_at };
+  }
+  throw new SpecInputError(
+    `Invalid vendored OpenAPI metadata ${path}: expected source, retrieved_at, sha256, and non-negative integer counts`,
+    { path, metadata },
+  );
+}
+
+function isNonNegativeInteger(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
 }

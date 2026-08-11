@@ -9,9 +9,12 @@ import type { CompileSpecResult, OpenApiDocument } from "./compile-spec";
 import type { OperationCard } from "./types";
 import type { JsonObject, JsonValue } from "../util/json";
 
+const PACKAGE_NAME = "eleven-agent-cli";
+
 export interface RegistryOptions {
   cacheDir?: string;
   version?: string;
+  moduleUrl?: string | URL;
   forceRecompile?: boolean;
   specPath?: string;
   specDocument?: JsonObject;
@@ -157,18 +160,31 @@ export function rawSpecCachePath(options: RegistryOptions = {}): string {
 }
 
 function versionedCacheDir(options: RegistryOptions = {}): string {
-  return join(resolveCacheRoot(options.cacheDir), packageVersion(options.version));
+  return join(
+    resolveCacheRoot(options.cacheDir),
+    packageVersion(options.version, options.moduleUrl),
+  );
 }
 
 function resolveCacheRoot(cacheDir?: string): string {
   return resolve(cacheDir ?? process.env.ELV_CACHE_DIR ?? join(homedir(), ".cache", "elv"));
 }
 
-function packageVersion(override?: string): string {
+function packageVersion(override?: string, moduleUrl: string | URL = import.meta.url): string {
   if (override) return override;
-  const path = packageJsonCandidates().find(existsSync);
-  if (!path) throw new Error("package.json not found");
-  return (parseJson(readFileSync(path, "utf8"), path) as { version: string }).version;
+  const candidates = packageJsonCandidates(moduleUrl);
+  const checked: string[] = [];
+  for (const path of candidates) {
+    if (!existsSync(path)) continue;
+    checked.push(path);
+    const parsed = parseJson(readFileSync(path, "utf8"), path);
+    if (isRecord(parsed) && parsed.name === PACKAGE_NAME && typeof parsed.version === "string") {
+      return parsed.version;
+    }
+  }
+  throw new Error(
+    `${PACKAGE_NAME} package.json with string version not found (checked: ${candidates.join(", ")})`,
+  );
 }
 
 function cacheSourceSha256(options: RegistryOptions, cache: RegistryCache): string | null {
@@ -187,7 +203,9 @@ function cacheSourceSha256(options: RegistryOptions, cache: RegistryCache): stri
 function registrySourcePath(options: RegistryOptions): string {
   return (
     options.specPath ??
-    (existsSync(rawSpecCachePath(options)) ? rawSpecCachePath(options) : vendoredSpecPath())
+    (existsSync(rawSpecCachePath(options))
+      ? rawSpecCachePath(options)
+      : vendoredSpecPath(options.moduleUrl))
   );
 }
 
@@ -269,8 +287,8 @@ function mapOperations(operations: OperationCard[]): Map<string, OperationCard> 
   return new Map(operations.map((operation) => [operation.operationId, operation]));
 }
 
-function packageJsonCandidates(): string[] {
-  return packageFileCandidates("package.json");
+function packageJsonCandidates(moduleUrl: string | URL = import.meta.url): string[] {
+  return packageFileCandidates("package.json", moduleUrl);
 }
 
 function vendoredSpecCandidates(moduleUrl: string | URL): string[] {

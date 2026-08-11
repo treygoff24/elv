@@ -81,6 +81,22 @@ describe("OpenAPI registry cache", () => {
     }
   });
 
+  it("skips package.json candidates without a string version", () => {
+    cacheDir = mkdtempSync(join(tmpdir(), "elv-version "));
+    const packageRoot = join(cacheDir, "node_modules", "eleven-agent-cli");
+    const moduleUrl = pathToFileURL(join(packageRoot, "dist", "cli.js"));
+    mkdirSync(packageRoot, { recursive: true });
+    writeFileSync(join(cacheDir, "node_modules", "package.json"), '{"name":"node_modules"}');
+    writeFileSync(
+      join(packageRoot, "package.json"),
+      '{"name":"eleven-agent-cli","version":"1.2.3"}',
+    );
+
+    expect(registryCachePath({ cacheDir, moduleUrl })).toBe(
+      join(cacheDir, "1.2.3", "openapi.compact.json"),
+    );
+  });
+
   it("cold-starts from the vendored snapshot and writes a version-stamped cache", async () => {
     cacheDir = mkdtempSync(join(tmpdir(), "elv-cache-"));
     const registry = await loadRegistry({ cacheDir });

@@ -1,3 +1,7 @@
+import { existsSync, openAsBlob } from "node:fs";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { createServer, type IncomingMessage, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterEach, describe, expect, it } from "vitest";
@@ -93,6 +97,41 @@ describe("POST body replay", () => {
       maxAttempts: 2,
       sleep: async () => undefined,
     });
+    expect(attempts).toBe(2);
+    expect(normalizeMultipartBoundary(bodies[1]!)).toEqual(normalizeMultipartBoundary(bodies[0]!));
+  });
+
+  it("replays semantically identical file-backed multipart bodies", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "elv-post-replay-"));
+    const bodies: Buffer[] = [];
+    let attempts = 0;
+    try {
+      const uploadPath = join(dir, "sample.txt");
+      await writeFile(uploadPath, "file-backed bytes\n", "utf8");
+
+      const baseUrl = await listen((_request, received) => {
+        attempts += 1;
+        bodies.push(received);
+      });
+      const form = new FormData();
+      form.append("prompt", "same bytes");
+      form.append("file", await openAsBlob(uploadPath, { type: "text/plain" }), "sample.txt");
+      const request: HttpRequest = {
+        url: `${baseUrl}/start`,
+        method: "POST",
+        headers: {},
+        body: form,
+        path: "/start",
+      };
+      await sendWithRetry(request, op, {
+        retryPost: true,
+        maxAttempts: 2,
+        sleep: async () => undefined,
+      });
+    } finally {
+      await rm(dir, { force: true, recursive: true });
+    }
+    expect(existsSync(dir)).toBe(false);
     expect(attempts).toBe(2);
     expect(normalizeMultipartBoundary(bodies[1]!)).toEqual(normalizeMultipartBoundary(bodies[0]!));
   });
