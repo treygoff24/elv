@@ -29,6 +29,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Classified Dubbing target-transcript regeneration as generation so a configured credit ceiling fails closed when the provider's charge cannot be estimated.
 - Made `spec diff` stable after an active registry cache round trip instead of reporting every operation changed when JSON serialization omitted undefined fields.
 - Added an npm `prepack` build so normal `npm pack` and `npm publish` runs rebuild `dist/cli.js` before assembling the tarball, including from clean checkouts.
+- Scoped Vitest discovery to the tracked `tests/` tree so ignored agent scratch directories cannot duplicate the suite or exhaust local resources.
 
 ### Security
 
