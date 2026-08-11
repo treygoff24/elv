@@ -1,8 +1,9 @@
 import { resolveMaybeRef, resolveRef, schemaNameFromRef } from "./compile-spec";
-import type { JsonObject, OpenApiDocument } from "./compile-spec";
+import type { OpenApiDocument } from "./compile-spec";
+import type { JsonObject, JsonValue } from "../util/json";
 import type { OperationCard, ParamCard } from "./types";
 
-type CompactValue = string | number | boolean | null | JsonObject;
+type CompactValue = Exclude<JsonValue, readonly JsonValue[]>;
 interface CompactBuckets {
   path: Record<string, CompactValue>;
   query: Record<string, CompactValue>;
@@ -27,7 +28,10 @@ export function compactSchemaForOperation(op: OperationCard, spec: OpenApiDocume
   return compact;
 }
 
-export function rawInputSchemaForOperation(op: OperationCard, spec: OpenApiDocument): unknown {
+export function rawInputSchemaForOperation(
+  op: OperationCard,
+  spec: OpenApiDocument,
+): JsonValue | undefined {
   if (!op.requestBody) return null;
   if (op.requestBody.schemaRef) return resolveRef(op.requestBody.schemaRef, spec);
   return op.requestBody.schema ?? null;
@@ -84,7 +88,7 @@ function addBody(compact: CompactSchema, op: OperationCard, spec: OpenApiDocumen
 }
 
 function compactValue(
-  schema: unknown,
+  schema: JsonValue | undefined,
   spec?: OpenApiDocument,
   visited = new Set<string>(),
 ): CompactValue {
@@ -142,14 +146,16 @@ function compactObjectValue(
       compactValue(property, spec, visited),
     ]),
   );
-  return Object.keys(nested).length > 0 ? { type: "object", properties: nested } : "object";
+  return Object.keys(nested).length > 0
+    ? { type: "object", properties: nested, required: asStringArray(object.required) }
+    : "object";
 }
 
 function isObjectShape(type: string | undefined, object: JsonObject): boolean {
   return type === "object" || Object.keys(asObject(object.properties)).length > 0;
 }
 
-function firstUsefulVariant(object: JsonObject): unknown {
+function firstUsefulVariant(object: JsonObject): JsonValue | undefined {
   for (const key of ["anyOf", "oneOf", "allOf"] as const) {
     const value = object[key];
     const variants = Array.isArray(value) ? value : [];
@@ -159,13 +165,13 @@ function firstUsefulVariant(object: JsonObject): unknown {
   return undefined;
 }
 
-function skeleton(bucket: Record<string, CompactValue>): Record<string, unknown> {
+function skeleton(bucket: Record<string, CompactValue>): Record<string, JsonValue> {
   return Object.fromEntries(
     Object.entries(bucket).map(([name, shape]) => [name, placeholderFor(name, shape)]),
   );
 }
 
-function placeholderFor(name: string, shape: CompactValue): unknown {
+function placeholderFor(name: string, shape: CompactValue): JsonValue {
   if (typeof shape === "string") {
     if (shape === "integer" || shape === "number") return 0;
     if (shape === "boolean") return false;
@@ -177,14 +183,22 @@ function placeholderFor(name: string, shape: CompactValue): unknown {
   if (Array.isArray(object.enum)) return object.enum[0] ?? `<${name}>`;
   if (object.type === "integer" || object.type === "number") return 0;
   if (object.type === "boolean") return false;
-  if (object.type === "array") return [];
-  if (object.type === "object") return {};
+  if (object.type === "array")
+    return object.items === undefined ? [] : [placeholderFor(name, object.items as CompactValue)];
+  if (object.type === "object") {
+    const properties = asObject(object.properties);
+    const required = asStringArray(object.required).filter((key) => properties[key] !== undefined);
+    if (required.length === 0) return {};
+    return Object.fromEntries(
+      required.map((key) => [key, placeholderFor(key, properties[key] as CompactValue)]),
+    );
+  }
   return `<${name}>`;
 }
 
 function cleanEmptyBuckets(
-  input: Record<string, Record<string, unknown>>,
-): Record<string, unknown> {
+  input: Record<string, Record<string, JsonValue>>,
+): Record<string, Record<string, JsonValue>> {
   return Object.fromEntries(
     Object.entries(input).filter(([, value]) => Object.keys(value).length > 0),
   );
@@ -197,17 +211,17 @@ function typeName(object: JsonObject): string | undefined {
   return undefined;
 }
 
-function refValue(value: unknown): string | undefined {
+function refValue(value: JsonValue | undefined): string | undefined {
   const ref = asObject(value).$ref;
   return typeof ref === "string" ? ref : undefined;
 }
 
-function asStringArray(value: unknown): string[] {
+function asStringArray(value: JsonValue | undefined): string[] {
   return Array.isArray(value)
     ? value.filter((entry): entry is string => typeof entry === "string")
     : [];
 }
 
-function asObject(value: unknown): JsonObject {
+function asObject(value: JsonValue | undefined): JsonObject {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as JsonObject) : {};
 }

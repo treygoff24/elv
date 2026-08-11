@@ -49,6 +49,66 @@ describe("response normalization", () => {
     expect(readFileSync(env.files![0]!.path, "utf8")).toBe("mp3-bytes");
   });
 
+  it("writes an empty file when a binary success has no body", async () => {
+    const out = mkdtempSync(join(tmpdir(), "elv-out-empty-"));
+    const env = await normalizeResponse(
+      op({
+        returnsBinary: true,
+        responses: [{ status: "200", contentType: "audio/mpeg", binary: true }],
+        streamKind: "audio_bytes",
+      }),
+      new Response(null, { status: 200, headers: { "content-type": "audio/mpeg" } }),
+      { cmd: "elv call response_demo", out },
+    );
+
+    expect(env.ok).toBe(true);
+    if (!env.ok) throw new Error("expected success");
+    expect(env.files).toHaveLength(1);
+    expect(readFileSync(env.files![0]!.path)).toHaveLength(0);
+  });
+
+  it.each(["sse_events", "json_events"] as const)(
+    "writes an empty event file when a %s success has no body",
+    async (streamKind) => {
+      const out = mkdtempSync(join(tmpdir(), "elv-out-empty-events-"));
+      const env = await normalizeResponse(
+        op({ returnsJson: false, streamKind }),
+        new Response(null, { status: 200, headers: { "content-type": "text/event-stream" } }),
+        { cmd: "elv call response_demo", out },
+      );
+
+      expect(env.ok).toBe(true);
+      if (!env.ok) throw new Error("expected success");
+      expect(env.files).toHaveLength(1);
+      expect(env.files![0]!.mime).toBe("application/x-ndjson");
+      expect(readFileSync(env.files![0]!.path)).toHaveLength(0);
+    },
+  );
+
+  it("writes text/csv responses to a .csv file without inline data", async () => {
+    const out = mkdtempSync(join(tmpdir(), "elv-csv-"));
+    const env = await normalizeResponse(
+      op({
+        operationId: "export_batch_call",
+        returnsBinary: true,
+        responses: [{ status: "200", contentType: "text/csv", binary: true }],
+      }),
+      new Response("recipient_id,status\nr1,done\n", {
+        status: 200,
+        headers: { "content-type": "text/csv" },
+      }),
+      { cmd: "elv call export_batch_call", out },
+    );
+
+    expect(env.ok).toBe(true);
+    if (!env.ok) throw new Error("expected success");
+    expect(env.data).toBeUndefined();
+    expect(env.files).toHaveLength(1);
+    expect(env.files![0]!.path).toMatch(/\.csv$/u);
+    expect(env.files![0]!.mime).toBe("text/csv");
+    expect(readFileSync(env.files![0]!.path, "utf8")).toBe("recipient_id,status\nr1,done\n");
+  });
+
   it("inlines small JSON and tolerates unknown response fields", async () => {
     const env = await normalizeResponse(
       op(),

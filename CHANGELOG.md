@@ -4,6 +4,37 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+## [0.3.0] - 2026-08-11
+
+### Added
+
+- Refreshed the vendored ElevenLabs OpenAPI document to the August 11, 2026 revision: 364 documented operations, 363 callable operations, 285 paths, and 1,402 schemas at SHA-256 `d1a4847203cef628b0c43760b0c74ecd88fa280034bb47c973874ae911f6153a`. New coverage includes eight Agents Procedures operations, Dubbing v2 bulk source/target transcript updates, voice accents, and cross-residency voice replication.
+- Added `music finetunes` lifecycle aliases and `--finetune-id` to regular, streaming, and detailed Music generation.
+- Added configured STT webhook delivery through `--webhook [--webhook-id ID]` and env-sourced single-use tokens through `--token-env ENV_NAME`.
+- Added `agents procedures`, Dubbing v2 atomic `update-segments`, and `voices accents|replicate` aliases over the refreshed contract.
+- Documented realtime STT `entity_detection` through arbitrary WebSocket `--query` fields, Dubbing v2 transcript editing, and the published Procedures and voice-replication surfaces.
+- Rebuilt the shipped `elv` skill around a checkable execution loop, with branch-specific references for discovery and generic calls, media workflows, and agents/workspace/WebSockets.
+
+### Fixed
+
+- Bare parent commands such as `elv voices` now return a help success envelope and exit 0 instead of treating discovery as validation failure.
+- `elv spec status --offline` is accepted as a no-op compatibility flag, matching the other `spec` subcommands.
+- Generated `ops schema --example` commands now populate required shaped arrays and nested required object fields instead of emitting invalid empty placeholders.
+- Binary `text/csv` responses, including batch-call export, spill to `.csv` files and are never returned inline as `data`.
+- Rejected the obsolete `stt --webhook <url>` form with an actionable migration message instead of sending a URL in the provider's boolean `webhook` field.
+- Classified crawl cancellation and the July 27 bulk knowledge-base delete route as destructive because they delete associated knowledge-base documents or folders. Classified the July 27 bulk dependent-agent lookup as read-only despite its POST method.
+- Classified cross-residency voice replication as an external side effect so `call`, matching raw `http`, and aliases require `--yes`; Procedure DELETE operations remain destructive by method.
+- Classified Dubbing target-transcript regeneration as generation so a configured credit ceiling fails closed when the provider's charge cannot be estimated.
+- Made `spec diff` stable after an active registry cache round trip instead of reporting every operation changed when JSON serialization omitted undefined fields.
+- Added an npm `prepack` build so normal `npm pack` and `npm publish` runs rebuild `dist/cli.js` before assembling the tarball, including from clean checkouts.
+- Scoped Vitest discovery to the tracked `tests/` tree so ignored agent scratch directories cannot duplicate the suite or exhaust local resources.
+
+### Security
+
+- Updated the transitive production dependencies `fast-uri` and `js-yaml`, plus the development-only `nanoid` and `postcss`, to patched releases; both full and production-only `npm audit` checks now report zero vulnerabilities.
+
 ## [0.2.0] - 2026-07-16
 
 ### Added

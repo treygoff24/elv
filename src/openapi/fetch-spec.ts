@@ -10,10 +10,12 @@ import {
   vendoredSpecPath,
   writeRegistryCache,
 } from "./registry";
-import { parseJson } from "../util/json";
+import { parseJson, parseJsonRecord } from "../util/json";
+import { errorMessage } from "../util/error";
 import type { CompileSpecResult } from "./compile-spec";
 import type { RegistryCache, RegistryOptions, SpecCounts, SpecProvenance } from "./registry";
 import type { OperationCard } from "./types";
+import type { JsonObject } from "../util/json";
 
 const LIVE_SPEC_URL = "https://api.elevenlabs.io/openapi.json";
 const FETCH_TIMEOUT_MS = 30_000;
@@ -26,7 +28,7 @@ export interface UpdateSpecOptions extends RegistryOptions {
   specUrl?: string;
 }
 
-export interface SpecDiff {
+interface SpecDiff {
   baseline: SpecProvenance | "unknown";
   candidate: SpecProvenance;
   counts: { baseline: SpecCounts; candidate: SpecCounts };
@@ -55,7 +57,7 @@ export interface SpecUpdateResult {
   diff: SpecDiff;
 }
 
-export interface SpecStatus {
+interface SpecStatus {
   cache_path: string;
   vendored: SpecProvenance;
   active: {
@@ -67,7 +69,7 @@ export interface SpecStatus {
 }
 
 interface SpecDocument {
-  document: unknown;
+  document: JsonObject;
   rawText: string;
   source: "offline" | "file" | "url";
   label: string;
@@ -79,10 +81,12 @@ interface ComparableSpec {
   provenance: SpecProvenance | "unknown";
 }
 
+type VendoredMetadata = JsonObject & Pick<SpecProvenance, "source" | "retrieved_at">;
+
 export class SpecInputError extends Error {
   constructor(
     message: string,
-    public readonly raw?: unknown,
+    public readonly raw?: JsonObject,
   ) {
     super(message);
     this.name = "SpecInputError";
@@ -119,7 +123,7 @@ export async function diffSpec(options: UpdateSpecOptions = {}): Promise<SpecUpd
 }
 
 export async function specStatus(options: RegistryOptions = {}): Promise<SpecStatus> {
-  const vendored = await compileVendored();
+  const vendored = await compileVendored(options.moduleUrl);
   const active = readRegistryCache(options);
   const activeProvenance = active?.provenance ?? "unknown";
   return {
@@ -146,7 +150,7 @@ async function compileCandidate(options: UpdateSpecOptions): Promise<{
   try {
     compiled = await compileSpec({ document: source.document });
   } catch (error) {
-    const message = `Invalid OpenAPI spec from ${source.label}: ${error instanceof Error ? error.message : String(error)}`;
+    const message = `Invalid OpenAPI spec from ${source.label}: ${errorMessage(error)}`;
     if (source.source === "url") throw new SpecProviderError(message);
     throw new SpecInputError(message, { source: source.label });
   }
@@ -166,38 +170,38 @@ async function activeBaseline(options: RegistryOptions): Promise<ComparableSpec>
         totalOperations: cached.totalOperations,
         skippedOperations: cached.skippedOperations,
       },
-      provenance: cached.provenance ?? "unknown",
+      provenance: cached.provenance,
     };
   }
-  return compileVendored();
+  return compileVendored(options.moduleUrl);
 }
 
-async function compileVendored(): Promise<{
+async function compileVendored(moduleUrl: string | URL = import.meta.url): Promise<{
   compiled: CompileSpecResult;
   provenance: SpecProvenance;
 }> {
-  const path = vendoredSpecPath();
+  const path = vendoredSpecPath(moduleUrl);
   const rawText = readBoundedFile(path);
   const document = parseSpecJson(rawText, path);
   const compiled = await compileSpec({ document });
-  const metadata = readVendoredMetadata();
+  const metadata = readVendoredMetadata(moduleUrl);
   return {
     compiled,
-    provenance: specProvenance(compiled, rawText, metadata?.source ?? path, metadata?.retrieved_at),
+    provenance: specProvenance(compiled, rawText, metadata.source, metadata.retrieved_at),
   };
 }
 
 async function documentForUpdate(options: UpdateSpecOptions): Promise<SpecDocument> {
   if (options.offline) {
-    const path = vendoredSpecPath();
+    const path = vendoredSpecPath(options.moduleUrl);
     const rawText = readBoundedFile(path);
-    const metadata = readVendoredMetadata();
+    const metadata = readVendoredMetadata(options.moduleUrl);
     return {
       document: parseSpecJson(rawText, path),
       rawText,
       source: "offline",
-      label: metadata?.source ?? path,
-      retrievedAt: metadata?.retrieved_at,
+      label: metadata.source,
+      retrievedAt: metadata.retrieved_at,
     };
   }
   const configuredUrl = options.specUrl ?? process.env.ELV_SPEC_URL ?? LIVE_SPEC_URL;
@@ -229,10 +233,9 @@ function readBoundedFile(path: string): string {
   try {
     value = readFileSync(path);
   } catch (error) {
-    throw new SpecInputError(
-      `Unable to read OpenAPI spec ${path}: ${error instanceof Error ? error.message : String(error)}`,
-      { path },
-    );
+    throw new SpecInputError(`Unable to read OpenAPI spec ${path}: ${errorMessage(error)}`, {
+      path,
+    });
   }
   if (value.byteLength > MAX_SPEC_BYTES)
     throw new SpecInputError(
@@ -242,23 +245,22 @@ function readBoundedFile(path: string): string {
   return value.toString("utf8");
 }
 
-function parseSpecJson(rawText: string, path: string): unknown {
+function parseSpecJson(rawText: string, path: string): JsonObject {
   try {
-    return parseJson(rawText, path);
+    return parseJson(rawText, path) as JsonObject;
   } catch (error) {
-    throw new SpecInputError(
-      `Invalid JSON in OpenAPI spec ${path}: ${error instanceof Error ? error.message : String(error)}`,
-      { path },
-    );
+    throw new SpecInputError(`Invalid JSON in OpenAPI spec ${path}: ${errorMessage(error)}`, {
+      path,
+    });
   }
 }
 
-function parseFetchedJson(rawText: string, url: string): unknown {
+function parseFetchedJson(rawText: string, url: string): JsonObject {
   try {
-    return parseJson(rawText, url);
+    return parseJson(rawText, url) as JsonObject;
   } catch (error) {
     throw new SpecProviderError(
-      `Failed to parse fetched OpenAPI spec from ${url}: ${error instanceof Error ? error.message : String(error)}`,
+      `Failed to parse fetched OpenAPI spec from ${url}: ${errorMessage(error)}`,
     );
   }
 }
@@ -268,9 +270,7 @@ async function fetchSpec(url: string): Promise<string> {
   try {
     response = await fetch(url, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
   } catch (error) {
-    throw new SpecProviderError(
-      `Failed to fetch OpenAPI spec from ${url}: ${error instanceof Error ? error.message : String(error)}`,
-    );
+    throw new SpecProviderError(`Failed to fetch OpenAPI spec from ${url}: ${errorMessage(error)}`);
   }
   const requestedOrigin = new URL(url).origin;
   const responseOrigin = response.url ? new URL(response.url).origin : requestedOrigin;
@@ -303,9 +303,7 @@ async function fetchSpec(url: string): Promise<string> {
     return Buffer.concat(chunks).toString("utf8");
   } catch (error) {
     if (error instanceof SpecProviderError) throw error;
-    throw new SpecProviderError(
-      `Failed to fetch OpenAPI spec from ${url}: ${error instanceof Error ? error.message : String(error)}`,
-    );
+    throw new SpecProviderError(`Failed to fetch OpenAPI spec from ${url}: ${errorMessage(error)}`);
   }
 }
 
@@ -387,39 +385,51 @@ function sortedDifference(left: Set<string>, right: Set<string>): string[] {
 }
 
 function canonical(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
+  if (Array.isArray(value))
+    return `[${value.map((entry) => (entry === undefined ? "null" : canonical(entry))).join(",")}]`;
   if (value && typeof value === "object")
     return `{${Object.entries(value)
+      .filter(([, entry]) => entry !== undefined)
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([key, entry]) => `${JSON.stringify(key)}:${canonical(entry)}`)
       .join(",")}}`;
-  return JSON.stringify(value);
+  return JSON.stringify(value) ?? "null";
 }
 
-function countsForCache(cache: RegistryCache): SpecCounts | null {
-  if (cache.provenance) {
-    const { paths, total_operations, callable_operations, skipped_operations, schemas } =
-      cache.provenance;
-    return { paths, total_operations, callable_operations, skipped_operations, schemas };
-  }
-  if (!cache.bundledSpec) return null;
-  return {
-    paths: Object.keys(cache.bundledSpec.paths ?? {}).length,
-    total_operations: cache.totalOperations,
-    callable_operations: cache.operations.length,
-    skipped_operations: cache.skippedOperations,
-    schemas: Object.keys(cache.bundledSpec.components?.schemas ?? {}).length,
-  };
+function countsForCache(cache: RegistryCache): SpecCounts {
+  const { paths, total_operations, callable_operations, skipped_operations, schemas } =
+    cache.provenance;
+  return { paths, total_operations, callable_operations, skipped_operations, schemas };
 }
 
-function readVendoredMetadata(): { source?: string; retrieved_at?: string } | null {
-  const path = vendoredSpecMetaPath();
+function readVendoredMetadata(moduleUrl: string | URL = import.meta.url): VendoredMetadata {
+  const path = vendoredSpecMetaPath(moduleUrl);
+  let metadata: JsonObject;
   try {
-    return parseJson(readFileSync(path, "utf8"), path) as {
-      source?: string;
-      retrieved_at?: string;
-    };
-  } catch {
-    return null;
+    metadata = parseJsonRecord(readFileSync(path, "utf8"), path);
+  } catch (error) {
+    throw new SpecInputError(`Invalid vendored OpenAPI metadata ${path}: ${errorMessage(error)}`, {
+      path,
+    });
   }
+  if (
+    typeof metadata.source === "string" &&
+    typeof metadata.retrieved_at === "string" &&
+    typeof metadata.sha256 === "string" &&
+    isNonNegativeInteger(metadata.paths) &&
+    isNonNegativeInteger(metadata.total_operations) &&
+    isNonNegativeInteger(metadata.callable_operations) &&
+    isNonNegativeInteger(metadata.skipped_operations) &&
+    isNonNegativeInteger(metadata.schemas)
+  ) {
+    return { ...metadata, source: metadata.source, retrieved_at: metadata.retrieved_at };
+  }
+  throw new SpecInputError(
+    `Invalid vendored OpenAPI metadata ${path}: expected source, retrieved_at, sha256, and non-negative integer counts`,
+    { path, metadata },
+  );
+}
+
+function isNonNegativeInteger(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
 }

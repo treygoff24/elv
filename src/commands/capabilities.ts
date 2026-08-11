@@ -25,23 +25,32 @@ const COMMAND_FAMILIES = [
 const ALIAS_FAMILIES = [
   {
     name: "agents",
-    description: "Agent lifecycle, response tests, and RAG query; simulation is deprecated.",
+    description:
+      "Agent lifecycle, procedures, response tests, and RAG query; simulation is deprecated.",
     operation_ids: [
+      "compile_procedures_route",
       "create_agent_response_test_route",
       "create_agent_route",
+      "create_procedure_route",
       "delete_chat_response_test_route",
-      "get_agent_route",
+      "delete_procedure_draft_route",
       "get_agent_response_test_route",
+      "get_agent_route",
       "get_agents_route",
+      "get_procedure_draft_route",
+      "get_procedure_route",
       "get_test_invocation_route",
       "list_chat_response_tests_route",
+      "list_procedures_route",
       "list_test_invocations_route",
       "patch_agent_settings_route",
       "query_agent_knowledge_base_rag_route",
+      "remove_procedure_route",
       "resubmit_tests_route",
       "run_agent_test_suite_route",
       "run_conversation_simulation_route",
       "update_agent_response_test_route",
+      "update_procedure_draft_route",
     ],
   },
   {
@@ -56,10 +65,12 @@ const ALIAS_FAMILIES = [
       "dubbing_target_transcript_get",
       "dubbing_target_transcript_regenerate",
       "dubbing_target_transcript_segment_update",
+      "dubbing_target_transcript_segments_update",
       "dubbing_transcript_get",
       "dubbing_transcript_segment_add",
       "dubbing_transcript_segment_delete",
       "dubbing_transcript_segment_update",
+      "dubbing_transcript_segments_update",
     ],
   },
   {
@@ -78,8 +89,17 @@ const ALIAS_FAMILIES = [
   },
   {
     name: "music",
-    description: "Generate music with regular or streaming responses.",
-    operation_ids: ["compose_detailed_stream", "generate", "stream_compose"],
+    description: "Generate music and manage Music Finetunes.",
+    operation_ids: [
+      "compose_detailed_stream",
+      "create_finetune",
+      "delete_finetune",
+      "generate",
+      "get_finetune",
+      "get_finetunes",
+      "stream_compose",
+      "update_finetune",
+    ],
   },
   {
     name: "sfx",
@@ -118,8 +138,14 @@ const ALIAS_FAMILIES = [
   },
   {
     name: "voices",
-    description: "List, find, inspect, and instant-clone voices.",
-    operation_ids: ["add_voice", "get_user_voices_v2", "get_voice_by_id"],
+    description: "List, filter, inspect, clone, and replicate voices; discover available accents.",
+    operation_ids: [
+      "add_voice",
+      "get_user_voices_v2",
+      "get_voice_accents",
+      "get_voice_by_id",
+      "replicate_voice_to_isolated_environment",
+    ],
   },
   {
     name: "workspace",
@@ -238,16 +264,16 @@ function serviceGroups(
     .map(([name, operations]) => ({ name, operations }));
 }
 
-function specSummary(cache: RegistryCache | null, operations: number): Record<string, unknown> {
+function specSummary(cache: RegistryCache | null, operations: number) {
   const provenance = cache?.provenance;
   return {
     source: provenance?.source ?? "registry_cache",
     retrieved_at: provenance?.retrieved_at ?? null,
     sha256: provenance?.sha256 ?? null,
     paths: provenance?.paths ?? null,
-    total_operations: provenance?.total_operations ?? cache?.totalOperations ?? operations,
+    total_operations: provenance?.total_operations ?? operations,
     callable_operations: provenance?.callable_operations ?? operations,
-    skipped_operations: provenance?.skipped_operations ?? cache?.skippedOperations ?? 0,
+    skipped_operations: provenance?.skipped_operations ?? 0,
     schemas: provenance?.schemas ?? null,
     generated_at: cache?.generated_at ?? null,
   };

@@ -7,34 +7,20 @@ import {
   rawInputSchemaForOperation,
 } from "../openapi/compact-schema";
 import { readRegistryCache, loadRegistry } from "../openapi/registry";
+import { COST_HINTS, HTTP_METHODS, RISKS, STREAM_KINDS } from "../openapi/types";
 import type { CostHint, HttpMethod, OperationCard, Risk, StreamKind } from "../openapi/types";
-import type { CommandResult, Hint, Warning } from "../core/types";
+import type { CommandResult, Hint, SuccessEnvelope } from "../core/types";
+import type { CliOptionValues } from "./options";
 
-interface SearchResult {
-  operation_id: string;
-  method: OperationCard["method"];
-  path: string;
-  group: string[];
-  summary?: string;
-  risk: Risk;
-  cost_hint: CostHint;
-  deprecated: boolean;
-}
+type SearchResult = Omit<OpsListItem, "stream" | "upload_fields">;
+type OperationSummary = Omit<SearchResult, "cost_hint" | "deprecated">;
 
-interface OpsSearchOptions {
-  limit?: string | number;
-}
+type OpsSearchOptions = Pick<CliOptionValues, "limit">;
 
-export interface OpsListOptions {
-  group?: string;
-  method?: string;
-  risk?: string;
-  stream?: string;
-  cost?: string;
-  deprecated?: boolean;
-  uploads?: boolean;
-  limit?: string | number;
-}
+type OpsListOptions = Pick<
+  CliOptionValues,
+  "group" | "method" | "risk" | "stream" | "cost" | "deprecated" | "uploads" | "limit"
+>;
 
 interface NormalizedListOptions {
   group?: string;
@@ -47,7 +33,7 @@ interface NormalizedListOptions {
   limit: number;
 }
 
-export interface OpsListItem {
+interface OpsListItem {
   operation_id: string;
   method: HttpMethod;
   path: string;
@@ -60,10 +46,7 @@ export interface OpsListItem {
   upload_fields: string[];
 }
 
-interface OpsSchemaOptions {
-  raw?: boolean;
-  example?: boolean;
-}
+type OpsSchemaOptions = Pick<CliOptionValues, "raw" | "example">;
 
 export async function handleOpsSearch(
   query: string,
@@ -192,15 +175,21 @@ export function searchOperations(
     .sort((a, b) => b.score - a.score || a.op.operationId.localeCompare(b.op.operationId));
 
   return scored.slice(0, limit).map(({ op }) => ({
+    ...operationSummary(op),
+    cost_hint: op.costHint ?? "unknown",
+    deprecated: op.deprecated,
+  }));
+}
+
+function operationSummary(op: OperationCard): OperationSummary {
+  return {
     operation_id: op.operationId,
     method: op.method,
     path: op.pathTemplate,
     group: op.group,
     summary: op.summary,
     risk: op.risk,
-    cost_hint: op.costHint ?? "unknown",
-    deprecated: op.deprecated,
-  }));
+  };
 }
 
 export function listOperations(
@@ -211,12 +200,7 @@ export function listOperations(
     .filter((op) => matchesListFilters(op, options))
     .sort((a, b) => a.operationId.localeCompare(b.operationId))
     .map((op) => ({
-      operation_id: op.operationId,
-      method: op.method,
-      path: op.pathTemplate,
-      group: op.group,
-      summary: op.summary,
-      risk: op.risk,
+      ...operationSummary(op),
       stream: op.streamKind,
       cost_hint: op.costHint ?? "unknown",
       deprecated: op.deprecated,
@@ -285,18 +269,6 @@ function parseLimit(value: string | number | undefined): number | null {
   return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
 }
 
-const HTTP_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"] as const;
-const RISKS = ["read", "mutate", "generate", "external_side_effect", "destructive"] as const;
-const STREAM_KINDS = ["none", "audio_bytes", "json_events", "sse_events", "text"] as const;
-const COST_HINTS = [
-  "characters",
-  "audio_seconds",
-  "per_generation",
-  "per_source_minute",
-  "slot",
-  "unknown",
-] as const;
-
 function normalizeListOptions(options: OpsListOptions): NormalizedListOptions | string {
   const method = normalizeEnum(options.method?.toUpperCase(), HTTP_METHODS, "--method");
   if (!method.ok) return method.error;
@@ -347,7 +319,7 @@ function matchesListFilters(op: OperationCard, options: NormalizedListOptions): 
   return true;
 }
 
-function deprecationAnnotation(op: OperationCard): { warnings?: Warning[]; hints?: Hint[] } {
+function deprecationAnnotation(op: OperationCard): Pick<SuccessEnvelope, "warnings" | "hints"> {
   if (!op.deprecated) return {};
   const replacement = replacementFromDescription(op.description);
   return {
@@ -375,7 +347,7 @@ function replacementHint(replacement: string): Hint {
   const request = replacement.match(/^(GET|POST|PUT|PATCH|DELETE|HEAD)\s+(\/\S+)$/iu);
   if (request) {
     return {
-      cmd: `elv http ${request[1]?.toUpperCase()} ${request[2]}`,
+      cmd: `elv http ${request[1]!.toUpperCase()} ${request[2]}`,
       why: "Use the replacement endpoint.",
     };
   }

@@ -3,6 +3,7 @@ import { basename } from "node:path";
 import { lookup } from "mime-types";
 import type { AgentInput, NormalizedError } from "./types";
 import type { HttpMethod, OperationCard } from "../openapi/types";
+import type { JsonInputValue, JsonObjectInput } from "../util/json";
 
 // Multipart uses the native global FormData + fs.openAsBlob (lazy, file-backed) rather than the
 // `form-data` package: form-data's Node stream is not transmitted by native fetch/undici (the body
@@ -35,7 +36,7 @@ const BUCKET_KEYS = new Set(["path", "query", "body", "headers", "files"]);
 export class InputNormalizationError extends Error {
   readonly detail: NormalizedError;
 
-  constructor(message: string, raw?: unknown, param?: string | null) {
+  constructor(message: string, raw?: JsonInputValue, param?: string | null) {
     super(message);
     this.name = "InputNormalizationError";
     this.detail = {
@@ -54,7 +55,7 @@ export class InputNormalizationError extends Error {
 
 export function normalizeInput(
   op: OperationCard,
-  input: AgentInput | Record<string, unknown>,
+  input: AgentInput,
   options: NormalizeInputOptions = {},
 ): AgentInput {
   const source = asRecord(input);
@@ -175,7 +176,7 @@ function routeFlatKey(
   op: OperationCard,
   normalized: AgentInput,
   key: string,
-  value: unknown,
+  value: JsonInputValue,
   options: NormalizeInputOptions,
 ): void {
   const matches = locationsForKey(op, key);
@@ -253,7 +254,7 @@ async function buildMultipartBody(
   return form;
 }
 
-function appendFormValue(form: FormData, field: string, value: unknown): void {
+function appendFormValue(form: FormData, field: string, value: JsonInputValue): void {
   if (value === undefined) return;
   if (Array.isArray(value)) {
     for (const item of value) appendFormValue(form, field, item);
@@ -295,7 +296,7 @@ function uploadCapBytes(ctx: BuildRequestContext): number {
   return Number.isFinite(envValue) && envValue > 0 ? envValue : DEFAULT_MAX_UPLOAD_BYTES;
 }
 
-function putBody(normalized: AgentInput, key: string, value: unknown): void {
+function putBody(normalized: AgentInput, key: string, value: JsonInputValue): void {
   if (normalized.body === undefined) normalized.body = {};
   const body = normalized.body;
   if (!isPlainObject(body)) {
@@ -311,7 +312,7 @@ function putBody(normalized: AgentInput, key: string, value: unknown): void {
 function bucketedShapeForAmbiguity(
   matches: Array<"path" | "query" | "header" | "body">,
   key: string,
-  value: unknown,
+  value: JsonInputValue,
 ): AgentInput {
   const shape: AgentInput = { path: {}, query: {}, headers: {}, body: {} };
   if (matches.includes("path")) shape.path = { [key]: value };
@@ -321,7 +322,7 @@ function bucketedShapeForAmbiguity(
   return shape;
 }
 
-function resolvePath(op: OperationCard, pathInput: Record<string, unknown>): string {
+function resolvePath(op: OperationCard, pathInput: JsonObjectInput): string {
   return op.pathTemplate.replace(/\{([^}]+)\}/gu, (_, name: string) => {
     const value = pathInput[name];
     if (value === undefined || value === null || value === "") {
@@ -335,7 +336,7 @@ function resolvePath(op: OperationCard, pathInput: Record<string, unknown>): str
   });
 }
 
-function appendQuery(url: URL, key: string, value: unknown): void {
+function appendQuery(url: URL, key: string, value: JsonInputValue): void {
   if (value === undefined) return;
   if (Array.isArray(value)) {
     for (const item of value) if (item !== undefined) url.searchParams.append(key, String(item));
@@ -344,7 +345,7 @@ function appendQuery(url: URL, key: string, value: unknown): void {
   url.searchParams.append(key, value === null ? "" : String(value));
 }
 
-function serializeBody(contentType: string, body: unknown): string {
+function serializeBody(contentType: string, body: JsonInputValue): string {
   const lower = contentType.toLowerCase();
   if (lower.includes("json")) return JSON.stringify(body);
   if (typeof body === "string") return body;
@@ -361,18 +362,18 @@ function compactInput(input: AgentInput): AgentInput {
   return out;
 }
 
-function copyRecord(value: unknown, bucket: string): Record<string, unknown> {
+function copyRecord(value: JsonInputValue, bucket: string): JsonObjectInput {
   if (value === undefined) return {};
   if (!isPlainObject(value)) throw new InputNormalizationError(`${bucket} must be an object`);
   return { ...value };
 }
 
-function stringifyRecord(value: unknown, bucket: string): Record<string, string> {
+function stringifyRecord(value: JsonInputValue, bucket: string): Record<string, string> {
   const record = copyRecord(value, bucket);
   return Object.fromEntries(Object.entries(record).map(([key, val]) => [key, String(val)]));
 }
 
-function copyFiles(value: unknown): Record<string, string | string[]> {
+function copyFiles(value: JsonInputValue): Record<string, string | string[]> {
   if (value === undefined) return {};
   if (!isPlainObject(value)) throw new InputNormalizationError("files must be an object");
   const out: Record<string, string | string[]> = {};
@@ -408,11 +409,11 @@ function mergeFile(
   ];
 }
 
-function asRecord(value: unknown): Record<string, unknown> {
+function asRecord(value: JsonInputValue): JsonObjectInput {
   if (!isPlainObject(value)) throw new InputNormalizationError("Input JSON must be an object");
   return value;
 }
 
-function isPlainObject(value: unknown): value is Record<string, unknown> {
+function isPlainObject(value: JsonInputValue): value is JsonObjectInput {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }

@@ -1,31 +1,30 @@
-/** Shared runtime contract types for elv. OpenAPI operation-card types live in src/openapi/types. */
-
 import type { HttpMethod } from "../openapi/types";
+import type { JsonInputValue, JsonObjectInput } from "../util/json";
 
 export const ENVELOPE_VERSION = 1 as const;
 
 /** §4 exit-code taxonomy — agents branch on these without parsing JSON. Keyed on body code, not HTTP status. */
 export enum ExitCode {
   Success = 0,
-  InputValidation = 2, // invalid_parameters/validation_error/text_too_long/max_character_limit_exceeded, or our pre-flight (400 AND 422)
-  AuthPermission = 3, // invalid_api_key/missing_api_key/forbidden/insufficient_permissions/feature_not_available/detected_unusual_activity
-  ConfirmationRequired = 4, // --yes missing on destructive/external_side_effect op
-  BudgetCeiling = 5, // --max-credits pre-flight blocked the call (no network)
-  CreditExhausted = 6, // provider insufficient_credits/quota_exceeded (401 or 402)
-  TransientExhausted = 7, // 429 + 5xx after retries, network failure
-  ProviderError = 8, // other 4xx/5xx not covered above
-  NotFound = 9, // 404, unknown operation_id
+  InputValidation = 2,
+  AuthPermission = 3,
+  ConfirmationRequired = 4,
+  BudgetCeiling = 5,
+  CreditExhausted = 6,
+  TransientExhausted = 7,
+  ProviderError = 8,
+  NotFound = 9,
 }
 
 /** Canonical bucketed input to the runner. Flat JSON is normalized into this shape. */
-export interface AgentInput {
-  path?: Record<string, unknown>;
-  query?: Record<string, unknown>;
-  body?: unknown;
+export type AgentInput = JsonObjectInput & {
+  path?: JsonObjectInput;
+  query?: JsonObjectInput;
+  body?: JsonInputValue;
   headers?: Record<string, string>;
   /** Resolved file uploads: field name → absolute path(s). `name[]` arrays collapse to string[]. */
   files?: Record<string, string | string[]>;
-}
+};
 
 export interface RunOpts {
   /** Command path the caller invoked; aliases preserve it in envelopes and hints. */
@@ -108,22 +107,25 @@ export interface WsInfo {
   partial?: boolean;
 }
 
-export interface SuccessEnvelope {
+interface EnvelopeBase {
   v: typeof ENVELOPE_VERSION;
-  ok: true;
   cmd: string;
   operation_id?: string;
   http?: HttpInfo;
-  request?: RequestInfo;
-  concurrency?: ConcurrencyInfo;
   cost?: CostInfo;
-  data?: unknown;
-  data_summary?: DataSummary;
   files?: FileRecord[];
-  truncated?: boolean;
   warnings?: Warning[];
   hints?: Hint[];
   ws?: WsInfo;
+}
+
+export interface SuccessEnvelope extends EnvelopeBase {
+  ok: true;
+  request?: RequestInfo;
+  concurrency?: ConcurrencyInfo;
+  data?: unknown;
+  data_summary?: DataSummary;
+  truncated?: boolean;
 }
 
 /** §4 — normalized from all FOUR provider detail variants (array / rich-object / legacy / string). */
@@ -142,19 +144,10 @@ export interface RetryInfo {
   after_ms: number | null;
 }
 
-export interface ErrorEnvelope {
-  v: typeof ENVELOPE_VERSION;
+export interface ErrorEnvelope extends EnvelopeBase {
   ok: false;
-  cmd: string;
-  operation_id?: string;
-  http?: HttpInfo;
   error: NormalizedError;
   retry?: RetryInfo;
-  cost?: CostInfo;
-  files?: FileRecord[];
-  warnings?: Warning[];
-  hints?: Hint[];
-  ws?: WsInfo;
 }
 
 export type Envelope = SuccessEnvelope | ErrorEnvelope;

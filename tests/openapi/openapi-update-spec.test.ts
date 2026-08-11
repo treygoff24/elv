@@ -1,12 +1,17 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, type RequestListener, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { handleSpecDiff, handleSpecStatus, handleSpecUpdate } from "../../src/commands/spec";
 import { diffSpec, updateSpecCache } from "../../src/openapi/fetch-spec";
 import { rawSpecCachePath, registryCachePath } from "../../src/openapi/registry";
+import { isRecord, parseJsonRecord } from "../../src/util/json";
+import type { OpenApiDocument } from "../../src/openapi/compile-spec";
+import type { OperationCard } from "../../src/openapi/types";
+import type { JsonValue } from "../../src/util/json";
 
 let cacheDir: string;
 const servers: Server[] = [];
@@ -29,20 +34,49 @@ describe("spec update", () => {
     const result = await updateSpecCache({ offline: true, cacheDir });
     const cache = JSON.parse(readFileSync(result.cachePath, "utf8")) as {
       schema: string;
-      operations: unknown[];
+      operations: OperationCard[];
       provenance: { sha256: string; schemas: number };
     };
 
-    expect(result.operations).toBe(338);
-    expect(result.totalOperations).toBe(339);
+    expect(result.operations).toBe(363);
+    expect(result.totalOperations).toBe(364);
     expect(result.skippedOperations).toBe(1);
     expect(cache.schema).toBe("elv.openapi.cache.v3");
-    expect(cache.operations).toHaveLength(338);
+    expect(cache.operations).toHaveLength(363);
     expect(cache.provenance).toMatchObject({
-      sha256: "de0476611805f3ee4e6a6c76dcdd6cc9686b8daee5757e6465d2974094c844ce",
-      schemas: 1345,
+      sha256: "d1a4847203cef628b0c43760b0c74ecd88fa280034bb47c973874ae911f6153a",
+      schemas: 1402,
     });
     expect(existsSync(rawSpecCachePath({ cacheDir }))).toBe(false);
+  });
+
+  it("rejects vendored metadata missing string provenance fields", async () => {
+    cacheDir = mkdtempSync(join(tmpdir(), "elv-bad-meta-"));
+    const packageRoot = join(cacheDir, "node_modules", "eleven-agent-cli");
+    const specDir = join(packageRoot, "spec");
+    mkdirSync(specDir, { recursive: true });
+    writeFileSync(join(packageRoot, "package.json"), '{"version":"1.2.3"}');
+    writeFileSync(
+      join(specDir, "openapi.snapshot.json"),
+      readFileSync("fixtures/fake-openapi.json"),
+    );
+    writeFileSync(
+      join(specDir, "openapi.snapshot.meta.json"),
+      '{"retrieved_at":"2026-08-11T00:00:00Z"}',
+    );
+
+    const result = await handleSpecUpdate({
+      offline: true,
+      cacheDir,
+      moduleUrl: pathToFileURL(join(packageRoot, "dist", "cli.js")),
+    });
+
+    expect(result.exitCode).toBe(2);
+    expect(result.env.ok).toBe(false);
+    if (result.env.ok) throw new Error("expected failure");
+    expect(result.env.error.message).toContain(
+      "expected source, retrieved_at, sha256, and non-negative integer counts",
+    );
   });
 
   it("updates from a local spec file", async () => {
@@ -53,7 +87,7 @@ describe("spec update", () => {
     expect(result.exitCode).toBe(0);
     expect(result.env.ok).toBe(true);
     if (!result.env.ok) throw new Error("expected success");
-    expect((result.env.data as Record<string, unknown>).operations).toBe(4);
+    expect(isRecord(result.env.data) && result.env.data.operations).toBe(4);
   });
 
   it("honors ELV_SPEC_URL when --from is absent", async () => {
@@ -208,11 +242,14 @@ describe("spec update", () => {
   it("reports stable operation, deprecation, and schema diffs", async () => {
     cacheDir = mkdtempSync(join(tmpdir(), "elv-spec-update-"));
     await updateSpecCache({ from: "fixtures/fake-openapi.json", cacheDir });
-    const candidate = JSON.parse(readFileSync("fixtures/fake-openapi.json", "utf8")) as {
-      paths: Record<string, Record<string, Record<string, unknown>>>;
-      components: { schemas: Record<string, unknown> };
-    };
-    candidate.paths["/v1/voices"]!.get!.deprecated = true;
+    const candidate = parseJsonRecord(
+      readFileSync("fixtures/fake-openapi.json", "utf8"),
+      "fake OpenAPI fixture",
+    ) as OpenApiDocument;
+    const voicesPath = candidate.paths["/v1/voices"];
+    const getVoices = voicesPath && isRecord(voicesPath.get) ? voicesPath.get : undefined;
+    if (!getVoices) throw new Error("fixture is missing GET /v1/voices");
+    getVoices.deprecated = true;
     candidate.paths["/v1/z"] = { get: operation("z_new") };
     candidate.paths["/v1/a"] = { get: operation("a_new") };
     candidate.components.schemas.Zed = { type: "string" };
@@ -228,6 +265,23 @@ describe("spec update", () => {
     expect(result.diff.added_schemas).toEqual(["Alpha", "Zed"]);
     expect(result.diff.changed_schemas).toBe(1);
     expect(result.written).toBe(false);
+  });
+
+  it("does not report changes after serializing the active registry cache", async () => {
+    cacheDir = mkdtempSync(join(tmpdir(), "elv-spec-update-"));
+    await updateSpecCache({ from: "fixtures/fake-openapi.json", cacheDir });
+
+    const result = await diffSpec({ from: "fixtures/fake-openapi.json", cacheDir });
+
+    expect(result.diff).toMatchObject({
+      added_operations: [],
+      removed_operations: [],
+      changed_operations: [],
+      local_curation_changes: { risk: [], cost: [], stream: [] },
+      added_schemas: [],
+      removed_schemas: [],
+      changed_schemas: 0,
+    });
   });
 
   it("reports vendored and active provenance offline", async () => {
@@ -250,7 +304,7 @@ describe("spec update", () => {
     const updated = await updateSpecCache({ from: "fixtures/fake-openapi.json", cacheDir });
     const legacy = JSON.parse(readFileSync(updated.cachePath, "utf8")) as {
       schema?: string;
-      provenance?: unknown;
+      provenance?: JsonValue;
     };
     delete legacy.schema;
     delete legacy.provenance;
@@ -268,7 +322,7 @@ describe("spec update", () => {
   });
 });
 
-function operation(operationId: string): Record<string, unknown> {
+function operation(operationId: string) {
   return { operationId, responses: { "200": { description: "ok" } } };
 }
 

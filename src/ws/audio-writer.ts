@@ -3,6 +3,7 @@ import { decodeBase64 } from "../core/encoding";
 import { tempFileWriter } from "../core/files";
 import { isRecord } from "../util/json";
 import type { TempFileWriter } from "../core/files";
+import type { JsonValue } from "../util/json";
 
 export class AudioWriter {
   private writer: TempFileWriter | null = null;
@@ -21,7 +22,7 @@ export class AudioWriter {
     return this.wroteAudio;
   }
 
-  async writeFromEvent(event: unknown): Promise<boolean> {
+  async writeFromEvent(event: JsonValue): Promise<boolean> {
     const audio = audioBase64(event);
     if (!audio) return false;
     this.writer ??= tempFileWriter(this.path);
@@ -49,7 +50,7 @@ function audioExtension(outputFormat: string | undefined): string {
   return "mp3";
 }
 
-function audioBase64(event: unknown): string | null {
+function audioBase64(event: JsonValue): string | null {
   if (!isRecord(event)) return null;
   const value = event.audio ?? event.audio_base64;
   return typeof value === "string" && value.length > 0 ? value : null;

@@ -3,7 +3,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
-import { arrayValue, parseEnvelope, recordValue, type CliResult } from "../helpers/cli-result";
+import {
+  arrayValue,
+  errorRecord,
+  parseEnvelope,
+  recordValue,
+  type CliResult,
+} from "../helpers/cli-result";
 
 function hasAnsiEscape(text: string): boolean {
   return text.includes("\u001b");
@@ -72,7 +78,7 @@ describe("CLI JSON output contract", () => {
         type: "config_error",
         code: "config_json_invalid",
       });
-      expect(String((envelope.error as Record<string, unknown>).message)).toContain(configPath);
+      expect(String(errorRecord(envelope).message)).toContain(configPath);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -88,7 +94,7 @@ describe("CLI JSON output contract", () => {
     expect(code).toBe(0);
     const envelope = parseEnvelope(stdout);
     expect(envelope.ok).toBe(true);
-    const data = envelope.data as Record<string, unknown>;
+    const data = recordValue(envelope.data, "data");
     expect(data.command).toBe("elv");
     expect((data.description as string).length).toBeGreaterThan(0);
     const commands = data.commands as Array<{ name: string; description: string }>;
@@ -104,7 +110,7 @@ describe("CLI JSON output contract", () => {
     expect(code).toBe(2);
     const envelope = parseEnvelope(stdout);
     expect(envelope.ok).toBe(false);
-    const error = envelope.error as Record<string, unknown>;
+    const error = errorRecord(envelope);
     expect(error.code).toBe("validation_error");
     expect(String(error.message)).toMatch(/--text or --text-file/);
   });
@@ -114,7 +120,7 @@ describe("CLI JSON output contract", () => {
     expect(code).toBe(2);
     const envelope = parseEnvelope(stdout);
     expect(envelope.ok).toBe(false);
-    expect((envelope.error as Record<string, unknown>).code).toBe("validation_error");
+    expect(errorRecord(envelope).code).toBe("validation_error");
   });
 
   it("nested alias validation reports the full command path", () => {
@@ -130,7 +136,7 @@ describe("CLI JSON output contract", () => {
     expect(code).toBe(2);
     const envelope = parseEnvelope(stdout);
     expect(envelope.ok).toBe(false);
-    const error = envelope.error as Record<string, unknown>;
+    const error = errorRecord(envelope);
     expect(error.code).toBe("validation_error");
     expect(String(error.message)).toContain("--text or --text-file");
   });
@@ -155,10 +161,8 @@ describe("CLI JSON output contract", () => {
       expect(code, args.join(" ")).toBe(2);
       const envelope = parseEnvelope(stdout);
       expect(envelope.ok).toBe(false);
-      expect((envelope.error as Record<string, unknown>).code).toBe("validation_error");
-      expect(String((envelope.error as Record<string, unknown>).message)).toContain(
-        "Expected number",
-      );
+      expect(errorRecord(envelope).code).toBe("validation_error");
+      expect(String(errorRecord(envelope).message)).toContain("Expected number");
     }
   }, 15_000);
 
@@ -167,7 +171,7 @@ describe("CLI JSON output contract", () => {
     expect(code).toBe(0);
     const envelope = parseEnvelope(stdout);
     expect(envelope.ok).toBe(true);
-    const request = (envelope.data as Record<string, unknown>).request as Record<string, unknown>;
+    const request = recordValue(recordValue(envelope.data, "data").request, "request");
     const input = request.input as { path?: { voice_id?: string } };
     expect(input.path?.voice_id).toBe("POSITIONAL_ID");
   });
@@ -177,7 +181,7 @@ describe("CLI JSON output contract", () => {
     expect(code).toBe(2);
     const envelope = parseEnvelope(stdout);
     expect(envelope.ok).toBe(false);
-    expect(String((envelope.error as Record<string, unknown>).message)).toMatch(/positional/);
+    expect(String(errorRecord(envelope).message)).toMatch(/positional/);
   });
 
   it("bare parent commands emit help envelopes with subcommands", () => {
@@ -186,19 +190,44 @@ describe("CLI JSON output contract", () => {
       expect(code).toBe(0);
       const envelope = parseEnvelope(stdout);
       expect(envelope.ok).toBe(true);
-      const data = envelope.data as Record<string, unknown>;
+      const data = recordValue(envelope.data, "data");
       expect(data.command).toBe(command);
       expect(Array.isArray(data.subcommands)).toBe(true);
       expect((data.subcommands as string[]).length).toBeGreaterThan(0);
     }
   }, 10_000);
 
+  // Alias parents and nested alias parents used to report a missing-subcommand
+  // validation error while ops/config/spec answered with help, so discovery
+  // behaved differently depending on which branch of the tree you probed.
+  it("alias parents and nested alias parents emit the same help envelope", () => {
+    for (const argv of [["agents"], ["voices"], ["workspace"], ["agents", "tests"]]) {
+      const { stdout, code } = runCli(argv);
+      expect(code).toBe(0);
+      const envelope = parseEnvelope(stdout);
+      expect(envelope.ok).toBe(true);
+      expect(envelope.cmd).toBe(["elv", ...argv].join(" "));
+      const data = recordValue(envelope.data, "data");
+      expect(data.command).toBe(argv[argv.length - 1]);
+      expect(arrayValue(data.subcommands, "subcommands").length).toBeGreaterThan(0);
+    }
+  }, 20_000);
+
+  it("spec status accepts --offline as a no-op instead of rejecting it", () => {
+    const { stdout, code } = runCli(["spec", "status", "--offline"]);
+    expect(code).toBe(0);
+    const envelope = parseEnvelope(stdout);
+    expect(envelope.ok).toBe(true);
+    expect(envelope.cmd).toBe("elv spec status --offline");
+    expect(recordValue(envelope.data, "data").cache_path).toBeTypeOf("string");
+  });
+
   it("subcommand --help emits per-command metadata instead of the global list", () => {
     const { stdout: ttsStdout, code: ttsCode } = runCli(["tts", "--help"]);
     expect(ttsCode).toBe(0);
     const ttsEnvelope = parseEnvelope(ttsStdout);
     expect(ttsEnvelope.ok).toBe(true);
-    const ttsData = ttsEnvelope.data as Record<string, unknown>;
+    const ttsData = recordValue(ttsEnvelope.data, "data");
     expect(ttsData.command).toBe("tts");
     expect(ttsData.commands).toBeUndefined();
     const ttsOptions = ttsData.options as Array<{ flags: string; description?: string }>;
@@ -212,7 +241,7 @@ describe("CLI JSON output contract", () => {
     const { stdout: viewStdout, code: viewCode } = runCli(["view", "--help"]);
     expect(viewCode).toBe(0);
     const viewEnvelope = parseEnvelope(viewStdout);
-    const viewData = viewEnvelope.data as Record<string, unknown>;
+    const viewData = recordValue(viewEnvelope.data, "data");
     expect(viewData.command).toBe("view");
     expect(viewData).not.toEqual(ttsData);
   });

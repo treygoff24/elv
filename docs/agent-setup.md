@@ -124,7 +124,7 @@ elv usage
 
 ## Step 6: Discover capabilities and operations
 
-The pinned July 16, 2026 ElevenLabs OpenAPI document contains 339 operations. `elv` compiles 338 and skips one deprecated signed-URL operation whose current replacement is available. Start with the service map, then search the registry, inspect an operation, and copy a runnable skeleton:
+The pinned August 11, 2026 ElevenLabs OpenAPI document contains 364 operations. `elv` compiles 363 and skips one deprecated signed-URL operation whose current replacement is available. Start with the service map, then search the registry, inspect an operation, and copy a runnable skeleton:
 
 ```bash
 elv capabilities
@@ -135,9 +135,13 @@ elv ops schema text_to_speech_full --example
 elv spec status
 ```
 
-The `--example` output is a ready-to-run `elv call` skeleton. Fourteen common workflow aliases include `tts`, `stt`, `music`, `dubbing-project`, `agents`, and `workspace`; they build input and call the same runner. For the rest of the pinned REST surface, use `elv call <operation_id> --json '{...}'`. Use `http` for a published REST path newer than the snapshot, `ws` for the named client-side realtime protocols, and `wait` for polling.
+The `--example` output is a ready-to-run `elv call` skeleton; required arrays include one placeholder item when the schema provides an item shape. Fourteen common workflow aliases include `tts`, `stt`, `music`, `dubbing-project`, `agents`, and `workspace`; they build input and call the same runner. For the rest of the pinned REST surface, use `elv call <operation_id> --json '{...}'`. Use `http` for a published REST path newer than the snapshot, `ws` for the named client-side realtime protocols, and `wait` for polling.
 
 `elv models list` is account-visible state from `/v1/models`, not a complete cross-product model catalog. Use documented model IDs for each service; current STT examples should use `scribe_v2` rather than deprecated `scribe_v1`.
+
+Music Finetunes use `elv music finetunes list|get|create|update|delete`; training files are repeatable `--file` arguments, and generation accepts `--finetune-id`. The provider's entitlement, charges, and ownership/copyright rules still apply. For STT webhook delivery, configure a workspace webhook and use bare `--webhook` plus optional `--webhook-id`; use `--token-env ENV_NAME` for a single-use token so the credential value stays out of argv.
+
+Agents Procedures, Dubbing v2 bulk transcript editing, voice accents, and cross-residency voice replication are in the compiled REST registry and exposed through `agents procedures`, `dubbing-project ... update-segments`, and `voices accents|replicate`. Use `ops search` and `ops schema --example` to discover their exact request shapes. Voice replication and both Procedure DELETE operations require `--yes`. Realtime STT accepts current query fields without a client release, for example `elv ws stt-realtime --query entity_detection=true ...`.
 
 ## Troubleshooting
 
@@ -185,4 +189,4 @@ Confirm Node is 22 or newer, delete `node_modules` and reinstall with `npm ci`, 
 
 ## You're done
 
-When `elv config doctor` exits 0 and the dry-run in Step 5 returns a success envelope, the install is verified. For the runtime contract (envelope shape, safety flags, budget caps), read [AGENTS.md](../AGENTS.md). [API coverage](./api-coverage.md) records the pinned contract and deliberate exclusions. For day-to-day usage, the shipped skill is at [skills/elv/SKILL.md](../skills/elv/SKILL.md).
+When `elv config doctor` exits 0 and the dry-run in Step 5 returns a success envelope, the install is verified. For the runtime contract (envelope shape, safety flags, budget caps), read [AGENTS.md](../AGENTS.md). [API coverage](./api-coverage.md) records the pinned contract and deliberate exclusions. For day-to-day usage, start with [skills/elv/SKILL.md](../skills/elv/SKILL.md); it points to branch-specific references in the same directory only when a workflow needs them.

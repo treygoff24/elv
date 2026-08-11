@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { waitForOperation } from "../../src/core/wait-operation";
 import { success } from "../../src/core/envelope";
+import type { RunOpts } from "../../src/core/types";
 
 describe("wait operation runtime selection", () => {
   it("passes the selected profile and base URL to every operation poll", async () => {
-    const seen: unknown[] = [];
+    const seen: Array<Pick<RunOpts, "baseUrl" | "profile"> | undefined> = [];
     await waitForOperation(
       {
         operation: "get_dubbing",

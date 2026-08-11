@@ -1,5 +1,6 @@
 import { normalizeProviderError } from "./error-normalizer";
 import type { HttpRequest } from "./request-builder";
+import type { JsonValue } from "../util/json";
 import type { NormalizedError, RetryInfo } from "./types";
 import type { OperationCard } from "../openapi/types";
 
@@ -137,24 +138,28 @@ function methodCanRetry(req: HttpRequest, ctx: RetryContext): boolean {
 
 async function responseCode(res: Response): Promise<string> {
   try {
-    const body = await res.clone().json();
+    const body = (await res.clone().json()) as JsonValue;
     return normalizeProviderError(body, res.status, res.headers).code;
   } catch {
     return "";
   }
 }
 
-function backoffMs(attempt: number, retryAfter: number | undefined, jitter: () => number): number {
+function backoffMs(
+  attempt: number,
+  retryAfter: number | null | undefined,
+  jitter: () => number,
+): number {
   return retryAfter ?? 500 * 2 ** (attempt - 1) + jitter();
 }
 
-function retryAfterMs(headers: Headers): number | undefined {
+export function retryAfterMs(headers: Headers): number | null {
   const value = headers.get("retry-after");
-  if (!value) return undefined;
+  if (!value) return null;
   const seconds = Number(value);
   if (Number.isFinite(seconds)) return Math.max(0, seconds * 1000);
   const dateMs = Date.parse(value);
-  return Number.isFinite(dateMs) ? Math.max(0, dateMs - Date.now()) : undefined;
+  return Number.isFinite(dateMs) ? Math.max(0, dateMs - Date.now()) : null;
 }
 
 function defaultSleep(ms: number): Promise<void> {

@@ -1,0 +1,6 @@
+# Read by ripgrep, fd, and friends (not by git — see .gitattributes for that).
+# The vendored OpenAPI snapshot is one ~1.8 MB line, so any broad `rg` that hits
+# it floods and truncates the output you actually wanted. Search it explicitly
+# with `rg --no-ignore <pattern> spec/openapi.snapshot.json`, or use the
+# structured surface: `elv ops search`, `elv ops get`, `elv ops schema`.
+spec/openapi.snapshot.json

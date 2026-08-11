@@ -36,20 +36,20 @@ function readBody(req: IncomingMessage): Promise<string> {
   });
 }
 
-function assertSingleEnvelope(stdout: string): Record<string, unknown> {
+function assertSingleEnvelope(stdout: string) {
   const envelope = parseEnvelope(stdout);
   expect(envelope.v).toBe(1);
   return envelope;
 }
 
-function assertOkEnvelope(stdout: string, stderr: string): Record<string, unknown> {
+function assertOkEnvelope(stdout: string, stderr: string) {
   assertNoKeyLeak(stdout, stderr);
   const envelope = assertSingleEnvelope(stdout);
   expect(envelope.ok).toBe(true);
   return envelope;
 }
 
-function historyItems(count: number): Record<string, unknown>[] {
+function historyItems(count: number) {
   return Array.from({ length: count }, (_, index) => ({
     history_item_id: `hist_${index + 1}`,
     text: `item ${index + 1}`,
@@ -328,7 +328,6 @@ describe("aliases mock server (black-box, integration gate)", () => {
       expect(startMs).toBe(USAGE_FROM_MS);
       expect(endMs).toBe(USAGE_TO_MS);
 
-      // Regression guard: seconds form would be three orders of magnitude smaller.
       expect(startMs).not.toBe(Math.floor(USAGE_FROM_MS / 1000));
       expect(endMs).not.toBe(Math.floor(USAGE_TO_MS / 1000));
     },
@@ -394,7 +393,7 @@ describe("aliases mock server (black-box, integration gate)", () => {
 
       expect(code).toBe(0);
       const envelope = assertOkEnvelope(stdout, stderr);
-      const data = envelope.data as Record<string, unknown>;
+      const data = recordValue(envelope.data, "data");
       expect(data.dubbing_id).toBe("abc");
     },
     CALL_TIMEOUT_MS,

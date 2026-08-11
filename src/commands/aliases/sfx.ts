@@ -1,12 +1,10 @@
 import type { Command } from "commander";
-import { numberValue } from "../options";
+import { numberValue, type CliOptionValues } from "../options";
 import { compact, compactInput, required, runAlias, type BuiltOperation } from "./shared";
 
-interface SfxFlags {
+interface SfxFlags extends Pick<CliOptionValues, "model" | "format"> {
   prompt?: string;
   duration?: string | number;
-  model?: string;
-  format?: string;
   loop?: boolean;
 }
 

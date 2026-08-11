@@ -2,15 +2,17 @@ import { join } from "node:path";
 import { statSync } from "node:fs";
 import { redact, redactString } from "../core/redaction";
 import { tempFileWriter } from "../core/files";
+import { errorMessage } from "../util/error";
 import { isRecord, parseJson } from "../util/json";
 import type { TempFileWriter } from "../core/files";
+import type { JsonObject, JsonValue } from "../util/json";
 
 import type { WsProtocol } from "./catalog";
 
 export const MAX_BINARY_FILE_BYTES = 64 * 1024 * 1024;
 
 export type SendScriptAction =
-  | { type: "send"; data: Record<string, unknown> }
+  | { type: "send"; data: JsonObject }
   | { type: "send_binary_file"; path: string }
   | { type: "close" };
 
@@ -110,7 +112,7 @@ export function redactWsString(value: string): string {
 }
 
 function parseLine(line: string, index: number): SendScriptAction {
-  let parsed: unknown;
+  let parsed: JsonValue;
   try {
     parsed = parseJson(line, `send-script line ${index}`);
   } catch (error) {
@@ -130,7 +132,7 @@ function parseLine(line: string, index: number): SendScriptAction {
   if (!isRecord(parsed.data)) {
     throw new Error(`send-script line ${index} send.data must be an object`);
   }
-  return { type: "send", data: parsed.data };
+  return { type: "send", data: parsed.data as JsonObject };
 }
 
 function validateProtocolActions(actions: SendScriptAction[], protocol: WsProtocol | "raw"): void {
@@ -187,8 +189,4 @@ function isWsSecretKey(key: string): boolean {
     "xi-api-key",
     "xi_api_key",
   ].includes(key.toLowerCase());
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }

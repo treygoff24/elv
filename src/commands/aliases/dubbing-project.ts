@@ -45,6 +45,13 @@ export function buildDubbingTranscriptUpdateSegmentInput(flags: TranscriptFlags)
   };
 }
 
+export function buildDubbingTranscriptUpdateSegmentsInput(flags: TranscriptFlags): BuiltOperation {
+  return {
+    operationId: "dubbing_transcript_segments_update",
+    input: { path: sourcePath(flags), body: readJsonBody(flags) },
+  };
+}
+
 export function buildDubbingTranscriptDeleteSegmentInput(flags: TranscriptFlags): BuiltOperation {
   return {
     operationId: "dubbing_transcript_segment_delete",
@@ -70,6 +77,15 @@ export function buildDubbingTargetTranscriptUpdateSegmentInput(
   };
 }
 
+export function buildDubbingTargetTranscriptUpdateSegmentsInput(
+  flags: TranscriptFlags,
+): BuiltOperation {
+  return {
+    operationId: "dubbing_target_transcript_segments_update",
+    input: { path: targetPath(flags), body: readJsonBody(flags) },
+  };
+}
+
 export function buildDubbingTargetTranscriptRegenerateInput(
   flags: TranscriptFlags,
 ): BuiltOperation {
@@ -85,7 +101,7 @@ export function registerDubbingProjectCommand(
 ): void {
   const project = program
     .command("dubbing-project")
-    .description("Edit Dubbing Project transcripts (distinct from automatic Dubbing v2)");
+    .description("Inspect and edit Dubbing Project and Dubbing v2 transcripts");
   const transcript = project.command("transcript").description("Source transcript editing");
   addCommonFlags(
     transcriptCommand(transcript.command("get"), "Get the source transcript", false, false).action(
@@ -111,6 +127,16 @@ export function registerDubbingProjectCommand(
       true,
     ).action((options: TranscriptFlags, command: Command) =>
       runAlias(buildDubbingTranscriptUpdateSegmentInput, options, command),
+    ),
+  );
+  addCommonFlags(
+    transcriptCommand(
+      transcript.command("update-segments"),
+      "Atomically update source segments",
+      true,
+      false,
+    ).action((options: TranscriptFlags, command: Command) =>
+      runAlias(buildDubbingTranscriptUpdateSegmentsInput, options, command),
     ),
   );
   addCommonFlags(
@@ -141,6 +167,16 @@ export function registerDubbingProjectCommand(
       true,
     ).action((options: TranscriptFlags, command: Command) =>
       runAlias(buildDubbingTargetTranscriptUpdateSegmentInput, options, command),
+    ),
+  );
+  addCommonFlags(
+    targetCommand(
+      target.command("update-segments"),
+      "Atomically update translated segments",
+      true,
+      false,
+    ).action((options: TranscriptFlags, command: Command) =>
+      runAlias(buildDubbingTargetTranscriptUpdateSegmentsInput, options, command),
     ),
   );
   addCommonFlags(

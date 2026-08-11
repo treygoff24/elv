@@ -1,5 +1,6 @@
 import { failure, success } from "../core/envelope";
 import { ExitCode } from "../core/types";
+import { errorMessage } from "../util/error";
 import {
   diffSpec,
   specStatus,
@@ -15,22 +16,19 @@ interface SpecUpdateOptions extends UpdateSpecOptions {
 }
 
 export async function handleSpecUpdate(options: SpecUpdateOptions = {}): Promise<CommandResult> {
-  const cmd = options.cmd ?? "elv spec update";
-  try {
-    const result = await updateSpecCache(options);
-    return {
-      env: success({ cmd, data: specResultData(result) }),
-      exitCode: ExitCode.Success,
-    };
-  } catch (error) {
-    return specUpdateFailure(cmd, error);
-  }
+  return runSpecChange(options.cmd ?? "elv spec update", () => updateSpecCache(options));
 }
 
 export async function handleSpecDiff(options: SpecUpdateOptions = {}): Promise<CommandResult> {
-  const cmd = options.cmd ?? "elv spec diff";
+  return runSpecChange(options.cmd ?? "elv spec diff", () => diffSpec(options));
+}
+
+async function runSpecChange(
+  cmd: string,
+  change: () => Promise<SpecUpdateResult>,
+): Promise<CommandResult> {
   try {
-    const result = await diffSpec(options);
+    const result = await change();
     return {
       env: success({ cmd, data: specResultData(result) }),
       exitCode: ExitCode.Success,
@@ -40,7 +38,7 @@ export async function handleSpecDiff(options: SpecUpdateOptions = {}): Promise<C
   }
 }
 
-function specResultData(result: SpecUpdateResult): Record<string, unknown> {
+function specResultData(result: SpecUpdateResult) {
   return {
     operations: result.operations,
     total_operations: result.totalOperations,
@@ -94,7 +92,7 @@ function specProviderFailure(cmd: string, error: unknown): CommandResult {
       error: {
         type: "provider_error",
         code: error instanceof SpecProviderError ? "spec_fetch_failed" : "spec_update_failed",
-        message: error instanceof Error ? error.message : String(error),
+        message: errorMessage(error),
         raw: error,
       },
       retry: { recommended: false, after_ms: null },

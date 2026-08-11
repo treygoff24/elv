@@ -6,7 +6,8 @@ import { fileRecord, writeBufferToFile, writeManifest } from "../core/files";
 import { AudioWriter } from "./audio-writer";
 import { MAX_BINARY_FILE_BYTES, NdjsonEventWriter, redactWs, redactWsString } from "./events";
 import { isRecord, parseJson as parseJsonValue } from "../util/json";
-import type { FileRecord, WsInfo } from "../core/types";
+import type { FileRecord, SuccessEnvelope, WsInfo } from "../core/types";
+import type { JsonObject, JsonValue } from "../util/json";
 import type { SendScriptAction } from "./events";
 
 interface WsSessionOptions {
@@ -20,10 +21,7 @@ interface WsSessionOptions {
   outputFormat?: string;
 }
 
-interface WsSessionResult {
-  ws: WsInfo;
-  files: FileRecord[];
-}
+type WsSessionResult = Required<Pick<SuccessEnvelope, "ws" | "files">>;
 
 export class WsSessionError extends Error {
   constructor(
@@ -209,17 +207,7 @@ async function finishSession(
   for (const path of state.binaryPaths) files.push(await fileRecord(path, { hash: true }));
   const manifestPath = await writeManifest(
     options.outDir,
-    redactWs({
-      catalog: options.catalog,
-      path: options.path,
-      connection_url: redactWsString(options.url.toString()),
-      headers: options.headers ?? {},
-      events_sent: state.eventsSent,
-      events_received: state.eventsReceived,
-      binary_frames_received: state.binaryPaths.length,
-      closed: state.closed,
-      timed_out: inactivity.timedOut(),
-    }),
+    sessionManifest(options, state, inactivity),
   );
   files.push(await fileRecord(manifestPath, { hash: true }));
 
@@ -252,21 +240,7 @@ async function preserveFailedSession(
   }
   try {
     paths.push(
-      await writeManifest(
-        options.outDir,
-        redactWs({
-          catalog: options.catalog,
-          path: options.path,
-          connection_url: redactWsString(options.url.toString()),
-          headers: options.headers ?? {},
-          events_sent: state.eventsSent,
-          events_received: state.eventsReceived,
-          binary_frames_received: state.binaryPaths.length,
-          closed: state.closed,
-          timed_out: inactivity.timedOut(),
-          partial: true,
-        }),
-      ),
+      await writeManifest(options.outDir, sessionManifest(options, state, inactivity, true)),
     );
   } catch {
     // The received payload files remain recoverable even if the diagnostic manifest cannot be written.
@@ -275,6 +249,26 @@ async function preserveFailedSession(
     paths.map(async (path) => ({ ...(await fileRecord(path, { hash: true })), partial: true })),
   );
   return records.flatMap((result) => (result.status === "fulfilled" ? [result.value] : []));
+}
+
+function sessionManifest(
+  options: WsSessionOptions,
+  state: WsSessionState,
+  inactivity: ReturnType<typeof createInactivityTimer>,
+  partial = false,
+): JsonValue {
+  return redactWs({
+    catalog: options.catalog,
+    path: options.path,
+    connection_url: redactWsString(options.url.toString()),
+    headers: options.headers ?? {},
+    events_sent: state.eventsSent,
+    events_received: state.eventsReceived,
+    binary_frames_received: state.binaryPaths.length,
+    closed: state.closed,
+    timed_out: inactivity.timedOut(),
+    ...(partial ? { partial: true } : {}),
+  });
 }
 
 function wsInfo(
@@ -374,7 +368,10 @@ async function sendBinaryFile(socket: WebSocket, path: string): Promise<void> {
   });
 }
 
-function sendJson(socket: WebSocket, value: Record<string, unknown>): Promise<void> {
+function sendJson(
+  socket: WebSocket,
+  value: JsonObject | { type: "pong"; event_id?: JsonValue },
+): Promise<void> {
   return new Promise((resolve, reject) => {
     socket.send(JSON.stringify(value), (error) => (error ? reject(error) : resolve()));
   });
@@ -397,6 +394,6 @@ function rawDataToBuffer(data: RawData): Buffer {
   return Buffer.from(data);
 }
 
-function isPing(value: unknown): value is { type: "ping"; event_id?: unknown } {
+function isPing(value: JsonValue): value is { type: "ping"; event_id?: JsonValue } {
   return isRecord(value) && value.type === "ping";
 }

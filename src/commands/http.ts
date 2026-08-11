@@ -1,25 +1,30 @@
 import { exitCodeForError, validationError } from "../core/errors";
 import { envelopeForThrown, runPreparedOperation } from "../core/client";
 import { InputNormalizationError } from "../core/request-builder";
-import { applyPaginationDefaults, type PaginationOptions } from "../core/pagination";
+import { applyPaginationDefaults, type PaginatedRunOptions } from "../core/pagination";
 import { estimateCredits } from "../core/budget";
 import { loadRegistry } from "../openapi/registry";
 import { classifyRisk } from "../openapi/risk";
+import { HTTP_METHODS } from "../openapi/types";
+import { errorMessage } from "../util/error";
 import { parseJson } from "../util/json";
 import type { AgentInput, CommandResult, Envelope, RunOpts, Warning } from "../core/types";
 import type { HttpMethod, OperationCard } from "../openapi/types";
 import { ExitCode as Codes } from "../core/types";
 import { addFiles, addPairs } from "./input";
 import { paginationOptionsFromOptions, runOptsFromOptions } from "./options";
-import type { PaginationOptionValues, RunOptionValues } from "./options";
+import type { CliOptionValues, PaginationOptionValues, RunOptionValues } from "./options";
 
-interface HttpOptions extends RunOptionValues, PaginationOptionValues, Pick<RunOpts, "apiKey"> {
-  query?: string[];
-  bodyJson?: string;
+interface HttpOptions
+  extends
+    RunOptionValues,
+    PaginationOptionValues,
+    Pick<RunOpts, "apiKey">,
+    Pick<CliOptionValues, "query" | "bodyJson"> {
   file?: string[];
 }
 
-type HttpRunOpts = RunOpts & PaginationOptions;
+type HttpRunOpts = PaginatedRunOptions;
 
 export async function handleHttp(
   method: string,
@@ -46,7 +51,7 @@ export async function runHttp(
   try {
     opts = httpRunOpts(options);
   } catch (error) {
-    return validationError(cmd, error instanceof Error ? error.message : String(error));
+    return validationError(cmd, errorMessage(error));
   }
 
   try {
@@ -96,7 +101,7 @@ function parseHttpInput(
     };
 
   try {
-    const input: AgentInput & Record<string, unknown> = {};
+    const input: AgentInput = {};
     addPairs(input, "query", options.query);
     if (options.bodyJson !== undefined) input.body = parseJson(options.bodyJson, "--body-json");
     addFiles(input, options.file);
@@ -104,7 +109,7 @@ function parseHttpInput(
   } catch (error) {
     return {
       ok: false,
-      env: validationError(cmd, error instanceof Error ? error.message : String(error)),
+      env: validationError(cmd, errorMessage(error)),
     };
   }
 }
@@ -286,5 +291,5 @@ function httpRunOpts(options: HttpOptions): HttpRunOpts {
 }
 
 function isHttpMethod(value: string): value is HttpMethod {
-  return ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"].includes(value);
+  return HTTP_METHODS.includes(value as HttpMethod);
 }

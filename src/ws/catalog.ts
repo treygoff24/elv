@@ -1,21 +1,20 @@
-type WsCatalogName = "tts-realtime" | "tts-multi" | "stt-realtime" | "convai" | "convai-monitor";
+import type { Risk } from "../openapi/types";
 
 export type WsProtocol = "tts" | "stt" | "convai" | "monitor";
 
-export interface WsCatalogEntry {
-  name: WsCatalogName;
+interface WsCatalogFields {
   urlTemplate: string;
   pathTemplate: string;
   requiredParams: string[];
   auth: string;
   scriptable: boolean;
   protocol: WsProtocol;
-  outboundRisk?: "external_side_effect" | "destructive";
+  outboundRisk?: Extract<Risk, "external_side_effect" | "destructive">;
   notes?: string;
   defaultQuery?: Record<string, string>;
 }
 
-const WS_CATALOG: readonly WsCatalogEntry[] = [
+const WS_CATALOG = [
   {
     name: "tts-realtime",
     urlTemplate:
@@ -70,10 +69,16 @@ const WS_CATALOG: readonly WsCatalogEntry[] = [
     notes:
       "Streams text and metadata. Outbound controls can end or transfer calls, inject context, or enable human takeover.",
   },
-] as const;
+] as const satisfies readonly ({ name: string } & WsCatalogFields)[];
+
+type WsCatalogName = (typeof WS_CATALOG)[number]["name"];
+
+export interface WsCatalogEntry extends WsCatalogFields {
+  name: WsCatalogName;
+}
 
 export function listWsCatalog(): WsCatalogEntry[] {
-  return WS_CATALOG.map((entry) => ({
+  return WS_CATALOG.map((entry: WsCatalogEntry) => ({
     ...entry,
     requiredParams: [...entry.requiredParams],
     defaultQuery: entry.defaultQuery ? { ...entry.defaultQuery } : undefined,

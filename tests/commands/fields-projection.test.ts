@@ -2,8 +2,9 @@ import { describe, expect, it } from "vitest";
 import { success } from "../../src/core/envelope";
 import { projectFields } from "../../src/commands/aliases/shared";
 import type { SuccessEnvelope } from "../../src/core/types";
+import type { JsonValue } from "../../src/util/json";
 
-function env(data: unknown): SuccessEnvelope {
+function env(data: JsonValue): SuccessEnvelope {
   return success({ cmd: "elv voices list", data });
 }
 
@@ -47,7 +48,7 @@ describe("projectFields", () => {
       ["name"],
     );
     expect(result.data).toMatchObject({
-      languages: [{ code: "en" }], // untouched
+      languages: [{ code: "en" }],
       voices: [{ name: "Bella" }, { name: "Bill" }],
     });
   });

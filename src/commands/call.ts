@@ -2,20 +2,21 @@ import { readFileSync } from "node:fs";
 import { exitCodeForError, validationError } from "../core/errors";
 import { runOperation } from "../core/client";
 import { ExitCode } from "../core/types";
+import { errorMessage } from "../util/error";
 import { parseJsonRecord } from "../util/json";
+import type { JsonObject } from "../util/json";
 import type { AgentInput, CommandResult, RunOpts } from "../core/types";
-import type { PaginationOptions } from "../core/pagination";
+import type { PaginatedRunOptions } from "../core/pagination";
 import { addFiles, addPairs } from "./input";
 import { paginationOptionsFromOptions, runOptsFromOptions } from "./options";
-import type { PaginationOptionValues, RunOptionValues } from "./options";
+import type { CliOptionValues, PaginationOptionValues, RunOptionValues } from "./options";
 
 interface CallOptions
-  extends RunOptionValues, PaginationOptionValues, Pick<RunOpts, "allowUnknown" | "unpack"> {
-  json?: string;
-  jsonFile?: string;
-  stdinJson?: boolean;
-  query?: string[];
-  path?: string[];
+  extends
+    RunOptionValues,
+    PaginationOptionValues,
+    Pick<RunOpts, "allowUnknown" | "unpack">,
+    Pick<CliOptionValues, "json" | "jsonFile" | "stdinJson" | "query" | "path"> {
   file?: string[];
 }
 
@@ -27,12 +28,12 @@ export async function handleCall(
   const parsed = parseCallInput(operationId, options);
   if (!parsed.ok) return { env: parsed.env, exitCode: ExitCode.InputValidation };
 
-  let opts: RunOpts & PaginationOptions;
+  let opts: PaginatedRunOptions;
   try {
     opts = callRunOpts(options);
   } catch (error) {
     return {
-      env: validationError(cmd, error instanceof Error ? error.message : String(error)),
+      env: validationError(cmd, errorMessage(error)),
       exitCode: ExitCode.InputValidation,
     };
   }
@@ -46,9 +47,7 @@ export async function handleCall(
 function parseCallInput(
   operationId: string,
   options: CallOptions,
-):
-  | { ok: true; input: AgentInput | Record<string, unknown> }
-  | { ok: false; env: ReturnType<typeof validationError> } {
+): { ok: true; input: AgentInput } | { ok: false; env: ReturnType<typeof validationError> } {
   const cmd = `elv call ${operationId}`;
   const jsonSources = [
     options.json,
@@ -62,7 +61,7 @@ function parseCallInput(
     };
   }
 
-  let input: Record<string, unknown> = {};
+  let input: JsonObject = {};
   try {
     if (options.json !== undefined) input = parseJsonObject(options.json);
     else if (options.jsonFile !== undefined)
@@ -71,7 +70,7 @@ function parseCallInput(
   } catch (error) {
     return {
       ok: false,
-      env: validationError(cmd, error instanceof Error ? error.message : String(error)),
+      env: validationError(cmd, errorMessage(error)),
     };
   }
 
@@ -82,13 +81,13 @@ function parseCallInput(
   } catch (error) {
     return {
       ok: false,
-      env: validationError(cmd, error instanceof Error ? error.message : String(error)),
+      env: validationError(cmd, errorMessage(error)),
     };
   }
   return { ok: true, input };
 }
 
-function callRunOpts(options: CallOptions): RunOpts & PaginationOptions {
+function callRunOpts(options: CallOptions): PaginatedRunOptions {
   return {
     ...runOptsFromOptions(options),
     allowUnknown: options.allowUnknown,
@@ -97,6 +96,6 @@ function callRunOpts(options: CallOptions): RunOpts & PaginationOptions {
   };
 }
 
-function parseJsonObject(raw: string): Record<string, unknown> {
+function parseJsonObject(raw: string): JsonObject {
   return parseJsonRecord(raw, "JSON input", "JSON input must be an object");
 }

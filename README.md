@@ -8,7 +8,7 @@ Independent project; not affiliated with or endorsed by ElevenLabs.
 
 The ElevenLabs MCP server sucks, and the official skills basically expect your agent to hand-roll raw API calls through brittle wrappers. Worse, the MCP exposes a thin slice of what ElevenLabs can actually do. The API has more than three hundred operations; the MCP surfaces a fraction of them.
 
-So we built `elv`: a simple, token-efficient, agent-first CLI over ElevenLabs' published API. The vendored July 16, 2026 OpenAPI document contains 339 operations; `elv` compiles 338 of them and deliberately skips one deprecated signed-URL route whose replacement is available. Each command returns one JSON envelope and an exit code an agent can branch on before parsing the result.
+So we built `elv`: a simple, token-efficient, agent-first CLI over ElevenLabs' published API. The vendored August 11, 2026 OpenAPI document contains 364 operations; `elv` compiles 363 of them and deliberately skips one deprecated signed-URL route whose replacement is available. Each command returns one JSON envelope and an exit code an agent can branch on before parsing the result.
 
 ## What is this?
 
@@ -34,7 +34,7 @@ The short version of the contract: run a command, check the exit code, and read 
 
 Three layers sit over the ElevenLabs OpenAPI spec, from most general to most convenient.
 
-The generic runner, `elv call <operation_id> --json '{...}'`, can invoke all 338 operations compiled from the pinned OpenAPI document. Nothing is hidden behind a hand-written subset. Escape hatches cover published endpoints that have not reached the pinned registry yet: `elv http <METHOD> <path>` makes an arbitrary REST call against the configured base URL, `elv ws <catalog|url>` runs a scripted WebSocket session, and `elv wait` polls an operation until a status field resolves. Known raw REST requests inherit registry metadata. Otherwise, safety and budget behavior depends on what protocol information is available.
+The generic runner, `elv call <operation_id> --json '{...}'`, can invoke all 363 operations compiled from the pinned OpenAPI document. Nothing is hidden behind a hand-written subset. Escape hatches cover published endpoints that have not reached the pinned registry yet: `elv http <METHOD> <path>` makes an arbitrary REST call against the configured base URL, `elv ws <catalog|url>` runs a scripted WebSocket session, and `elv wait` polls an operation until a status field resolves. Known raw REST requests inherit registry metadata. Otherwise, safety and budget behavior depends on what protocol information is available.
 
 Fourteen thin aliases wrap common workflows: `tts`, `stt`, `music`, `sfx`, `voice-change`, `voice-isolate`, `dubbing`, `dubbing-project`, `voices`, `agents`, `models`, `history`, `usage`, and `workspace`. Each one builds an input and calls the same runner as `call`. Discovery is built in too: `elv capabilities` reports the machine contract and service map; `elv ops list`, `ops search`, `ops get`, and `ops schema` inspect the registry; and `elv spec status`, `spec diff`, and `spec update` expose and refresh the active spec provenance.
 
@@ -113,15 +113,15 @@ The fourteen aliases are sugar over the same runner as `call`.
 | Alias | Purpose |
 | --- | --- |
 | `tts` | Text-to-speech (voice id or name, text or file, optional stream and timestamps) |
-| `stt` | Speech-to-text transcription, with optional asynchronous wait |
-| `music` | Music generation, including detailed SSE audio and metadata |
+| `stt` | Speech-to-text transcription, configured-webhook delivery, and env-sourced single-use tokens |
+| `music` | Music generation, detailed SSE audio and metadata, and Music Finetunes |
 | `sfx` | Text-to-sound-effects generation |
 | `voice-change` | Speech-to-speech voice conversion |
 | `voice-isolate` | Background-noise removal |
 | `dubbing` | Dubbing create, get, and audio workflows |
-| `dubbing-project` | Dubbing Project source and target transcript editing |
-| `voices` | Voice list, search, get, clone |
-| `agents` | ElevenAgents lifecycle, tests, test runs, and RAG diagnostics |
+| `dubbing-project` | Dubbing v2 source and target transcript editing, including atomic bulk updates |
+| `voices` | Voice list/filter, accents, search, get, clone, and confirmed replication |
+| `agents` | ElevenAgents lifecycle, Procedures, tests, test runs, and RAG diagnostics |
 | `models` | List the models visible to the authenticated account from `/v1/models` |
 | `history` | Generated-audio history list, audio, delete |
 | `usage` | Subscription balance or date-range character stats |
@@ -133,24 +133,55 @@ elv voices list
 elv usage --from 2026-06-01 --to 2026-06-25
 elv dubbing get --id abc123
 elv agents tests create --json-file test.json
+elv agents procedures list --agent-id AGENT_ID --branch-id BRANCH_ID
+elv voices accents --language en
 elv workspace members list
+elv music finetunes list --limit 10
 ```
 
 `agents simulate` remains as a compatibility alias but calls an operation ElevenLabs marks deprecated. New automation should use `agents tests create` followed by `agents tests run`.
 
+Music Finetunes are managed under `music finetunes`. Training uses repeatable `--file` inputs and is subject to ElevenLabs account entitlement, charges, and ownership/copyright rules:
+
+```bash
+elv music finetunes create --name "Live Jazz" --primary-genre jazz \
+  --file take-1.wav --file take-2.wav --model music_v2 --dry-run
+elv music --prompt "A warm jazz trio" --finetune-id FINETUNE_ID --out track.mp3
+elv music finetunes update --finetune-id FINETUNE_ID --json '{"visibility":"workspace"}'
+elv music finetunes delete --finetune-id FINETUNE_ID --yes
+```
+
+For asynchronous STT, configure a workspace webhook first, then pass boolean `--webhook` and optionally `--webhook-id`. A single-use Scribe token is read from an environment variable so its value never enters argv:
+
+```bash
+elv stt --file note.m4a --model scribe_v2 --webhook --webhook-id WEBHOOK_ID
+elv stt --file note.m4a --model scribe_v2 --token-env SCRIBE_TOKEN
+```
+
 ### The generic runner
 
-For anything outside the alias surface, call any operation by id. The `--json` body uses the bucketed shape (`path`, `query`, `body`), and `--path key=value` is a shorthand for single path parameters.
+For anything outside the alias surface, call any operation by id. The August 11 contract adds the complete eight-operation Agents Procedures family, Dubbing v2 bulk source/target transcript updates, voice accents, and cross-residency voice replication; the `agents procedures`, `dubbing-project`, and `voices` aliases cover their common workflows. Replication requires `--yes`; both Procedure DELETE routes inherit the same central destructive gate without special-case command code. The `--json` body uses the bucketed shape (`path`, `query`, `body`), and `--path key=value` is a shorthand for single path parameters.
 
 ```bash
 elv call text_to_speech_full \
   --json '{"path":{"voice_id":"JBFqnCBsd6RMkjVDRZzb"},"body":{"text":"Hello.","model_id":"eleven_v3"}}' \
   --out ./out
 
+elv call export_batch_call \
+  --json '{"path":{"batch_id":"BATCH_ID"}}' \
+  --out ./batch-export
+
+elv call list_procedures_route \
+  --json '{"path":{"agent_id":"AGENT_ID","branch_id":"BRANCH_ID"}}'
+
+elv call replicate_voice_to_isolated_environment \
+  --json '{"path":{"voice_id":"VOICE_ID"},"body":{"target_workspace_id":"WORKSPACE_ID"}}' \
+  --dry-run
+
 elv call delete_voice --path voice_id=VOICE_ID --yes
 ```
 
-Large or paginated results never flood stdout. The list aliases (`voices list`, `history list`, `agents list`, `dubbing list`) and `call`/`http` take `--limit <n>` (sets the page size and caps what gets inlined), `--all` to fetch every page to disk (requires `--save-json`/`--out`), and `--save-json <path>` to write the full result somewhere you choose. A large single page spills to disk but still returns the `next` page command inline so you can keep paging. Inspect any spilled file without loading it into context with `elv view <path> [--path <dotted>] [--limit <n>]`.
+Large or paginated results never flood stdout. The list aliases (`voices list`, `history list`, `agents list`, `dubbing list`, `music finetunes list`) and `call`/`http` take `--limit <n>` (sets the page size and caps what gets inlined), `--all` to fetch every page to disk (requires `--save-json`/`--out`), and `--save-json <path>` to write the full result somewhere you choose. A large single page spills to disk but still returns the `next` page command inline so you can keep paging. Inspect any spilled file without loading it into context with `elv view <path> [--path <dotted>] [--limit <n>]`.
 
 To skip the spill entirely when you only need a couple of fields per row, the list aliases take `--fields <csv>`: `elv voices list --fields voice_id,name` projects each voice down to those keys and returns the whole list inline (sub-KB instead of ~100 KB). For arbitrary spilled files, `elv view <path> --path 'voices[].name'` does the same projection with a `[]` array wildcard.
 
@@ -169,8 +200,9 @@ elv ws --list
 elv ws tts-realtime --query voice_id=VOICE --query model_id=eleven_flash_v2_5 \
   --send script.ndjson --out ./session
 
-# Realtime STT accepts send_binary_file actions in the NDJSON script.
-elv ws stt-realtime --send transcribe.ndjson --out ./session --dry-run
+# Realtime STT accepts send_binary_file actions and arbitrary published query fields.
+elv ws stt-realtime --query entity_detection=true \
+  --send transcribe.ndjson --out ./session --dry-run
 
 # Conversation monitoring is receive-only without --send; outbound controls require --yes.
 elv ws convai-monitor --query conversation_id=CONVERSATION_ID --out ./monitor
@@ -200,7 +232,7 @@ If a paid stream becomes malformed after valid data, the error envelope keeps an
 
 ## Configuration and auth
 
-Set `ELEVENLABS_API_KEY` and `elv` sends it as the `xi-api-key` header. Never pass the key as a CLI argument. Request credentials are redacted from envelopes and logs. Provider responses that create a token, signed URL, API key, or similar credential are deliberately written to a mode `0600` file instead of returned inline; the envelope marks that file `sensitive: true`.
+Set `ELEVENLABS_API_KEY` and `elv` sends it as the `xi-api-key` header. Never pass the key as a CLI argument. STT single-use tokens likewise use `--token-env ENV_NAME`, never the token value. Request credentials are redacted from envelopes and logs. Provider responses that create a token, signed URL, API key, or similar credential are deliberately written to a mode `0600` file instead of returned inline; the envelope marks that file `sensitive: true`.
 
 ```bash
 export ELEVENLABS_API_KEY=your_key_here
@@ -233,7 +265,7 @@ ElevenLabs marks `eleven_turbo_v2_5`, `eleven_turbo_v2`, and `scribe_v1` depreca
 
 ## Safety and budget
 
-There are no interactive prompts, so anything with a side effect has to be confirmed explicitly. Destructive operations (DELETE), outbound calls and messages, API-key mutation, and member changes all require `--yes`. Reads are never gated.
+There are no interactive prompts, so anything with a side effect has to be confirmed explicitly. Destructive operations (DELETE), outbound calls and messages, cross-residency voice replication, API-key mutation, and member changes all require `--yes`. Reads are never gated.
 
 ```bash
 elv call delete_voice --path voice_id=VOICE_ID --yes

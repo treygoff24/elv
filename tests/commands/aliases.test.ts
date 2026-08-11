@@ -104,7 +104,8 @@ const cases: Array<{ name: string; alias: () => BuiltOperation; call: () => Buil
         timestamps: "word",
         diarize: true,
         language: "en",
-        webhook: "https://example.test/hook",
+        webhook: true,
+        webhookId: "webhook_1",
       }),
     call: () => ({
       operationId: "speech_to_text",
@@ -115,7 +116,8 @@ const cases: Array<{ name: string; alias: () => BuiltOperation; call: () => Buil
           timestamps_granularity: "word",
           diarize: true,
           language_code: "en",
-          webhook: "https://example.test/hook",
+          webhook: true,
+          webhook_id: "webhook_1",
         },
       },
     }),
@@ -436,8 +438,10 @@ async function comparableRequest(op: OperationCard, input: AgentInput) {
   };
 }
 
-async function formMap(form: FormData): Promise<Record<string, unknown[]>> {
-  const out: Record<string, unknown[]> = {};
+type FormValue = string | { name: string; size: number; type: string };
+
+async function formMap(form: FormData): Promise<Record<string, FormValue[]>> {
+  const out: Record<string, FormValue[]> = {};
   for (const [key, value] of form.entries()) {
     const item =
       value instanceof Blob

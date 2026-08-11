@@ -3,8 +3,10 @@ import { homedir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 import { success, failure } from "./envelope";
 import { ExitCode } from "./types";
+import { errorMessage } from "../util/error";
 import { isRecord, parseJson } from "../util/json";
-import type { CommandResult, Envelope } from "./types";
+import type { CommandResult } from "./types";
+import type { JsonValue } from "../util/json";
 
 interface ProfileConfig {
   base_url?: string;
@@ -32,12 +34,9 @@ interface ResolvedConfig {
   debug: boolean;
 }
 
-export interface ConfigOverrides {
-  profile?: string;
-  baseUrl?: string;
-  maxCredits?: number;
-  debug?: boolean;
-}
+export type ConfigOverrides = Partial<
+  Pick<ResolvedConfig, "profile" | "baseUrl" | "maxCredits" | "debug">
+>;
 
 interface DoctorCheck {
   name: string;
@@ -46,7 +45,6 @@ interface DoctorCheck {
 }
 
 interface DoctorResult extends CommandResult {
-  env: Envelope & { data?: unknown };
   checks: DoctorCheck[];
 }
 
@@ -198,7 +196,7 @@ export async function configDoctor(options: DoctorOptions = {}): Promise<DoctorR
 function readConfigFile(): FileConfig {
   const path = findConfigPath();
   if (!path) return {};
-  let parsed: unknown;
+  let parsed: JsonValue;
   try {
     parsed = parseJson(readFileSync(path, "utf8"), path);
   } catch (error) {
@@ -277,7 +275,7 @@ function outputDirCheck(outputDir: string): DoctorCheck {
 }
 
 function nodeVersionCheck(): DoctorCheck {
-  const major = Number(process.versions.node.split(".")[0] ?? "0");
+  const major = Number(process.versions.node.split(".")[0]!);
   return major >= 22
     ? { name: "node_version", status: "pass", detail: process.versions.node }
     : { name: "node_version", status: "fail", detail: `Node ${process.versions.node}; need >=22` };
@@ -326,10 +324,6 @@ async function creditBalanceCheck(config: ResolvedConfig): Promise<DoctorCheck> 
   } catch (error) {
     return { name: "credit_balance", status: "skip", detail: errorMessage(error) };
   }
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 function asRecord(value: unknown): Record<string, unknown> {

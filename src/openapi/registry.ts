@@ -7,13 +7,17 @@ import { compileSpec, compilerSemanticsInputs, curationInputs } from "./compile-
 import { isRecord, parseJson } from "../util/json";
 import type { CompileSpecResult, OpenApiDocument } from "./compile-spec";
 import type { OperationCard } from "./types";
+import type { JsonObject, JsonValue } from "../util/json";
+
+const PACKAGE_NAME = "eleven-agent-cli";
 
 export interface RegistryOptions {
   cacheDir?: string;
   version?: string;
+  moduleUrl?: string | URL;
   forceRecompile?: boolean;
   specPath?: string;
-  specDocument?: unknown;
+  specDocument?: JsonObject;
   /** Test seam for proving the authoritative cache survives an interrupted write. */
   beforeCacheRename?: (temporaryPath: string, targetPath: string) => void;
 }
@@ -32,15 +36,12 @@ export interface SpecProvenance extends SpecCounts {
   sha256: string;
 }
 
-export interface RegistryCache {
+export interface RegistryCache extends Omit<CompileSpecResult, "bundledSpec"> {
   schema: "elv.openapi.cache.v3";
   version: string;
   fingerprint: string;
   sourceSelector: string;
   generated_at: string;
-  totalOperations: number;
-  skippedOperations: number;
-  operations: OperationCard[];
   bundledSpec?: OpenApiDocument;
   provenance: SpecProvenance;
 }
@@ -78,7 +79,7 @@ export async function loadRegistry(
 export function readRegistryCache(options: RegistryOptions = {}): RegistryCache | null {
   const path = registryCachePath(options);
   if (!existsSync(path)) return null;
-  let parsed: unknown;
+  let parsed: JsonValue;
   try {
     parsed = parseJson(readFileSync(path, "utf8"), path);
   } catch {
@@ -95,7 +96,7 @@ export function readRegistryCache(options: RegistryOptions = {}): RegistryCache 
   return parsed;
 }
 
-/** Write the one authoritative cache artifact using a same-directory atomic rename. */
+/** Same-directory rename prevents readers from observing a partially written cache. */
 export function writeRegistryCache(
   compiled: CompileSpecResult,
   provenance: SpecProvenance,
@@ -141,7 +142,7 @@ export function specProvenance(
 
 export function specCounts(compiled: CompileSpecResult): SpecCounts {
   return {
-    paths: Object.keys(compiled.bundledSpec.paths ?? {}).length,
+    paths: Object.keys(compiled.bundledSpec.paths).length,
     total_operations: compiled.totalOperations,
     callable_operations: compiled.operations.length,
     skipped_operations: compiled.skippedOperations,
@@ -159,25 +160,31 @@ export function rawSpecCachePath(options: RegistryOptions = {}): string {
 }
 
 function versionedCacheDir(options: RegistryOptions = {}): string {
-  return join(resolveCacheRoot(options.cacheDir), packageVersion(options.version));
+  return join(
+    resolveCacheRoot(options.cacheDir),
+    packageVersion(options.version, options.moduleUrl),
+  );
 }
 
 function resolveCacheRoot(cacheDir?: string): string {
   return resolve(cacheDir ?? process.env.ELV_CACHE_DIR ?? join(homedir(), ".cache", "elv"));
 }
 
-function packageVersion(override?: string): string {
+function packageVersion(override?: string, moduleUrl: string | URL = import.meta.url): string {
   if (override) return override;
-  for (const path of packageJsonCandidates()) {
+  const candidates = packageJsonCandidates(moduleUrl);
+  const checked: string[] = [];
+  for (const path of candidates) {
     if (!existsSync(path)) continue;
-    try {
-      const json = parseJson(readFileSync(path, "utf8"), path) as { version?: string };
-      if (json.version) return json.version;
-    } catch {
-      continue;
+    checked.push(path);
+    const parsed = parseJson(readFileSync(path, "utf8"), path);
+    if (isRecord(parsed) && parsed.name === PACKAGE_NAME && typeof parsed.version === "string") {
+      return parsed.version;
     }
   }
-  return "0.0.0";
+  throw new Error(
+    `${PACKAGE_NAME} package.json with string version not found (checked: ${candidates.join(", ")})`,
+  );
 }
 
 function cacheSourceSha256(options: RegistryOptions, cache: RegistryCache): string | null {
@@ -190,17 +197,15 @@ function cacheSourceSha256(options: RegistryOptions, cache: RegistryCache): stri
       : null;
   }
   if (cache.provenance.source !== sourceSelector) return cache.provenance.sha256;
-  try {
-    return hashText(readFileSync(sourceSelector));
-  } catch {
-    return null;
-  }
+  return hashText(readFileSync(sourceSelector));
 }
 
 function registrySourcePath(options: RegistryOptions): string {
   return (
     options.specPath ??
-    (existsSync(rawSpecCachePath(options)) ? rawSpecCachePath(options) : vendoredSpecPath())
+    (existsSync(rawSpecCachePath(options))
+      ? rawSpecCachePath(options)
+      : vendoredSpecPath(options.moduleUrl))
   );
 }
 
@@ -257,15 +262,15 @@ function hashText(value: string | Buffer): string {
   return createHash("sha256").update(value).digest("hex");
 }
 
-function canonicalJson(value: unknown): string {
+function canonicalJson(value: JsonValue): string {
   if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
   if (value && typeof value === "object") {
-    return `{${Object.entries(value as Record<string, unknown>)
+    return `{${Object.entries(value)
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([key, entry]) => `${JSON.stringify(key)}:${canonicalJson(entry)}`)
       .join(",")}}`;
   }
-  return JSON.stringify(value) ?? "null";
+  return JSON.stringify(value)!;
 }
 
 export function vendoredSpecPath(moduleUrl: string | URL = import.meta.url): string {
@@ -282,8 +287,8 @@ function mapOperations(operations: OperationCard[]): Map<string, OperationCard> 
   return new Map(operations.map((operation) => [operation.operationId, operation]));
 }
 
-function packageJsonCandidates(): string[] {
-  return packageFileCandidates("package.json");
+function packageJsonCandidates(moduleUrl: string | URL = import.meta.url): string[] {
+  return packageFileCandidates("package.json", moduleUrl);
 }
 
 function vendoredSpecCandidates(moduleUrl: string | URL): string[] {

@@ -6,6 +6,7 @@ import {
   budgetExceeded,
   configFileError,
   confirmationRequired,
+  outTargetError,
   validationError,
 } from "../core/errors";
 import { ExitCode } from "../core/types";
@@ -21,7 +22,9 @@ import {
   validateBinaryFiles,
 } from "../ws/events";
 import { runWsSession, WsSessionError } from "../ws/session";
+import { errorMessage } from "../util/error";
 import { shellArg } from "../util/shell";
+import type { BudgetDecision } from "../core/budget";
 import type { CommandResult, RunOpts } from "../core/types";
 import type { WsCatalogEntry, WsProtocol } from "../ws/catalog";
 import type { SendScriptAction } from "../ws/events";
@@ -208,7 +211,7 @@ function resolveTargetForInput(
   try {
     return resolveTarget(target, entry, query, baseUrl);
   } catch (error) {
-    throw new ScriptValidationError(error instanceof Error ? error.message : String(error));
+    throw new ScriptValidationError(errorMessage(error));
   }
 }
 
@@ -244,7 +247,7 @@ interface WsPreflight {
   outboundActions: number;
   requiresYes: boolean;
   creditsEstimated: number | null;
-  budgetPolicy: "not_configured" | "bounded" | "estimate_unavailable" | "unknown_unbounded";
+  budgetPolicy: BudgetDecision["policy"];
   wouldExceedBudget: boolean | null;
 }
 
@@ -394,7 +397,7 @@ function parseScriptFile(
         : action,
     );
   } catch (error) {
-    throw new ScriptValidationError(error instanceof Error ? error.message : String(error));
+    throw new ScriptValidationError(errorMessage(error));
   }
 }
 
@@ -402,7 +405,7 @@ function validateScriptFiles(script: SendScriptAction[]): void {
   try {
     validateBinaryFiles(script);
   } catch (error) {
-    throw new ScriptValidationError(error instanceof Error ? error.message : String(error));
+    throw new ScriptValidationError(errorMessage(error));
   }
 }
 
@@ -416,17 +419,7 @@ function errorEnvelope(error: unknown): CommandResult {
   }
   if (error instanceof OutTargetError) {
     return {
-      env: failure({
-        cmd: "elv ws",
-        error: {
-          type: "validation_error",
-          code: error.code,
-          message: error.message,
-          raw: { hint: error.hint },
-        },
-        retry: { recommended: false, after_ms: null },
-        hints: [{ cmd: "elv ws --out <dir>", why: error.hint }],
-      }),
+      env: outTargetError("elv ws", error, { hintCmd: "elv ws --out <dir>" }),
       exitCode: ExitCode.InputValidation,
     };
   }
@@ -459,7 +452,7 @@ function errorEnvelope(error: unknown): CommandResult {
       exitCode: ExitCode.ProviderError,
     };
   }
-  const message = error instanceof Error ? error.message : String(error);
+  const message = errorMessage(error);
   return {
     env: failure({
       cmd: "elv ws",

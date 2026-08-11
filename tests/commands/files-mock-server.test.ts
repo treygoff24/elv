@@ -7,6 +7,7 @@ import {
   assertNoKeyLeak,
   filesArray,
   parseEnvelope,
+  recordValue,
   runCli,
   type CliResult,
 } from "../helpers/cli-result";
@@ -194,7 +195,7 @@ describe("files mock server (black-box, integration gate)", () => {
         const summary = envelope.data_summary;
         expect(summary).toBeTypeOf("object");
         expect(summary).not.toBeNull();
-        const summaryRecord = summary as Record<string, unknown>;
+        const summaryRecord = recordValue(summary, "data_summary");
         expect(summaryRecord.count ?? summaryRecord.preview_count).toBeDefined();
 
         const files = filesArray(envelope);

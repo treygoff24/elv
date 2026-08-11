@@ -7,9 +7,11 @@ import {
   assertNoKeyLeak,
   errorRecord,
   parseEnvelope,
+  recordValue,
   runCli,
   type CliResult,
 } from "../helpers/cli-result";
+import type { JsonObject } from "../../src/util/json";
 
 const CANARY_KEY = "test_key_CANARY";
 const FAKE_AUDIO = Buffer.from([0xff, 0xfb, 0x90, 0x00]);
@@ -60,18 +62,18 @@ function readBody(req: IncomingMessage): Promise<string> {
   });
 }
 
-function dataRecord(envelope: Record<string, unknown>): Record<string, unknown> {
+function dataRecord(envelope: JsonObject): JsonObject {
   const data = envelope.data;
   expect(data).toBeTypeOf("object");
   expect(data).not.toBeNull();
-  return data as Record<string, unknown>;
+  return recordValue(data, "data");
 }
 
-function costRecord(envelope: Record<string, unknown>): Record<string, unknown> | null {
+function costRecord(envelope: JsonObject): JsonObject | null {
   const cost = envelope.cost;
   if (cost == null) return null;
   expect(cost).toBeTypeOf("object");
-  return cost as Record<string, unknown>;
+  return recordValue(cost, "cost");
 }
 
 describe("safety and budget mock server (black-box, integration gate)", () => {

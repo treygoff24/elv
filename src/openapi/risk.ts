@@ -1,7 +1,13 @@
 import type { CostHint, OperationCard, Risk } from "./types";
 
 // Curated overrides for operations whose OpenAPI metadata understates risk/cost.
-const DESTRUCTIVE_OP_IDS = new Set(["disable", "set_third_party_disabling_policy"]);
+const DESTRUCTIVE_OP_IDS = new Set([
+  "post_knowledge_base_bulk_delete_route",
+  // Unlike cancel_batch_call, crawl cancellation deletes associated knowledge-base content.
+  "cancel_crawl_job_route",
+  "disable",
+  "set_third_party_disabling_policy",
+]);
 
 const EXTERNAL_SIDE_EFFECT_OP_IDS = new Set([
   "add_member",
@@ -23,6 +29,7 @@ const EXTERNAL_SIDE_EFFECT_OP_IDS = new Set([
   "invite_user",
   "invite_users_bulk",
   "register_twilio_call",
+  "replicate_voice_to_isolated_environment",
   "remove_member",
   "retry_batch_call",
   "share_resource_endpoint",
@@ -38,7 +45,10 @@ const EXTERNAL_SIDE_EFFECT_OP_IDS = new Set([
   "whatsapp_outbound_message",
 ]);
 
-const READ_OP_IDS = new Set(["query_agent_knowledge_base_rag_route"]);
+const READ_OP_IDS = new Set([
+  "get_knowledge_base_bulk_dependent_agents_route",
+  "query_agent_knowledge_base_rag_route",
+]);
 
 const GENERATE_OP_IDS = new Set([
   "add_language",
@@ -50,6 +60,7 @@ const GENERATE_OP_IDS = new Set([
   "create_dubbing",
   "create_voice",
   "dub",
+  "dubbing_target_transcript_regenerate",
   "generate",
   "render",
   "separate_song_stems",
@@ -129,7 +140,7 @@ const EXTERNAL_SIDE_EFFECT_PATTERNS = [
   /(^|_)unshare_resource(_|$)/u,
 ];
 
-export function riskCurationInputs(): Record<string, unknown> {
+export function riskCurationInputs() {
   return {
     destructiveOperationIds: [...DESTRUCTIVE_OP_IDS].sort(),
     externalSideEffectOperationIds: [...EXTERNAL_SIDE_EFFECT_OP_IDS].sort(),

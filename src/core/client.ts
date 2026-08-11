@@ -1,4 +1,6 @@
 import { loadRegistry, readRegistryCache } from "../openapi/registry";
+import { resolveRef as resolveOpenApiRef } from "../openapi/compile-spec";
+import { errorMessage } from "../util/error";
 import { isRecord } from "../util/json";
 import { suggestIds } from "../util/suggest";
 import { budgetDecision, estimateDetail } from "./budget";
@@ -10,6 +12,7 @@ import {
   confirmationRequired,
   hintsForError,
   mergeErrorHints,
+  outTargetError,
   validationError,
   unknownOperation,
 } from "./errors";
@@ -23,37 +26,44 @@ import {
   collectAllPages,
   supportsPagination,
   type PaginationCommand,
-  type PaginationOptions,
+  type PaginatedRunOptions,
 } from "./pagination";
 import { requiresYes } from "./safety";
 import { OutTargetError } from "./files";
-import type { ValidateFunction } from "ajv";
+import type { ErrorObject, ValidateFunction } from "ajv";
 import type { OpenApiDocument } from "../openapi/compile-spec";
-import { SchemaResolutionError, type HttpMethod, type OperationCard } from "../openapi/types";
+import type { JsonInputValue, JsonObjectInput, JsonValue } from "../util/json";
+import { SchemaResolutionError, type OperationCard } from "../openapi/types";
 import type { AgentInput, Envelope, Hint, NormalizedError, RunOpts, Warning } from "./types";
 import type { HttpRequest } from "./request-builder";
 import type { ResponseContext } from "./response-normalizer";
 
-type OperationRunOpts = RunOpts & PaginationOptions & { inline?: boolean };
+type OperationRunOpts = PaginatedRunOptions & { inline?: boolean };
 
-interface PreparedOperationRun {
-  cmd: string;
+type DryRunRequest = JsonObjectInput & {
+  operation_id?: string;
+  method: OperationCard["method"];
+  path: string;
+  input: AgentInput;
+};
+
+interface PreparedOperationRun
+  extends
+    Required<Pick<ResponseContext, "cmd" | "creditsEstimated">>,
+    Pick<ResponseContext, "requestPath" | "method"> {
   op: OperationCard;
   input: AgentInput;
   opts: OperationRunOpts;
   command: PaginationCommand;
-  dryRunRequest: Record<string, unknown>;
-  creditsEstimated: number | null;
+  dryRunRequest: DryRunRequest;
   warnings?: Warning[];
-  requestPath?: string;
-  method?: HttpMethod;
 }
 
 type ExecutableOperationRun = Omit<PreparedOperationRun, "dryRunRequest">;
 
 export async function runOperation(
   operationId: string,
-  input: AgentInput | Record<string, unknown>,
+  input: AgentInput,
   opts: OperationRunOpts = {},
 ): Promise<Envelope> {
   const cmd = opts.cmd ?? `elv call ${operationId}`;
@@ -506,12 +516,12 @@ function validationFailure(
   validator: ValidateFunction,
 ): NormalizedError | null {
   if (validator(validationBody(op, input))) return null;
-  const first = validator.errors?.[0];
-  const param = ajvParam(first?.instancePath, first?.params);
+  const first = validator.errors![0]!;
+  const param = ajvParam(first.instancePath, first.params);
   return {
     type: "validation_error",
     code: "validation_error",
-    message: `body: ${first?.message ?? "invalid request body"}`,
+    message: `body: ${first.message}`,
     param,
     raw: validator.errors,
   };
@@ -536,7 +546,7 @@ function hasRequestPayload(op: OperationCard, input: AgentInput): boolean {
   return input.body !== undefined || Object.keys(input.files ?? {}).length > 0;
 }
 
-function validationBody(op: OperationCard, input: AgentInput): unknown {
+function validationBody(op: OperationCard, input: AgentInput): JsonInputValue {
   if (!op.requestBody?.multipart) return input.body ?? {};
   const props = asRecord(asRecord(op.requestBody.schema).properties);
   const files = Object.fromEntries(
@@ -570,16 +580,14 @@ function hydrateBodySchema(
   };
 }
 
-function resolveRef(ref: string, spec: OpenApiDocument): unknown {
-  if (!ref.startsWith("#/")) return undefined;
-  return ref
-    .slice(2)
-    .split("/")
-    .map((part) => part.replace(/~1/gu, "/").replace(/~0/gu, "~"))
-    .reduce<unknown>((current, part) => asRecord(current)[part], spec);
+function resolveRef(ref: string, spec: OpenApiDocument): JsonValue | undefined {
+  return ref.startsWith("#/") ? resolveOpenApiRef(ref, spec) : undefined;
 }
 
-function ajvParam(instancePath: string | undefined, params: unknown): string | null {
+function ajvParam(
+  instancePath: string | undefined,
+  params: ErrorObject["params"] | undefined,
+): string | null {
   const missing = asRecord(params).missingProperty;
   if (typeof missing === "string") return missing;
   const last = instancePath?.split("/").filter(Boolean).at(-1);
@@ -617,18 +625,7 @@ export function envelopeForThrown(cmd: string, operationId: string, error: unkno
     });
   }
   if (error instanceof OutTargetError) {
-    return failure({
-      cmd,
-      operation_id: operationId,
-      error: {
-        type: "validation_error",
-        code: error.code,
-        message: error.message,
-        raw: { hint: error.hint },
-      },
-      retry: { recommended: false, after_ms: null },
-      hints: [{ cmd, why: error.hint }],
-    });
+    return outTargetError(cmd, error, { operationId });
   }
   if (error instanceof SchemaResolutionError) {
     return failure({
@@ -656,7 +653,7 @@ export function envelopeForThrown(cmd: string, operationId: string, error: unkno
     error: {
       type: "runtime_error",
       code: "internal_error",
-      message: error instanceof Error ? error.message : String(error),
+      message: errorMessage(error),
       raw: error,
     },
     retry: { recommended: false, after_ms: null },
@@ -664,7 +661,7 @@ export function envelopeForThrown(cmd: string, operationId: string, error: unkno
       {
         type: "runtime_error",
         code: "internal_error",
-        message: error instanceof Error ? error.message : String(error),
+        message: errorMessage(error),
       },
       operationId,
       cmd,
@@ -681,6 +678,8 @@ function minimalSpec(): OpenApiDocument {
   };
 }
 
+function asRecord(value: JsonInputValue): JsonObjectInput;
+function asRecord(value: unknown): Record<string, unknown>;
 function asRecord(value: unknown): Record<string, unknown> {
   return isRecord(value) ? value : {};
 }

@@ -3,9 +3,11 @@ import { failure } from "./envelope";
 import { exitCodeForError, validationError } from "./errors";
 import { runOperation } from "./client";
 import { ExitCode } from "./types";
+import { errorMessage } from "../util/error";
 import { parseJson, parseJsonRecord } from "../util/json";
 import { readPath } from "../util/jsonpath";
 import type { AgentInput, CommandResult, Envelope, RunOpts } from "./types";
+import type { JsonInputValue, JsonObject } from "../util/json";
 
 export interface WaitOptions extends Pick<RunOpts, "baseUrl" | "profile"> {
   operation?: string;
@@ -21,7 +23,7 @@ export interface WaitOptions extends Pick<RunOpts, "baseUrl" | "profile"> {
 interface WaitDeps {
   runOperation?: (
     operationId: string,
-    input: AgentInput | Record<string, unknown>,
+    input: AgentInput,
     opts?: Pick<RunOpts, "baseUrl" | "profile">,
   ) => Promise<Envelope>;
   runCommand?: (argv: string[]) => Promise<Envelope>;
@@ -44,7 +46,7 @@ type ParsedWait =
   | (ParsedCommon & {
       mode: "operation";
       operation: string;
-      input: AgentInput | Record<string, unknown>;
+      input: AgentInput;
       baseUrl?: string;
       profile?: string;
     })
@@ -139,7 +141,7 @@ async function safeRun(run: () => Promise<Envelope>): Promise<Envelope> {
   try {
     return await run();
   } catch (error) {
-    return commandEnvelopeError(error instanceof Error ? error.message : String(error));
+    return commandEnvelopeError(errorMessage(error));
   }
 }
 
@@ -154,7 +156,7 @@ function statusObservation(
   } catch (error) {
     return {
       result: {
-        env: validationError("elv wait", error instanceof Error ? error.message : String(error)),
+        env: validationError("elv wait", errorMessage(error)),
         exitCode: ExitCode.InputValidation,
       },
     };
@@ -188,12 +190,11 @@ function parseOptions(
   }
 
   try {
-    // Validate unsupported path syntax before the first poll.
     readPath({}, statusPath);
   } catch (error) {
     return {
       ok: false,
-      env: validationError(cmd, error instanceof Error ? error.message : String(error)),
+      env: validationError(cmd, errorMessage(error)),
     };
   }
 
@@ -209,7 +210,7 @@ function parseOptions(
   } catch (error) {
     return {
       ok: false,
-      env: validationError(cmd, error instanceof Error ? error.message : String(error)),
+      env: validationError(cmd, errorMessage(error)),
     };
   }
 
@@ -223,7 +224,7 @@ function parseOptions(
     } catch (error) {
       return {
         ok: false,
-        env: validationError(cmd, error instanceof Error ? error.message : String(error)),
+        env: validationError(cmd, errorMessage(error)),
       };
     }
   }
@@ -246,7 +247,7 @@ function parseOptions(
   } catch (error) {
     return {
       ok: false,
-      env: validationError(cmd, error instanceof Error ? error.message : String(error)),
+      env: validationError(cmd, errorMessage(error)),
     };
   }
 }
@@ -285,7 +286,7 @@ function waitTimeout(path: string, status: unknown, env: Envelope): CommandResul
   };
 }
 
-function parseJsonObject(raw: string): Record<string, unknown> {
+function parseJsonObject(raw: string): JsonObject {
   return parseJsonRecord(raw, "--json", "--json must be a JSON object");
 }
 
@@ -346,7 +347,7 @@ function appendStderr(state: CommandRunState, chunk: Buffer | string): void {
 
 function finishCommand(state: CommandRunState, code: number | null): void {
   try {
-    state.resolve(parseJson(state.stdout.trim(), "command stdout") as Envelope);
+    state.resolve(parseJson(state.stdout.trim(), "command stdout") as unknown as Envelope);
   } catch {
     state.resolve(
       commandEnvelopeError("Command did not emit a JSON envelope", {
@@ -358,7 +359,7 @@ function finishCommand(state: CommandRunState, code: number | null): void {
   }
 }
 
-function commandEnvelopeError(message: string, raw?: unknown): Envelope {
+function commandEnvelopeError(message: string, raw?: JsonInputValue): Envelope {
   return failure({
     cmd: "elv wait",
     error: {

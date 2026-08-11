@@ -1,4 +1,4 @@
-export const CREDENTIAL_KEYS = new Set([
+const CREDENTIAL_KEYS = new Set([
   "xi-api-key",
   "x-api-key",
   "api_key",
@@ -22,7 +22,7 @@ const NORMALIZED_CREDENTIAL_KEYS = new Set(
   [...CREDENTIAL_KEYS].map((key) => normalizeCredentialKey(key)),
 );
 
-export function isCredentialKey(key: string): boolean {
+function isCredentialKey(key: string): boolean {
   const normalized = key.toLowerCase();
   const compact = normalizeCredentialKey(key);
   return (

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { waitForOperation } from "../../src/commands/wait";
 import { success } from "../../src/core/envelope";
 import { ExitCode } from "../../src/core/types";
-import type { Envelope } from "../../src/core/types";
+import type { AgentInput, Envelope } from "../../src/core/types";
 
 function env(status: string): Envelope {
   return success({ cmd: "elv call get_dubbing", operation_id: "get_dubbing", data: { status } });
@@ -10,7 +10,7 @@ function env(status: string): Envelope {
 
 describe("wait command", () => {
   it("polls runOperation in-process until success", async () => {
-    const seen: unknown[] = [];
+    const seen: AgentInput[] = [];
     const result = await waitForOperation(
       {
         operation: "get_dubbing",

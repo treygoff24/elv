@@ -22,4 +22,17 @@ describe("published coverage counts", () => {
       expect(text, path).toMatch(new RegExp(`\\b${metadata.callable_operations}\\b`, "u"));
     }
   });
+
+  it("ships the API coverage page linked from the README", () => {
+    const manifest = JSON.parse(readFileSync("package.json", "utf8")) as { files: string[] };
+
+    expect(manifest.files).toContain("docs/api-coverage.md");
+  });
+
+  it("does not ship the obsolete bare-parent exit-2 guidance", () => {
+    const text = readFileSync("skills/elv/SKILL.md", "utf8");
+
+    expect(text).toContain("Bare parent commands are discovery");
+    expect(text).not.toMatch(/Parent alias commands need a subcommand|elv voices` alone exits 2/u);
+  });
 });

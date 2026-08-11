@@ -1,4 +1,7 @@
-export type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "HEAD";
+import type { JsonValue } from "../util/json";
+
+export const HTTP_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"] as const;
+export type HttpMethod = (typeof HTTP_METHODS)[number];
 
 export class SchemaResolutionError extends Error {
   constructor(operationId: string, cause: unknown) {
@@ -10,26 +13,30 @@ export class SchemaResolutionError extends Error {
   }
 }
 
-export type Risk = "read" | "generate" | "mutate" | "destructive" | "external_side_effect";
+export const RISKS = ["read", "mutate", "generate", "external_side_effect", "destructive"] as const;
+export type Risk = (typeof RISKS)[number];
 
-/** Streaming is three different things; the runner branches on this. */
-export type StreamKind = "none" | "audio_bytes" | "json_events" | "sse_events" | "text";
+/** Each stream kind needs different transport handling; a streaming boolean is insufficient. */
+export const STREAM_KINDS = ["none", "audio_bytes", "json_events", "sse_events", "text"] as const;
+export type StreamKind = (typeof STREAM_KINDS)[number];
 
 /** Budget guard keys on this (NOT the risk label). */
-export type CostHint =
-  | "characters"
-  | "audio_seconds"
-  | "per_generation"
-  | "per_source_minute"
-  | "slot"
-  | "unknown";
+export const COST_HINTS = [
+  "characters",
+  "audio_seconds",
+  "per_generation",
+  "per_source_minute",
+  "slot",
+  "unknown",
+] as const;
+export type CostHint = (typeof COST_HINTS)[number];
 
 export interface ParamCard {
   name: string;
   location: "path" | "query" | "header";
   required: boolean;
   /** JSON Schema fragment, bundled (internal $ref preserved). */
-  schema: unknown;
+  schema: JsonValue;
   description?: string;
 }
 
@@ -39,22 +46,21 @@ export interface BodyCard {
   /** $ref into components for Ajv validate-by-$ref (matches the bundle step). */
   schemaRef?: string;
   /** Inline schema when no top-level $ref is available. */
-  schema?: unknown;
+  schema?: JsonValue;
   multipart: boolean;
-  /** Multipart fields that are file/binary parts. */
   fileFields?: string[];
 }
 
 export interface ResponseCard {
   status: string;
   contentType?: string;
-  schema?: unknown;
+  schema?: JsonValue;
   binary: boolean;
 }
 
 export interface ExampleCard {
   summary?: string;
-  value: unknown;
+  value: JsonValue | undefined;
 }
 
 export interface OperationCard {

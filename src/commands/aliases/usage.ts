@@ -1,8 +1,8 @@
 import type { Command } from "commander";
+import type { CliOptionValues } from "../options";
 import { compact, required, runAlias, type BuiltOperation } from "./shared";
 
-interface UsageFlags {
-  from?: string;
+interface UsageFlags extends Pick<CliOptionValues, "from"> {
   to?: string;
   breakdown?: string;
   metric?: string;

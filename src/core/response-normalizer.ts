@@ -1,5 +1,5 @@
 import { extname, join } from "node:path";
-import { Readable } from "node:stream";
+import type { Readable } from "node:stream";
 import { extension } from "mime-types";
 import { GUARDED_HINTS } from "./budget";
 import { decodeBase64 } from "./encoding";
@@ -16,9 +16,13 @@ import {
   writeBufferToFile,
 } from "./files";
 import { isRecord, parseJson as parseJsonValue } from "../util/json";
+import { errorMessage } from "../util/error";
 import { shellArg } from "../util/shell";
 import { containsCredential } from "./redaction";
+import { retryAfterMs } from "./retries";
 import type { HttpMethod, OperationCard } from "../openapi/types";
+import type { JsonObject, JsonValue } from "../util/json";
+import type { TempFileWriter } from "./files";
 import type {
   CostInfo,
   DataSummary,
@@ -167,7 +171,7 @@ async function jsonSuccess(
   warnings: Warning[],
 ): Promise<Envelope> {
   const text = await res.text();
-  let data: unknown;
+  let data: JsonValue;
   try {
     data = parseOptionalJsonBody(text);
   } catch (error) {
@@ -221,7 +225,7 @@ function invalidJsonSuccess(
   body: string,
   error: unknown,
 ): Envelope {
-  const parseError = error instanceof Error ? error.message : String(error);
+  const parseError = errorMessage(error);
   return failure({
     cmd: ctx.cmd,
     operation_id: op.operationId,
@@ -278,7 +282,7 @@ async function spillSecretJsonFile(
   };
 }
 
-function summarizeSensitiveData(data: unknown): DataSummary {
+function summarizeSensitiveData(data: JsonValue): DataSummary {
   if (Array.isArray(data)) return { type: "array", count: data.length };
   if (isRecord(data)) return { type: "object", count: Object.keys(data).length };
   return { type: data === null ? "null" : typeof data };
@@ -292,11 +296,7 @@ function viewHint(filePath: string, data: unknown): Hint {
   };
 }
 
-/**
- * Spill an already-built success envelope's data when it is too large to inline, keeping only
- * the small pagination cursor (`next`) inline. Runs after pagination processing so the `next`
- * command and item truncation survive even when the page itself exceeds the inline limit.
- */
+/** Run after pagination so its `next` command and item truncation survive a spill. */
 export function spillIfLarge(
   op: OperationCard,
   env: Envelope,
@@ -348,7 +348,7 @@ function boundedPreview(items: unknown[]): unknown[] {
   const preview: unknown[] = [];
   let bytes = 0;
   for (const item of items.slice(0, PREVIEW_MAX_ITEMS)) {
-    const size = JSON.stringify(item)?.length ?? 0;
+    const size = JSON.stringify(item)!.length;
     if (preview.length > 0 && bytes + size > PREVIEW_MAX_BYTES) break;
     preview.push(item);
     bytes += size;
@@ -381,7 +381,7 @@ function viewPathHint(data: unknown): string {
 
 async function writeFullTimestampFiles(
   op: OperationCard,
-  data: Record<string, unknown>,
+  data: JsonObject,
   ctx: ResponseContext,
 ): Promise<FileRecord[]> {
   const target = resolveOutTarget(ctx.out, false);
@@ -406,10 +406,7 @@ async function writeFullTimestampFiles(
   ];
 }
 
-function isFullTimestampResponse(
-  op: OperationCard,
-  data: unknown,
-): data is Record<string, unknown> {
+function isFullTimestampResponse(op: OperationCard, data: JsonValue): data is JsonObject {
   return (
     op.operationId.endsWith("_full_with_timestamps") &&
     isRecord(data) &&
@@ -436,6 +433,15 @@ interface SseParserState {
   lines: string[];
 }
 
+interface EventStreamState {
+  dir: string;
+  ndjson: TempFileWriter;
+  audio?: TempFileWriter;
+  eventCount: number;
+  audioBytes: number;
+  body: Readable;
+}
+
 async function streamSseEventsResponse(
   op: OperationCard,
   res: Response,
@@ -443,67 +449,46 @@ async function streamSseEventsResponse(
   base: Omit<SuccessEnvelope, "v" | "ok">,
   warnings: Warning[],
 ): Promise<Envelope> {
-  const target = resolveOutTarget(ctx.out, true);
-  const ndjson = tempFileWriter(
-    join(target.dir, deriveFilename(op.operationId, undefined, "ndjson")),
-  );
-  let audio: ReturnType<typeof tempFileWriter> | undefined;
-  let eventCount = 0;
-  let audioBytes = 0;
+  const stream = eventStreamState(op, res, ctx);
   const parser: SseParserState = { pending: "", lines: [] };
   const decoder = new TextDecoder("utf-8", { fatal: true });
-  const body = toNodeReadable(res.body ?? Readable.from([]));
-
-  try {
-    for await (const chunk of body) {
-      const frames = feedSse(parser, decoder.decode(chunkBuffer(chunk), { stream: true }), false);
-      for (const frame of frames) {
-        const written = await writeSseFrame(
-          frame,
-          ndjson,
-          () => (audio ??= jsonEventsAudioWriter(op, ctx, target.dir)),
-          (bytes) => {
-            audioBytes += bytes;
-          },
-        );
-        if (written.event) eventCount += 1;
-      }
-    }
-
-    const frames = feedSse(parser, decoder.decode(), true);
+  const writeFrames = async (frames: SseFrame[]): Promise<void> => {
     for (const frame of frames) {
       const written = await writeSseFrame(
         frame,
-        ndjson,
-        () => (audio ??= jsonEventsAudioWriter(op, ctx, target.dir)),
+        stream.ndjson,
+        () => (stream.audio ??= jsonEventsAudioWriter(op, ctx, stream.dir)),
         (bytes) => {
-          audioBytes += bytes;
+          stream.audioBytes += bytes;
         },
       );
-      if (written.event) eventCount += 1;
+      if (written.event) stream.eventCount += 1;
+    }
+  };
+
+  try {
+    for await (const chunk of stream.body) {
+      await writeFrames(
+        feedSse(parser, decoder.decode(chunkBuffer(chunk), { stream: true }), false),
+      );
     }
 
-    const files = await closeSseFiles(ndjson, audio, ctx, false);
+    await writeFrames(feedSse(parser, decoder.decode(), true));
+
+    const files = await closeEventFiles(stream.ndjson, stream.audio, ctx, false);
     return fileSuccess(base, files, warnings);
   } catch (error) {
-    return streamFailure(ctx, op, base, warnings, error, {
-      ndjson,
-      audio,
-      eventCount,
-      audioBytes,
-      closeNdjson: () => closeSseFiles(ndjson, undefined, ctx, true),
-      closeAudio: () => closeSseFiles(undefined, audio!, ctx, true),
+    return eventStreamFailure(ctx, op, base, warnings, error, stream, {
       code: "invalid_sse_stream",
       message: "Provider returned a malformed SSE stream",
       noFilesHints: [],
-      interrupted: body.errored === error,
     });
   }
 }
 
-async function closeSseFiles(
-  ndjson: ReturnType<typeof tempFileWriter> | undefined,
-  audio: ReturnType<typeof tempFileWriter> | undefined,
+async function closeEventFiles(
+  ndjson: TempFileWriter | undefined,
+  audio: TempFileWriter | undefined,
   ctx: ResponseContext,
   partial: boolean,
 ): Promise<FileRecord[]> {
@@ -526,17 +511,34 @@ async function closeSseFiles(
   return files;
 }
 
-interface StreamFailureOptions {
-  ndjson: ReturnType<typeof tempFileWriter>;
-  audio: ReturnType<typeof tempFileWriter> | undefined;
-  eventCount: number;
-  audioBytes: number;
-  closeNdjson: () => Promise<FileRecord[]>;
-  closeAudio: () => Promise<FileRecord[]>;
+interface StreamFailureOptions extends Pick<
+  EventStreamState,
+  "ndjson" | "eventCount" | "audioBytes"
+> {
+  audio: EventStreamState["audio"];
   code: string;
   message: string;
   noFilesHints: Hint[];
   interrupted: boolean;
+}
+
+function eventStreamFailure(
+  ctx: ResponseContext,
+  op: OperationCard,
+  base: Omit<SuccessEnvelope, "v" | "ok">,
+  warnings: Warning[],
+  error: unknown,
+  stream: EventStreamState,
+  details: Pick<StreamFailureOptions, "code" | "message" | "noFilesHints">,
+): Promise<Envelope> {
+  return streamFailure(ctx, op, base, warnings, error, {
+    ndjson: stream.ndjson,
+    audio: stream.audio,
+    eventCount: stream.eventCount,
+    audioBytes: stream.audioBytes,
+    ...details,
+    interrupted: stream.body.errored === error,
+  });
 }
 
 async function streamFailure(
@@ -549,18 +551,18 @@ async function streamFailure(
 ): Promise<Envelope> {
   const files: FileRecord[] = [];
   if (options.eventCount > 0) {
-    files.push(...(await options.closeNdjson()));
+    files.push(...(await closeEventFiles(options.ndjson, undefined, ctx, true)));
   } else {
     await options.ndjson.abort();
   }
   if (options.audio) {
     if (options.audioBytes > 0) {
-      files.push(...(await options.closeAudio()));
+      files.push(...(await closeEventFiles(undefined, options.audio, ctx, true)));
     } else {
       await options.audio.abort();
     }
   }
-  const parseError = error instanceof Error ? error.message : String(error);
+  const parseError = errorMessage(error);
   const interrupted = options.interrupted;
   return failure({
     cmd: ctx.cmd,
@@ -654,8 +656,8 @@ function parseSseFrame(lines: string[]): SseFrame | undefined {
 
 async function writeSseFrame(
   frame: SseFrame,
-  ndjson: ReturnType<typeof tempFileWriter>,
-  audioWriter: () => ReturnType<typeof tempFileWriter>,
+  ndjson: TempFileWriter,
+  audioWriter: () => TempFileWriter,
   recordAudioBytes: (bytes: number) => void,
 ): Promise<{ event: boolean }> {
   if (frame.data.trim() === "[DONE]") return { event: false };
@@ -679,7 +681,7 @@ async function writeSseFrame(
   return { event: true };
 }
 
-function parseSseData(data: string): unknown {
+function parseSseData(data: string): JsonValue {
   try {
     return parseJsonValue(data);
   } catch {
@@ -688,9 +690,9 @@ function parseSseData(data: string): unknown {
 }
 
 function extractSseAudio(
-  payload: unknown,
+  payload: JsonValue,
   event: string | undefined,
-): { data: unknown; audio?: Buffer } {
+): { data: JsonValue; audio?: Buffer } {
   if (event === "audio_chunk" && typeof payload === "string") {
     return { data: null, audio: decodeBase64(payload.replace(/\n/gu, ""), "stream event") };
   }
@@ -714,79 +716,40 @@ async function streamJsonEventsResponse(
   base: Omit<SuccessEnvelope, "v" | "ok">,
   warnings: Warning[],
 ): Promise<Envelope> {
-  const target = resolveOutTarget(ctx.out, true);
-  const ndjson = tempFileWriter(
-    join(target.dir, deriveFilename(op.operationId, undefined, "ndjson")),
-  );
-  let audio: ReturnType<typeof tempFileWriter> | undefined;
+  const stream = eventStreamState(op, res, ctx);
   const decoder = new TextDecoder("utf-8", { fatal: true });
   let pending = "";
-  let eventCount = 0;
-  let audioBytes = 0;
-  const body = toNodeReadable(res.body ?? Readable.from([]));
+  const writeEvents = async (events: JsonValue[]): Promise<void> => {
+    for (const event of events) {
+      await writeJsonEvent(
+        event,
+        stream.ndjson,
+        () => (stream.audio ??= jsonEventsAudioWriter(op, ctx, stream.dir)),
+        (bytes) => {
+          stream.audioBytes += bytes;
+        },
+      );
+      stream.eventCount += 1;
+    }
+  };
 
   try {
-    for await (const chunk of body) {
+    for await (const chunk of stream.body) {
       pending += decoder.decode(chunkBuffer(chunk), { stream: true });
       const parsed = extractJsonObjects(pending);
       pending = parsed.rest;
-      for (const event of parsed.objects) {
-        await writeJsonEvent(
-          event,
-          ndjson,
-          () => (audio ??= jsonEventsAudioWriter(op, ctx, target.dir)),
-          (bytes) => {
-            audioBytes += bytes;
-          },
-        );
-        eventCount += 1;
-      }
+      await writeEvents(parsed.objects);
     }
 
     pending += decoder.decode();
     const parsed = extractJsonObjects(pending);
     if (parsed.rest.trim()) throw new Error("Incomplete trailing JSON event");
-    for (const event of parsed.objects) {
-      await writeJsonEvent(
-        event,
-        ndjson,
-        () => (audio ??= jsonEventsAudioWriter(op, ctx, target.dir)),
-        (bytes) => {
-          audioBytes += bytes;
-        },
-      );
-      eventCount += 1;
-    }
+    await writeEvents(parsed.objects);
 
-    const ndjsonPath = await ndjson.close();
-    const files: FileRecord[] = [
-      { ...(await fileRecord(ndjsonPath, { hash: ctx.hash })), mime: "application/x-ndjson" },
-    ];
-    if (audio) {
-      const audioPath = await audio.close();
-      files.push(await fileRecord(audioPath, { hash: ctx.hash }));
-    }
+    const files = await closeEventFiles(stream.ndjson, stream.audio, ctx, false);
     return fileSuccess(base, files, warnings);
   } catch (error) {
-    return streamFailure(ctx, op, base, warnings, error, {
-      ndjson,
-      audio,
-      eventCount,
-      audioBytes,
-      closeNdjson: async () => {
-        const path = await ndjson.close();
-        return [
-          {
-            ...(await fileRecord(path, { hash: ctx.hash })),
-            mime: "application/x-ndjson",
-            partial: true,
-          },
-        ];
-      },
-      closeAudio: async () => {
-        const path = await audio!.close();
-        return [{ ...(await fileRecord(path, { hash: ctx.hash })), partial: true }];
-      },
+    return eventStreamFailure(ctx, op, base, warnings, error, stream, {
       code: "invalid_json_events_stream",
       message: "Provider returned a malformed JSON events stream",
       noFilesHints: [
@@ -795,24 +758,49 @@ async function streamJsonEventsResponse(
           why: "Retry only if needed; provider credits may already have been consumed.",
         },
       ],
-      interrupted: body.errored === error,
     });
   }
+}
+
+function eventStreamState(
+  op: OperationCard,
+  res: Response,
+  ctx: ResponseContext,
+): EventStreamState {
+  const { dir, ndjson } = jsonEventOutputs(op, ctx);
+  return {
+    dir,
+    ndjson,
+    eventCount: 0,
+    audioBytes: 0,
+    body: toNodeReadable(res.body),
+  };
+}
+
+function jsonEventOutputs(
+  op: OperationCard,
+  ctx: ResponseContext,
+): Pick<EventStreamState, "dir" | "ndjson"> {
+  const dir = resolveOutTarget(ctx.out, true).dir;
+  return {
+    dir,
+    ndjson: tempFileWriter(join(dir, deriveFilename(op.operationId, undefined, "ndjson"))),
+  };
 }
 
 function jsonEventsAudioWriter(
   op: OperationCard,
   ctx: ResponseContext,
   dir: string,
-): ReturnType<typeof tempFileWriter> {
+): TempFileWriter {
   const ext = audioExtensionFromRequestPath(ctx.requestPath);
   return tempFileWriter(join(dir, deriveFilename(op.operationId, "audio", ext)));
 }
 
 async function writeJsonEvent(
-  event: unknown,
-  ndjson: ReturnType<typeof tempFileWriter>,
-  audioWriter: () => ReturnType<typeof tempFileWriter>,
+  event: JsonValue,
+  ndjson: TempFileWriter,
+  audioWriter: () => TempFileWriter,
   recordAudioBytes: (bytes: number) => void,
 ): Promise<void> {
   const encoded = isRecord(event)
@@ -831,8 +819,8 @@ async function writeJsonEvent(
   }
 }
 
-function extractJsonObjects(text: string): { objects: unknown[]; rest: string } {
-  const objects: unknown[] = [];
+function extractJsonObjects(text: string): { objects: JsonValue[]; rest: string } {
+  const objects: JsonValue[] = [];
   let start = -1;
   let depth = 0;
   let inString = false;
@@ -883,17 +871,13 @@ async function streamResponseFile(
   const target = resolveOutTarget(ctx.out, false);
   const filename = target.file ?? deriveFilename(op.operationId, undefined, extensionForMime(mime));
   const path = join(target.dir, filename);
-  const body = res.body ?? Readable.from([]);
-  await streamToFile(body, path);
+  await streamToFile(res.body, path);
   const record = await fileRecord(path, { hash: ctx.hash });
   return { ...record, mime };
 }
 
 function chunkBuffer(chunk: Buffer | Uint8Array | string): Buffer {
-  if (Buffer.isBuffer(chunk)) return chunk;
-  if (chunk instanceof Uint8Array) return Buffer.from(chunk);
-  if (typeof chunk === "string") return Buffer.from(chunk);
-  return Buffer.from(String(chunk));
+  return Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
 }
 
 function audioExtensionFromRequestPath(path: string | undefined): string {
@@ -933,7 +917,7 @@ function costInfo(
   return { credits_estimated: null, credits_charged: null, credits_source: "none" };
 }
 
-async function parseErrorBody(res: Response): Promise<unknown> {
+async function parseErrorBody(res: Response): Promise<JsonValue> {
   const text = await res.text();
   if (!text) return {};
   if (isJson(contentType(res.headers))) {
@@ -942,14 +926,14 @@ async function parseErrorBody(res: Response): Promise<unknown> {
     } catch (error) {
       return {
         detail: text,
-        parse_error: error instanceof Error ? error.message : String(error),
+        parse_error: errorMessage(error),
       };
     }
   }
   return { detail: text };
 }
 
-function parseOptionalJsonBody(text: string): unknown {
+function parseOptionalJsonBody(text: string): JsonValue {
   if (!text) return null;
   return parseJsonValue(text);
 }
@@ -966,7 +950,7 @@ function declaredContentType(op: OperationCard): string | undefined {
 }
 
 function contentType(headers: Headers): string {
-  return (headers.get("content-type") ?? "").split(";")[0]?.trim().toLowerCase() ?? "";
+  return (headers.get("content-type") ?? "").split(";")[0]!.trim().toLowerCase();
 }
 
 function isJson(value: string): boolean {
@@ -1005,15 +989,6 @@ function numberHeader(headers: Headers, name: string): number | null {
   if (!value) return null;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
-}
-
-function retryAfterMs(headers: Headers): number | null {
-  const value = headers.get("retry-after");
-  if (!value) return null;
-  const seconds = Number(value);
-  if (Number.isFinite(seconds)) return Math.max(0, seconds * 1000);
-  const dateMs = Date.parse(value);
-  return Number.isFinite(dateMs) ? Math.max(0, dateMs - Date.now()) : null;
 }
 
 function previewText(value: string): string {

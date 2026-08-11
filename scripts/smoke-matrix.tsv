@@ -1,0 +1,30 @@
+# Offline JSON-envelope smoke matrix, consumed by scripts/smoke.sh.
+# Columns, tab-separated:  <expected exit code>	<argument list>
+# Rows are argument LISTS, not quoted command strings — smoke.sh splits them
+# with `set --`, so no row needs (or gets) shell quoting.
+#
+# Every row must be local-only: no network, no credits. Anything that can reach
+# the ElevenLabs API belongs in the vitest suite behind a mock server, not here.
+0	--version
+0	capabilities
+0	config get
+0	spec status
+0	spec status --offline
+0	ops
+0	ops search speech
+0	ops get text_to_speech_full
+0	ops schema text_to_speech_full --example
+0	config
+0	spec
+0	agents
+0	agents procedures
+0	agents tests
+2	voices get
+9	call no_such_operation
+# A mistyped subcommand exits differently depending on the parent: registered
+# parents (ops/config/spec) carry an action, so commander reports excess
+# arguments -> exit 2, while alias parents have none and report an unknown
+# command -> exit 9. Both rows pin the current contract; if you unify them,
+# update these and tests/commands/cli-json.test.ts together.
+2	spec nonesuch
+9	agents nonesuch

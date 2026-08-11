@@ -3,7 +3,13 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { assertNoKeyLeak, parseEnvelope, runCli, type CliResult } from "../helpers/cli-result";
+import {
+  assertNoKeyLeak,
+  parseEnvelope,
+  recordValue,
+  runCli,
+  type CliResult,
+} from "../helpers/cli-result";
 
 const CANARY_KEY = "test_key_CANARY";
 const CALL_TIMEOUT_MS = 30_000;
@@ -99,7 +105,7 @@ describe("http mock server (black-box, integration gate)", () => {
       expect(data).toBeTypeOf("object");
       expect(data).not.toBeNull();
 
-      const record = data as Record<string, unknown>;
+      const record = recordValue(data, "data");
       expect(Array.isArray(record.voices)).toBe(true);
     },
     CALL_TIMEOUT_MS,
@@ -126,8 +132,8 @@ describe("http mock server (black-box, integration gate)", () => {
       const envelope = parseEnvelope(stdout);
       expect(envelope.ok).toBe(true);
 
-      const data = envelope.data as Record<string, unknown>;
-      const received = data.received as Record<string, unknown>;
+      const data = recordValue(envelope.data, "data");
+      const received = recordValue(data.received, "received");
       expect(received.a).toBe(1);
     },
     CALL_TIMEOUT_MS,

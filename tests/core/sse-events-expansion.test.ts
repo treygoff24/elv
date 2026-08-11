@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Readable } from "node:stream";
 import { describe, expect, it } from "vitest";
+import { parseJsonRecord } from "../../src/util/json";
 import { normalizeResponse } from "../../src/core/response-normalizer";
 import { compileSpec } from "../../src/openapi/compile-spec";
 import type { OperationCard } from "../../src/openapi/types";
@@ -93,7 +94,7 @@ describe("SSE response normalization", () => {
     const events = readFileSync(ndjson!.path, "utf8")
       .trim()
       .split("\n")
-      .map((line) => JSON.parse(line) as Record<string, unknown>);
+      .map((line) => parseJsonRecord(line, "SSE event"));
     expect(events).toEqual([
       { event: "audio", id: "evt-1", retry: 2500, data: { marker: 1 } },
       { data: "provider note" },

@@ -1,11 +1,12 @@
 import { isRecord } from "../util/json";
 import { classifyTypeFromStatus } from "./errors";
 import type { NormalizedError } from "./types";
+import type { JsonObject, JsonValue } from "../util/json";
 
 interface ProviderErrorContext {
   httpStatus: number;
   requestIdFromHeader: string | null;
-  raw: unknown;
+  raw: JsonValue;
 }
 
 const CODE_BY_STATUS: Record<number, string> = {
@@ -32,7 +33,7 @@ const TEXT_BY_STATUS: Record<number, string> = {
 };
 
 export function normalizeProviderError(
-  body: unknown,
+  body: JsonValue,
   httpStatus: number,
   headers: Headers,
 ): NormalizedError {
@@ -43,7 +44,7 @@ export function normalizeProviderError(
   });
 }
 
-function normalizeDetail(detail: unknown, context: ProviderErrorContext): NormalizedError {
+function normalizeDetail(detail: JsonValue, context: ProviderErrorContext): NormalizedError {
   if (Array.isArray(detail)) {
     return normalizeArrayDetail(detail, context);
   }
@@ -56,7 +57,10 @@ function normalizeDetail(detail: unknown, context: ProviderErrorContext): Normal
   return normalizeObjectDetail(asRecord(context.raw), context);
 }
 
-function normalizeArrayDetail(detail: unknown[], context: ProviderErrorContext): NormalizedError {
+function normalizeArrayDetail(
+  detail: readonly JsonValue[],
+  context: ProviderErrorContext,
+): NormalizedError {
   const first = asRecord(detail[0]);
   const loc = Array.isArray(first.loc) ? first.loc : [];
   const msg = stringValue(first.msg) ?? statusText(context.httpStatus);
@@ -71,10 +75,7 @@ function normalizeArrayDetail(detail: unknown[], context: ProviderErrorContext):
   };
 }
 
-function normalizeObjectDetail(
-  detail: Record<string, unknown>,
-  context: ProviderErrorContext,
-): NormalizedError {
+function normalizeObjectDetail(detail: JsonObject, context: ProviderErrorContext): NormalizedError {
   return {
     type: stringValue(detail.type) ?? classifyTypeFromStatus(context.httpStatus),
     code:
@@ -108,11 +109,11 @@ function serviceUnavailableCode(status: number): string | undefined {
   return status === 502 || status === 503 || status === 504 ? "service_unavailable" : undefined;
 }
 
-function detailValue(body: unknown): unknown {
+function detailValue(body: JsonValue): JsonValue {
   return isRecord(body) && "detail" in body ? body.detail : body;
 }
 
-function deriveFromLoc(loc: unknown[]): string | null {
+function deriveFromLoc(loc: readonly JsonValue[]): string | null {
   for (let index = loc.length - 1; index >= 0; index -= 1) {
     const value = loc[index];
     if (typeof value !== "string" && typeof value !== "number") continue;
@@ -130,10 +131,10 @@ function statusText(status: number): string {
   return TEXT_BY_STATUS[status] ?? (status >= 500 ? "Provider server error" : `HTTP ${status}`);
 }
 
-function asRecord(value: unknown): Record<string, unknown> {
+function asRecord(value: JsonValue | undefined): JsonObject {
   return isRecord(value) ? value : {};
 }
 
-function stringValue(value: unknown): string | undefined {
+function stringValue(value: JsonValue | undefined): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
 }

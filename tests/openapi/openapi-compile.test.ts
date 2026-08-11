@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { compileSpec } from "../../src/openapi/compile-spec";
+import type { JsonObject } from "../../src/util/json";
 
 const snapshotPath = "spec/openapi.snapshot.json";
 const fixturePath = "fixtures/fake-openapi.json";
@@ -34,9 +35,9 @@ describe("OpenAPI compiler", () => {
     const compiled = await compileSpec({ sourcePath: snapshotPath });
     const ids = compiled.operations.map((op) => op.operationId);
 
-    expect(compiled.totalOperations).toBe(339);
+    expect(compiled.totalOperations).toBe(364);
     expect(compiled.skippedOperations).toBe(1);
-    expect(compiled.operations).toHaveLength(338);
+    expect(compiled.operations).toHaveLength(363);
     expect(new Set(ids).size).toBe(ids.length);
     expect(() => JSON.stringify(compiled.operations)).not.toThrow();
 
@@ -85,6 +86,31 @@ describe("OpenAPI compiler", () => {
       "dubbing_target_transcript_get",
       "dubbing_target_transcript_segment_update",
       "dubbing_target_transcript_regenerate",
+      "resolve_conversation_reference_route",
+      "create_crawl_job_route",
+      "list_crawl_jobs_route",
+      "get_crawl_job_route",
+      "cancel_crawl_job_route",
+      "get_finetunes",
+      "create_finetune",
+      "get_finetune",
+      "update_finetune",
+      "delete_finetune",
+      "export_batch_call",
+      "get_knowledge_base_bulk_dependent_agents_route",
+      "post_knowledge_base_bulk_delete_route",
+      "list_procedures_route",
+      "create_procedure_route",
+      "get_procedure_route",
+      "remove_procedure_route",
+      "get_procedure_draft_route",
+      "update_procedure_draft_route",
+      "delete_procedure_draft_route",
+      "compile_procedures_route",
+      "dubbing_transcript_segments_update",
+      "dubbing_target_transcript_segments_update",
+      "get_voice_accents",
+      "replicate_voice_to_isolated_environment",
     ];
     const aliasIds = [
       "add_voice",
@@ -137,6 +163,123 @@ describe("OpenAPI compiler", () => {
     expect(byId.get("edit_voice")?.requestBody?.fileFields).toEqual(["files"]);
     expect(byId.get("request_pvc_manual_verification")?.requestBody?.fileFields).toEqual(["files"]);
     expect(byId.get("video_to_music")?.requestBody?.fileFields).toEqual(["videos"]);
+    expect(byId.get("create_finetune")?.requestBody?.fileFields).toEqual(["files"]);
+  });
+
+  it("includes the single-use STT token query parameter", async () => {
+    const compiled = await compileSpec({ sourcePath: snapshotPath });
+
+    expect(
+      compiled.operations.find((op) => op.operationId === "speech_to_text")?.queryParams,
+    ).toEqual(
+      expect.arrayContaining([expect.objectContaining({ name: "token", location: "query" })]),
+    );
+  });
+
+  it("compiles July 27 batch export and bulk knowledge-base operations", async () => {
+    const compiled = await compileSpec({ sourcePath: snapshotPath });
+    const byId = new Map(compiled.operations.map((op) => [op.operationId, op]));
+
+    expect(byId.get("export_batch_call")).toMatchObject({
+      method: "GET",
+      pathTemplate: "/v1/convai/batch-calling/{batch_id}/export",
+      risk: "read",
+      returnsBinary: true,
+      streamKind: "none",
+      responses: expect.arrayContaining([
+        expect.objectContaining({ contentType: "text/csv", binary: true }),
+      ]),
+    });
+    expect(byId.get("get_knowledge_base_bulk_dependent_agents_route")).toMatchObject({
+      method: "POST",
+      risk: "read",
+      requestBody: {
+        schemaRef:
+          "#/components/schemas/Body_Get_dependent_agents_for_multiple_documents_v1_convai_knowledge_base_dependent_agents_post",
+      },
+      queryParams: expect.arrayContaining([
+        expect.objectContaining({ name: "cursor" }),
+        expect.objectContaining({
+          name: "page_size",
+          schema: expect.objectContaining({ default: 30, minimum: 1, maximum: 100 }),
+        }),
+      ]),
+    });
+    expect(byId.get("post_knowledge_base_bulk_delete_route")).toMatchObject({
+      method: "POST",
+      pathTemplate: "/v1/convai/knowledge-base/bulk-delete",
+      risk: "destructive",
+      requestBody: {
+        schemaRef:
+          "#/components/schemas/Body_Bulk_delete_knowledge_base_documents_v1_convai_knowledge_base_bulk_delete_post",
+      },
+    });
+
+    for (const schemaName of [
+      "Body_Get_dependent_agents_for_multiple_documents_v1_convai_knowledge_base_dependent_agents_post",
+      "Body_Bulk_delete_knowledge_base_documents_v1_convai_knowledge_base_bulk_delete_post",
+    ]) {
+      expect(compiled.bundledSpec.components.schemas[schemaName]).toMatchObject({
+        required: ["document_ids"],
+        properties: {
+          document_ids: {
+            type: "array",
+            items: { type: "string" },
+            minItems: 1,
+            maxItems: 20,
+            uniqueItems: true,
+          },
+        },
+      });
+    }
+  });
+
+  it("compiles August 11 procedures, Dubbing v2, voice, and media metadata", async () => {
+    const compiled = await compileSpec({ sourcePath: snapshotPath });
+    const byId = new Map(compiled.operations.map((op) => [op.operationId, op]));
+    const augustOperationIds = [
+      "list_procedures_route",
+      "create_procedure_route",
+      "get_procedure_route",
+      "remove_procedure_route",
+      "get_procedure_draft_route",
+      "update_procedure_draft_route",
+      "delete_procedure_draft_route",
+      "compile_procedures_route",
+      "dubbing_transcript_segments_update",
+      "dubbing_target_transcript_segments_update",
+      "get_voice_accents",
+      "replicate_voice_to_isolated_environment",
+    ];
+
+    expect(augustOperationIds.every((id) => byId.has(id))).toBe(true);
+    expect(byId.get("replicate_voice_to_isolated_environment")).toMatchObject({
+      method: "POST",
+      pathTemplate: "/v1/voices/{voice_id}/replicate-to-isolated-environment",
+      risk: "external_side_effect",
+    });
+    for (const operationId of ["remove_procedure_route", "delete_procedure_draft_route"]) {
+      expect(byId.get(operationId)).toMatchObject({ method: "DELETE", risk: "destructive" });
+    }
+    expect(byId.get("dubbing_target_transcript_regenerate")?.responses).toContainEqual(
+      expect.objectContaining({
+        status: "202",
+        contentType: "application/json",
+        schema: { $ref: "#/components/schemas/DubbingRegenerateResponse" },
+        binary: false,
+      }),
+    );
+    expect(byId.get("video_to_music")).toMatchObject({
+      returnsBinary: true,
+      responses: expect.arrayContaining([
+        expect.objectContaining({ status: "200", contentType: "audio/*", binary: true }),
+        expect.objectContaining({
+          status: "200",
+          contentType: "application/zip",
+          binary: true,
+        }),
+      ]),
+    });
   });
 
   it("bundles instead of dereferencing recursive schemas", async () => {
@@ -150,7 +293,7 @@ describe("OpenAPI compiler", () => {
   });
 
   it("throws on duplicate operationIds", async () => {
-    const spec = JSON.parse(readFileSync(fixturePath, "utf8")) as Record<string, unknown>;
+    const spec = JSON.parse(readFileSync(fixturePath, "utf8")) as JsonObject;
     const paths = spec.paths as Record<string, Record<string, { operationId?: string }>>;
     const itemPost = paths["/v1/items"]?.post;
     expect(itemPost).toBeDefined();

@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import {
   createReadStream,
   createWriteStream,
@@ -13,6 +13,7 @@ import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { lookup } from "mime-types";
 import type { FileRecord } from "./types";
+import type { JsonValue } from "../util/json";
 
 const DEFAULT_HASH_CAP_BYTES = 64 * 1024 * 1024;
 
@@ -128,11 +129,11 @@ export function resolveOutTarget(
 }
 
 export async function streamToFile(
-  body: globalThis.ReadableStream | Readable,
+  body: globalThis.ReadableStream | Readable | null,
   path: string,
 ): Promise<void> {
   mkdirSync(dirname(path), { recursive: true });
-  const tmpPath = `${path}.tmp-${process.pid}-${Date.now()}`;
+  const tmpPath = tempPathFor(path);
   try {
     await pipeline(toNodeReadable(body), createWriteStream(tmpPath));
     await rename(tmpPath, await collisionPathForFile(path, tmpPath));
@@ -163,7 +164,7 @@ export async function writeBufferToFile(
 
 export function tempFileWriter(path: string): TempFileWriter {
   mkdirSync(dirname(path), { recursive: true });
-  const tmpPath = `${path}.tmp-${process.pid}-${Date.now()}`;
+  const tmpPath = tempPathFor(path);
   return new TempFileWriterImpl(path, tmpPath, createWriteStream(tmpPath));
 }
 
@@ -177,7 +178,7 @@ export async function fileRecord(path: string, opts: HashOptions = {}): Promise<
   };
 }
 
-export async function writeManifest(dir: string, manifest: unknown): Promise<string> {
+export async function writeManifest(dir: string, manifest: JsonValue): Promise<string> {
   const path = join(dir, "manifest.json");
   await writeBufferToFile(`${JSON.stringify(manifest, null, 2)}\n`, path);
   return path;
@@ -204,7 +205,7 @@ async function collisionPathForFile(path: string, contentPath: string): Promise<
 
   const extension = extname(path);
   const stem = path.slice(0, path.length - extension.length);
-  return `${stem}-${contentHash?.slice(0, 8) ?? "content"}${extension}`;
+  return `${stem}-${contentHash!.slice(0, 8)}${extension}`;
 }
 
 async function closeWriteStream(stream: WriteStream): Promise<void> {
@@ -228,7 +229,12 @@ function absolute(path: string): string {
   return isAbsolute(path) ? path : resolve(process.cwd(), path);
 }
 
-export function toNodeReadable(body: globalThis.ReadableStream | Readable): Readable {
+export function toNodeReadable(body: globalThis.ReadableStream | Readable | null): Readable {
+  if (body === null) return Readable.from([]);
   if (body instanceof Readable) return body;
   return Readable.fromWeb(body as Parameters<typeof Readable.fromWeb>[0]);
+}
+
+function tempPathFor(path: string): string {
+  return `${path}.tmp-${process.pid}-${randomUUID()}`;
 }

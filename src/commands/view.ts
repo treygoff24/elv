@@ -7,20 +7,22 @@ import { SMALL_JSON_LIMIT, summarizeData } from "../core/response-normalizer";
 import { containsCredential } from "../core/redaction";
 import { ExitCode } from "../core/types";
 import type { CommandResult, Hint } from "../core/types";
+import { errorMessage } from "../util/error";
 import { isRecord, JsonParseError, parseJson } from "../util/json";
+import type { JsonValue } from "../util/json";
 import { readPath } from "../util/jsonpath";
 import { shellArg } from "../util/shell";
+import type { CliOptionValues } from "./options";
 
-interface ViewOptions {
+interface ViewOptions extends Pick<CliOptionValues, "limit"> {
   path?: string;
-  limit?: string | number;
 }
 
 export function buildViewResult(path: string, options: ViewOptions = {}): CommandResult {
   const cmd = `elv view ${path}`;
   const resolved = resolve(path);
 
-  let parsed: unknown;
+  let parsed: JsonValue;
   try {
     const text = readFileSync(resolved, "utf8");
     parsed = parseFileContent(text, resolved);
@@ -70,18 +72,20 @@ export function buildViewResult(path: string, options: ViewOptions = {}): Comman
 
   let value = parsed;
   if (options.path) {
+    let selected: JsonValue | undefined;
     try {
-      value = readPath(parsed, options.path);
+      selected = readPath(parsed, options.path);
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = errorMessage(error);
       return { env: validationError(cmd, message), exitCode: ExitCode.InputValidation };
     }
-    if (value === undefined) {
+    if (selected === undefined) {
       return {
         env: validationError(cmd, `path "${options.path}" not found in ${resolved}`),
         exitCode: ExitCode.InputValidation,
       };
     }
+    value = selected;
   }
 
   const limit = parseLimit(options.limit);
@@ -129,7 +133,7 @@ function isNodeError(error: unknown): error is NodeJS.ErrnoException {
   return error instanceof Error && "code" in error;
 }
 
-function parseFileContent(text: string, filePath: string): unknown {
+function parseFileContent(text: string, filePath: string): JsonValue {
   if (filePath.endsWith(".ndjson")) {
     return text
       .split("\n")
@@ -146,7 +150,7 @@ function parseLimit(value: string | number | undefined): number | undefined | nu
   return parsed;
 }
 
-function narrowHint(filePath: string, value: unknown, jsonPath?: string): Hint {
+function narrowHint(filePath: string, value: JsonValue, jsonPath?: string): Hint {
   if (Array.isArray(value)) {
     // Drilling into the first element always shrinks the payload, so the hint converges;
     // suggesting `--limit` here would loop when individual items are themselves large.
