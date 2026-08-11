@@ -17,6 +17,7 @@
 0	config
 0	spec
 0	agents
+0	agents procedures
 0	agents tests
 2	voices get
 9	call no_such_operation

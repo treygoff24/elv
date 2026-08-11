@@ -8,7 +8,7 @@ Independent project; not affiliated with or endorsed by ElevenLabs.
 
 The ElevenLabs MCP server sucks, and the official skills basically expect your agent to hand-roll raw API calls through brittle wrappers. Worse, the MCP exposes a thin slice of what ElevenLabs can actually do. The API has more than three hundred operations; the MCP surfaces a fraction of them.
 
-So we built `elv`: a simple, token-efficient, agent-first CLI over ElevenLabs' published API. The vendored July 27, 2026 OpenAPI document contains 352 operations; `elv` compiles 351 of them and deliberately skips one deprecated signed-URL route whose replacement is available. Each command returns one JSON envelope and an exit code an agent can branch on before parsing the result.
+So we built `elv`: a simple, token-efficient, agent-first CLI over ElevenLabs' published API. The vendored August 11, 2026 OpenAPI document contains 364 operations; `elv` compiles 363 of them and deliberately skips one deprecated signed-URL route whose replacement is available. Each command returns one JSON envelope and an exit code an agent can branch on before parsing the result.
 
 ## What is this?
 
@@ -34,7 +34,7 @@ The short version of the contract: run a command, check the exit code, and read 
 
 Three layers sit over the ElevenLabs OpenAPI spec, from most general to most convenient.
 
-The generic runner, `elv call <operation_id> --json '{...}'`, can invoke all 351 operations compiled from the pinned OpenAPI document. Nothing is hidden behind a hand-written subset. Escape hatches cover published endpoints that have not reached the pinned registry yet: `elv http <METHOD> <path>` makes an arbitrary REST call against the configured base URL, `elv ws <catalog|url>` runs a scripted WebSocket session, and `elv wait` polls an operation until a status field resolves. Known raw REST requests inherit registry metadata. Otherwise, safety and budget behavior depends on what protocol information is available.
+The generic runner, `elv call <operation_id> --json '{...}'`, can invoke all 363 operations compiled from the pinned OpenAPI document. Nothing is hidden behind a hand-written subset. Escape hatches cover published endpoints that have not reached the pinned registry yet: `elv http <METHOD> <path>` makes an arbitrary REST call against the configured base URL, `elv ws <catalog|url>` runs a scripted WebSocket session, and `elv wait` polls an operation until a status field resolves. Known raw REST requests inherit registry metadata. Otherwise, safety and budget behavior depends on what protocol information is available.
 
 Fourteen thin aliases wrap common workflows: `tts`, `stt`, `music`, `sfx`, `voice-change`, `voice-isolate`, `dubbing`, `dubbing-project`, `voices`, `agents`, `models`, `history`, `usage`, and `workspace`. Each one builds an input and calls the same runner as `call`. Discovery is built in too: `elv capabilities` reports the machine contract and service map; `elv ops list`, `ops search`, `ops get`, and `ops schema` inspect the registry; and `elv spec status`, `spec diff`, and `spec update` expose and refresh the active spec provenance.
 
@@ -119,9 +119,9 @@ The fourteen aliases are sugar over the same runner as `call`.
 | `voice-change` | Speech-to-speech voice conversion |
 | `voice-isolate` | Background-noise removal |
 | `dubbing` | Dubbing create, get, and audio workflows |
-| `dubbing-project` | Dubbing Project source and target transcript editing |
-| `voices` | Voice list, search, get, clone |
-| `agents` | ElevenAgents lifecycle, tests, test runs, and RAG diagnostics |
+| `dubbing-project` | Dubbing v2 source and target transcript editing, including atomic bulk updates |
+| `voices` | Voice list/filter, accents, search, get, clone, and confirmed replication |
+| `agents` | ElevenAgents lifecycle, Procedures, tests, test runs, and RAG diagnostics |
 | `models` | List the models visible to the authenticated account from `/v1/models` |
 | `history` | Generated-audio history list, audio, delete |
 | `usage` | Subscription balance or date-range character stats |
@@ -133,6 +133,8 @@ elv voices list
 elv usage --from 2026-06-01 --to 2026-06-25
 elv dubbing get --id abc123
 elv agents tests create --json-file test.json
+elv agents procedures list --agent-id AGENT_ID --branch-id BRANCH_ID
+elv voices accents --language en
 elv workspace members list
 elv music finetunes list --limit 10
 ```
@@ -158,7 +160,7 @@ elv stt --file note.m4a --model scribe_v2 --token-env SCRIBE_TOKEN
 
 ### The generic runner
 
-For anything outside the alias surface, call any operation by id. July 27 OpenAPI-only additions are available this way, including `export_batch_call` (binary CSV, use `--out`), bulk dependent-agent lookup, and bulk knowledge-base deletion (requires `--yes`). The `--json` body uses the bucketed shape (`path`, `query`, `body`), and `--path key=value` is a shorthand for single path parameters.
+For anything outside the alias surface, call any operation by id. The August 11 contract adds the complete eight-operation Agents Procedures family, Dubbing v2 bulk source/target transcript updates, voice accents, and cross-residency voice replication; the `agents procedures`, `dubbing-project`, and `voices` aliases cover their common workflows. Replication requires `--yes`; both Procedure DELETE routes inherit the same central destructive gate without special-case command code. The `--json` body uses the bucketed shape (`path`, `query`, `body`), and `--path key=value` is a shorthand for single path parameters.
 
 ```bash
 elv call text_to_speech_full \
@@ -168,6 +170,13 @@ elv call text_to_speech_full \
 elv call export_batch_call \
   --json '{"path":{"batch_id":"BATCH_ID"}}' \
   --out ./batch-export
+
+elv call list_procedures_route \
+  --json '{"path":{"agent_id":"AGENT_ID","branch_id":"BRANCH_ID"}}'
+
+elv call replicate_voice_to_isolated_environment \
+  --json '{"path":{"voice_id":"VOICE_ID"},"body":{"target_workspace_id":"WORKSPACE_ID"}}' \
+  --dry-run
 
 elv call delete_voice --path voice_id=VOICE_ID --yes
 ```
@@ -191,8 +200,9 @@ elv ws --list
 elv ws tts-realtime --query voice_id=VOICE --query model_id=eleven_flash_v2_5 \
   --send script.ndjson --out ./session
 
-# Realtime STT accepts send_binary_file actions in the NDJSON script.
-elv ws stt-realtime --send transcribe.ndjson --out ./session --dry-run
+# Realtime STT accepts send_binary_file actions and arbitrary published query fields.
+elv ws stt-realtime --query entity_detection=true \
+  --send transcribe.ndjson --out ./session --dry-run
 
 # Conversation monitoring is receive-only without --send; outbound controls require --yes.
 elv ws convai-monitor --query conversation_id=CONVERSATION_ID --out ./monitor
@@ -255,7 +265,7 @@ ElevenLabs marks `eleven_turbo_v2_5`, `eleven_turbo_v2`, and `scribe_v1` depreca
 
 ## Safety and budget
 
-There are no interactive prompts, so anything with a side effect has to be confirmed explicitly. Destructive operations (DELETE), outbound calls and messages, API-key mutation, and member changes all require `--yes`. Reads are never gated.
+There are no interactive prompts, so anything with a side effect has to be confirmed explicitly. Destructive operations (DELETE), outbound calls and messages, cross-residency voice replication, API-key mutation, and member changes all require `--yes`. Reads are never gated.
 
 ```bash
 elv call delete_voice --path voice_id=VOICE_ID --yes

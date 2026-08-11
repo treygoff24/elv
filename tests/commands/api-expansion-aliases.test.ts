@@ -2,6 +2,14 @@ import { randomUUID } from "node:crypto";
 import { Command } from "commander";
 import { describe, expect, it } from "vitest";
 import {
+  buildAgentProcedureCreateInput,
+  buildAgentProcedureDraftDeleteInput,
+  buildAgentProcedureDraftGetInput,
+  buildAgentProcedureDraftUpdateInput,
+  buildAgentProcedureGetInput,
+  buildAgentProcedureRemoveInput,
+  buildAgentProceduresCompileInput,
+  buildAgentProceduresListInput,
   buildAgentRagQueryInput,
   buildAgentTestRunsGetInput,
   buildAgentTestRunsListInput,
@@ -17,10 +25,12 @@ import {
   buildDubbingTargetTranscriptGetInput,
   buildDubbingTargetTranscriptRegenerateInput,
   buildDubbingTargetTranscriptUpdateSegmentInput,
+  buildDubbingTargetTranscriptUpdateSegmentsInput,
   buildDubbingTranscriptAddSegmentInput,
   buildDubbingTranscriptDeleteSegmentInput,
   buildDubbingTranscriptGetInput,
   buildDubbingTranscriptUpdateSegmentInput,
+  buildDubbingTranscriptUpdateSegmentsInput,
 } from "../../src/commands/aliases/dubbing-project";
 import { registerAliases } from "../../src/commands/aliases/index";
 import {
@@ -31,6 +41,11 @@ import {
   buildMusicFinetuneUpdateInput,
   buildMusicInput,
 } from "../../src/commands/aliases/music";
+import {
+  buildVoiceAccentsInput,
+  buildVoiceReplicationInput,
+  buildVoicesListInput,
+} from "../../src/commands/aliases/voices";
 import {
   buildServiceAccountCreateInput,
   buildServiceAccountsListInput,
@@ -194,6 +209,153 @@ describe("current API workflow aliases", () => {
     });
   });
 
+  it("builds every Agent Procedures input", () => {
+    const branch = { agentId: "agent_1", branchId: "branch_1" };
+    const procedure = { ...branch, procedureId: "procedure_1" };
+    expect(buildAgentProceduresListInput(branch)).toEqual({
+      operationId: "list_procedures_route",
+      input: { path: { agent_id: "agent_1", branch_id: "branch_1" } },
+    });
+    expect(buildAgentProcedureCreateInput(branch)).toEqual({
+      operationId: "create_procedure_route",
+      input: { path: { agent_id: "agent_1", branch_id: "branch_1" } },
+    });
+    expect(buildAgentProcedureCreateInput({ ...branch, json: '{"name":"Refund"}' })).toEqual({
+      operationId: "create_procedure_route",
+      input: {
+        path: { agent_id: "agent_1", branch_id: "branch_1" },
+        body: { name: "Refund" },
+      },
+    });
+    expect(buildAgentProcedureGetInput({ ...procedure, versionId: "version_1" })).toEqual({
+      operationId: "get_procedure_route",
+      input: {
+        path: {
+          agent_id: "agent_1",
+          branch_id: "branch_1",
+          procedure_id: "procedure_1",
+        },
+        query: { version_id: "version_1" },
+      },
+    });
+    expect(buildAgentProcedureRemoveInput(procedure)).toEqual({
+      operationId: "remove_procedure_route",
+      input: {
+        path: {
+          agent_id: "agent_1",
+          branch_id: "branch_1",
+          procedure_id: "procedure_1",
+        },
+      },
+    });
+    expect(buildAgentProcedureDraftGetInput(procedure)).toEqual({
+      operationId: "get_procedure_draft_route",
+      input: {
+        path: {
+          agent_id: "agent_1",
+          branch_id: "branch_1",
+          procedure_id: "procedure_1",
+        },
+      },
+    });
+    expect(
+      buildAgentProcedureDraftUpdateInput({ ...procedure, json: '{"name":"Returns"}' }),
+    ).toEqual({
+      operationId: "update_procedure_draft_route",
+      input: {
+        path: {
+          agent_id: "agent_1",
+          branch_id: "branch_1",
+          procedure_id: "procedure_1",
+        },
+        body: { name: "Returns" },
+      },
+    });
+    expect(buildAgentProcedureDraftDeleteInput(procedure)).toEqual({
+      operationId: "delete_procedure_draft_route",
+      input: {
+        path: {
+          agent_id: "agent_1",
+          branch_id: "branch_1",
+          procedure_id: "procedure_1",
+        },
+      },
+    });
+    expect(buildAgentProceduresCompileInput(branch)).toEqual({
+      operationId: "compile_procedures_route",
+      input: { path: { agent_id: "agent_1", branch_id: "branch_1" } },
+    });
+  });
+
+  it("builds voice discovery, filtering, and replication inputs", () => {
+    expect(
+      buildVoicesListInput({
+        gender: "female",
+        age: "young",
+        language: ["en", "es"],
+        accent: "american",
+        useCase: ["conversational", "narrative_story"],
+        minNoticePeriodDays: "30",
+        customRates: false,
+        liveModerated: false,
+        highQuality: true,
+      }),
+    ).toEqual({
+      operationId: "get_user_voices_v2",
+      input: {
+        query: {
+          gender: "female",
+          age: "young",
+          language: ["en", "es"],
+          accent: "american",
+          use_cases: ["conversational", "narrative_story"],
+          min_notice_period_days: 30,
+          include_custom_rates: false,
+          include_live_moderated: false,
+          high_quality: true,
+        },
+      },
+    });
+    expect(buildVoicesListInput({})).toEqual({
+      operationId: "get_user_voices_v2",
+      input: {},
+    });
+    expect(buildVoiceAccentsInput({ language: "en", modelId: "eleven_v3" })).toEqual({
+      operationId: "get_voice_accents",
+      input: { query: { language: "en", model_id: "eleven_v3" } },
+    });
+    expect(
+      buildVoiceReplicationInput({
+        voiceId: "voice_1",
+        targetWorkspaceId: "workspace_1",
+        preserveVoiceId: false,
+      }),
+    ).toEqual({
+      operationId: "replicate_voice_to_isolated_environment",
+      input: {
+        path: { voice_id: "voice_1" },
+        body: { target_workspace_id: "workspace_1", preserve_voice_id: false },
+      },
+    });
+    expect(
+      buildVoiceReplicationInput({
+        voiceId: "voice_1",
+        json: '{"target_workspace_id":"workspace_json","preserve_voice_id":true}',
+        targetWorkspaceId: "workspace_flag",
+        preserveVoiceId: false,
+      }),
+    ).toEqual({
+      operationId: "replicate_voice_to_isolated_environment",
+      input: {
+        path: { voice_id: "voice_1" },
+        body: { target_workspace_id: "workspace_flag", preserve_voice_id: false },
+      },
+    });
+    expect(() => buildVoiceReplicationInput({ voiceId: "voice_1" })).toThrow(
+      "--target-workspace-id or JSON target_workspace_id is required",
+    );
+  });
+
   it("builds workspace inputs and keeps typed name authoritative", () => {
     expect(buildWorkspaceMembersListInput()).toEqual({
       operationId: "get_workspace_members",
@@ -242,6 +404,18 @@ describe("current API workflow aliases", () => {
       },
     });
     expect(
+      buildDubbingTranscriptUpdateSegmentsInput({
+        projectId: "project_1",
+        json: '{"segments":{"segment_1":{"text":"Hello"}}}',
+      }),
+    ).toEqual({
+      operationId: "dubbing_transcript_segments_update",
+      input: {
+        path: { project_id: "project_1" },
+        body: { segments: { segment_1: { text: "Hello" } } },
+      },
+    });
+    expect(
       buildDubbingTranscriptDeleteSegmentInput({ projectId: "project_1", segmentId: "segment_1" }),
     ).toEqual({
       operationId: "dubbing_transcript_segment_delete",
@@ -265,6 +439,19 @@ describe("current API workflow aliases", () => {
       input: {
         path: { project_id: "project_1", language_id: "es", segment_id: "segment_1" },
         body: { translation: "Hola" },
+      },
+    });
+    expect(
+      buildDubbingTargetTranscriptUpdateSegmentsInput({
+        projectId: "project_1",
+        languageId: "es",
+        json: '{"segments":{"segment_1":{"translation":"Hola"}}}',
+      }),
+    ).toEqual({
+      operationId: "dubbing_target_transcript_segments_update",
+      input: {
+        path: { project_id: "project_1", language_id: "es" },
+        body: { segments: { segment_1: { translation: "Hola" } } },
       },
     });
     expect(
@@ -294,6 +481,73 @@ describe("current API workflow aliases", () => {
     expect(program.commands.map((command) => command.name())).toEqual(
       expect.arrayContaining(["workspace", "dubbing-project"]),
     );
+
+    const agents = program.commands.find((command) => command.name() === "agents")!;
+    const procedures = agents.commands.find((command) => command.name() === "procedures")!;
+    expect(procedures.commands.map((command) => command.name())).toEqual([
+      "list",
+      "create",
+      "get",
+      "remove",
+      "get-draft",
+      "update-draft",
+      "delete-draft",
+      "compile",
+    ]);
+    expect(
+      procedures.commands
+        .find((command) => command.name() === "get")!
+        .options.map((option) => option.long),
+    ).toEqual(
+      expect.arrayContaining(["--agent-id", "--branch-id", "--procedure-id", "--version-id"]),
+    );
+
+    const voices = program.commands.find((command) => command.name() === "voices")!;
+    expect(voices.commands.map((command) => command.name())).toEqual(
+      expect.arrayContaining(["accents", "replicate"]),
+    );
+    expect(
+      voices.commands
+        .find((command) => command.name() === "list")!
+        .options.map((option) => option.long),
+    ).toEqual(
+      expect.arrayContaining([
+        "--gender",
+        "--age",
+        "--language",
+        "--accent",
+        "--use-case",
+        "--min-notice-period-days",
+        "--no-custom-rates",
+        "--no-live-moderated",
+        "--high-quality",
+      ]),
+    );
+    expect(
+      voices.commands
+        .find((command) => command.name() === "replicate")!
+        .options.map((option) => option.long),
+    ).toEqual(
+      expect.arrayContaining([
+        "--voice-id",
+        "--target-workspace-id",
+        "--no-preserve-voice-id",
+        "--json",
+        "--json-file",
+      ]),
+    );
+
+    const dubbingProject = program.commands.find(
+      (command) => command.name() === "dubbing-project",
+    )!;
+    expect(dubbingProject.description()).toContain("Dubbing v2");
+    for (const group of ["transcript", "target-transcript"]) {
+      expect(
+        dubbingProject.commands
+          .find((command) => command.name() === group)!
+          .commands.map((command) => command.name()),
+      ).toContain("update-segments");
+    }
   });
 
   it("targets callable operations in the pinned registry", async () => {
@@ -315,16 +569,28 @@ describe("current API workflow aliases", () => {
       "get_test_invocation_route",
       "resubmit_tests_route",
       "query_agent_knowledge_base_rag_route",
+      "list_procedures_route",
+      "create_procedure_route",
+      "get_procedure_route",
+      "remove_procedure_route",
+      "get_procedure_draft_route",
+      "update_procedure_draft_route",
+      "delete_procedure_draft_route",
+      "compile_procedures_route",
       "get_workspace_members",
       "get_workspace_service_accounts",
       "create_service_account",
       "dubbing_transcript_get",
       "dubbing_transcript_segment_add",
       "dubbing_transcript_segment_update",
+      "dubbing_transcript_segments_update",
       "dubbing_transcript_segment_delete",
       "dubbing_target_transcript_get",
       "dubbing_target_transcript_segment_update",
+      "dubbing_target_transcript_segments_update",
       "dubbing_target_transcript_regenerate",
+      "get_voice_accents",
+      "replicate_voice_to_isolated_environment",
       "export_batch_call",
       "get_knowledge_base_bulk_dependent_agents_route",
       "post_knowledge_base_bulk_delete_route",
@@ -361,6 +627,22 @@ describe("current API workflow aliases", () => {
     expect(deleteSegment.code).toBe(4);
     expect(errorRecord(parseEnvelope(deleteSegment.stdout)).code).toBe("confirmation");
 
+    for (const action of ["remove", "delete-draft"]) {
+      const procedure = await runCli([
+        "agents",
+        "procedures",
+        action,
+        "--agent-id",
+        "agent_1",
+        "--branch-id",
+        "branch_1",
+        "--procedure-id",
+        "procedure_1",
+      ]);
+      expect(procedure.code).toBe(4);
+      expect(errorRecord(parseEnvelope(procedure.stdout)).code).toBe("confirmation");
+    }
+
     const conflict = await runCli([
       "agents",
       "tests",
@@ -373,6 +655,42 @@ describe("current API workflow aliases", () => {
     ]);
     expect(conflict.code).toBe(2);
     expect(errorRecord(parseEnvelope(conflict.stdout)).message).toContain("--json or --json-file");
+  });
+
+  it("preserves replication ids by default and honors --no-preserve-voice-id", async () => {
+    const defaultPreview = await runCli([
+      "voices",
+      "replicate",
+      "--voice-id",
+      "voice_1",
+      "--target-workspace-id",
+      "workspace_1",
+      "--dry-run",
+    ]);
+    expect(defaultPreview.code).toBe(0);
+    const defaultData = recordValue(parseEnvelope(defaultPreview.stdout).data);
+    const defaultInput = recordValue(recordValue(defaultData.request).input);
+    expect(recordValue(defaultInput.body)).toEqual({ target_workspace_id: "workspace_1" });
+    expect(defaultData.would_require_yes).toBe(true);
+
+    const newIdPreview = await runCli([
+      "voices",
+      "replicate",
+      "--voice-id",
+      "voice_1",
+      "--target-workspace-id",
+      "workspace_1",
+      "--no-preserve-voice-id",
+      "--dry-run",
+    ]);
+    expect(newIdPreview.code).toBe(0);
+    const newIdInput = recordValue(
+      recordValue(recordValue(parseEnvelope(newIdPreview.stdout).data).request).input,
+    );
+    expect(recordValue(newIdInput.body)).toEqual({
+      target_workspace_id: "workspace_1",
+      preserve_voice_id: false,
+    });
   });
 
   it("dry-runs polymorphic request schemas with nested document refs", async () => {

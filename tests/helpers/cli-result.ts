@@ -10,7 +10,7 @@ export interface CliResult {
 
 export function runCli(args: string[], env?: Record<string, string>): Promise<CliResult> {
   return new Promise((resolve, reject) => {
-    const child = spawn("npx", ["tsx", "src/cli.ts", ...args], {
+    const child = spawn(process.execPath, ["--import", "tsx", "src/cli.ts", ...args], {
       env: { ...process.env, ...env },
     });
 

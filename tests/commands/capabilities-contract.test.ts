@@ -39,20 +39,50 @@ describe("capabilities machine contract", () => {
     expect(record(data.spec)).toMatchObject({
       source: expect.any(String),
       sha256: expect.any(String),
-      paths: 277,
-      total_operations: 352,
-      callable_operations: 351,
+      paths: 285,
+      total_operations: 364,
+      callable_operations: 363,
       skipped_operations: 1,
-      schemas: 1372,
+      schemas: 1402,
     });
 
     const groups = array(data.service_groups).map((entry) => String(record(entry).name));
     expect(groups).toEqual([...groups].sort());
-    const aliases = array(data.alias_families).map((entry) => String(record(entry).name));
+    const aliasEntries = array(data.alias_families).map((entry) => record(entry));
+    const aliases = aliasEntries.map((entry) => String(entry.name));
     expect(aliases).toEqual([...aliases].sort());
-    const music = array(data.alias_families)
-      .map((entry) => record(entry))
-      .find((entry) => entry.name === "music");
+    for (const alias of aliasEntries) {
+      const operationIds = array(alias.operation_ids).map(String);
+      expect(operationIds, String(alias.name)).toEqual([...operationIds].sort());
+    }
+    const agents = aliasEntries.find((entry) => entry.name === "agents");
+    expect(agents).toMatchObject({
+      operation_ids: expect.arrayContaining([
+        "compile_procedures_route",
+        "create_procedure_route",
+        "delete_procedure_draft_route",
+        "get_procedure_draft_route",
+        "get_procedure_route",
+        "list_procedures_route",
+        "remove_procedure_route",
+        "update_procedure_draft_route",
+      ]),
+    });
+    const dubbingProject = aliasEntries.find((entry) => entry.name === "dubbing-project");
+    expect(dubbingProject).toMatchObject({
+      operation_ids: expect.arrayContaining([
+        "dubbing_target_transcript_segments_update",
+        "dubbing_transcript_segments_update",
+      ]),
+    });
+    const voices = aliasEntries.find((entry) => entry.name === "voices");
+    expect(voices).toMatchObject({
+      operation_ids: expect.arrayContaining([
+        "get_voice_accents",
+        "replicate_voice_to_isolated_environment",
+      ]),
+    });
+    const music = aliasEntries.find((entry) => entry.name === "music");
     expect(music).toMatchObject({
       operation_ids: expect.arrayContaining([
         "create_finetune",

@@ -4,16 +4,16 @@
 
 ## Pinned REST contract
 
-The vendored OpenAPI document was retrieved from `https://api.elevenlabs.io/openapi.json` on July 27, 2026:
+The vendored OpenAPI document was retrieved from `https://api.elevenlabs.io/openapi.json` on August 11, 2026 at `2026-08-11T14:43:48Z`:
 
 | Measure | Value |
 | --- | ---: |
-| SHA-256 | `494d96419d152f22c717162b89cd2c4c0e5b913d1f4fd39d935dfe83fce529dc` |
-| Paths | 277 |
-| Documented operations | 352 |
-| Callable operations | 351 |
+| SHA-256 | `d1a4847203cef628b0c43760b0c74ecd88fa280034bb47c973874ae911f6153a` |
+| Paths | 285 |
+| Documented operations | 364 |
+| Callable operations | 363 |
 | Skipped operations | 1 |
-| Schemas | 1,372 |
+| Schemas | 1,402 |
 
 The skipped operation is `get_signed_url_deprecated`, an obsolete route marked `x-skip-spec` by the source document. Its replacement, `get_conversation_signed_link`, is callable.
 
@@ -39,11 +39,11 @@ The named WebSocket catalog covers the public client-side protocols:
 | --- | --- |
 | `tts-realtime` | Streaming text to speech |
 | `tts-multi` | Multi-context streaming text to speech |
-| `stt-realtime` | Realtime speech to text, including binary file sends |
+| `stt-realtime` | Realtime speech to text, including binary file sends and `entity_detection` |
 | `convai` | ElevenAgents conversations |
 | `convai-monitor` | Conversation text and metadata monitoring, with optional controls |
 
-Validation follows the selected protocol. The TTS keep-alive is not imposed on STT or agent traffic, binary file actions are limited to STT and raw sessions, and WebSocket TTS rejects `eleven_v3`. Receive-only monitoring needs no send script, while outbound agent and monitor actions require `--yes`. WebSocket `--max-credits` can bound scripted TTS from its text but fails closed for STT and agent sessions whose cost is not knowable before connection. `--dry-run` shows the resolved, redacted request and applicable gates without connecting.
+Validation follows the selected protocol. The TTS keep-alive is not imposed on STT or agent traffic, binary file actions are limited to STT and raw sessions, and WebSocket TTS rejects `eleven_v3`. Named sessions forward arbitrary repeated `--query key=value` fields, so realtime STT `entity_detection` is available as `--query entity_detection=true` without a protocol-specific flag. Receive-only monitoring needs no send script, while outbound agent and monitor actions require `--yes`. WebSocket `--max-credits` can bound scripted TTS from its text but fails closed for STT and agent sessions whose cost is not knowable before connection. `--dry-run` shows the resolved, redacted request and applicable gates without connecting.
 
 Music detailed streaming begins as a REST request but returns Server-Sent Events. `elv music detailed-stream` decodes its audio chunks to an audio file and writes the remaining event data to NDJSON. Both appear in `files[]`.
 
@@ -64,7 +64,9 @@ ElevenLabs marks `eleven_turbo_v2_5`, `eleven_turbo_v2`, and `scribe_v1` depreca
 
 ## Recent workflow coverage
 
-The generic runner covers every operation in the pinned document. July 27 added three OpenAPI-only operations through `call` and matching `http`: `export_batch_call` for binary `text/csv` batch-call export, `get_knowledge_base_bulk_dependent_agents_route` for read-only bulk dependent-agent lookup, and `post_knowledge_base_bulk_delete_route` for confirmed bulk knowledge-base deletion. The July 20 changelog additions that merit high-use aliases are:
+The generic runner covers every operation in the pinned document. August 11 adds all eight Agents Procedures operations, Dubbing v2 bulk source/target transcript PATCH operations, `get_voice_accents`, and `replicate_voice_to_isolated_environment`. Voice replication is centrally classified as an external side effect, so `call`, matching `http`, and aliases require `--yes`; `remove_procedure_route` and `delete_procedure_draft_route` inherit the destructive gate directly from DELETE. Dubbing regeneration returns `DubbingRegenerateResponse`, and `video_to_music` now declares both audio and ZIP binary responses.
+
+Current high-use workflow coverage includes:
 
 - `music detailed-stream` for Music SSE audio and metadata
 - `music finetunes` for listing, training, inspecting, updating, and deleting Music Finetunes; every Music generation alias accepts `--finetune-id`
@@ -72,7 +74,8 @@ The generic runner covers every operation in the pinned document. July 27 added 
 - `agents tests` and `agents test-runs` for the preferred testing workflow
 - `agents rag-query` for read-only knowledge-base retrieval diagnostics
 - `workspace members` and `workspace service-accounts`
-- `dubbing-project transcript` and `dubbing-project target-transcript`
+- Dubbing v2 source/target transcript editing and changed-segment regeneration through `dubbing-project`
+- Agents Procedures through `agents procedures`, Dubbing v2 bulk updates through `dubbing-project ... update-segments`, and voice accents/replication through `voices accents|replicate`
 
 `agents simulate` remains for compatibility but invokes an operation ElevenLabs marks deprecated. Use `agents tests create` and `agents tests run` for new work.
 
@@ -82,6 +85,6 @@ Credential-producing responses, including service-account keys, single-use token
 
 Speech Engine upstream is an inverted protocol: ElevenLabs opens a WebSocket connection to a server the customer hosts. An outbound scripted CLI is the wrong runtime shape, so it is not a named `elv ws` target. The REST operations that configure Speech Engine resources remain available through `call`.
 
-ElevenCreative product areas such as Image & Video, Avatars, Ads, Assets, Flows, Templates, and the transcript or subtitle editors remain outside the published OpenAPI document. `elv` does not reverse-engineer private endpoints. Music Finetunes are now published and compiled, but availability may still be enterprise- or account-gated.
+ElevenCreative product areas such as Image & Video, Avatars, Ads, Assets, Flows, and Templates remain outside the published OpenAPI document. `elv` does not reverse-engineer private endpoints. Published Dubbing transcript editing and Music Finetunes are compiled; provider entitlement can still limit access.
 
 Public docs, beta and enterprise entitlements, server behavior, and the live OpenAPI document can change independently. `elv spec diff` is the check for current REST drift; the pinned counts above are a reproducible baseline, not a claim about unpublished backend capabilities.

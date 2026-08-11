@@ -385,13 +385,15 @@ function sortedDifference(left: Set<string>, right: Set<string>): string[] {
 }
 
 function canonical(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
+  if (Array.isArray(value))
+    return `[${value.map((entry) => (entry === undefined ? "null" : canonical(entry))).join(",")}]`;
   if (value && typeof value === "object")
     return `{${Object.entries(value)
+      .filter(([, entry]) => entry !== undefined)
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([key, entry]) => `${JSON.stringify(key)}:${canonical(entry)}`)
       .join(",")}}`;
-  return JSON.stringify(value);
+  return JSON.stringify(value) ?? "null";
 }
 
 function countsForCache(cache: RegistryCache): SpecCounts {

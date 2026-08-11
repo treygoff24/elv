@@ -67,6 +67,10 @@ describe("curated confirmation contract", () => {
       ],
     ],
     ["service account create", ["workspace", "service-accounts", "create", "--name", "CI"]],
+    [
+      "voice replication",
+      ["voices", "replicate", "--voice-id", "voice-id", "--target-workspace-id", "workspace-id"],
+    ],
   ])("gates the %s alias", async (_name, args) => {
     const result = await runCli(args);
     expect(result.code).toBe(4);
@@ -133,6 +137,94 @@ describe("curated confirmation contract", () => {
     ]) {
       expect(result.code).toBe(4);
       expect(errorRecord(parseEnvelope(result.stdout)).code).toBe("confirmation");
+    }
+  });
+
+  it("previews and budget-gates cross-residency voice replication before confirmation", async () => {
+    const input = '{"path":{"voice_id":"voice_1"},"body":{"target_workspace_id":"workspace_1"}}';
+    const preview = await runCli([
+      "call",
+      "replicate_voice_to_isolated_environment",
+      "--json",
+      input,
+      "--dry-run",
+    ]);
+
+    expect(preview.code).toBe(0);
+    expect(recordValue(parseEnvelope(preview.stdout).data)).toMatchObject({
+      would_require_yes: true,
+      budget_policy: "not_configured",
+    });
+
+    const capped = await runCli([
+      "call",
+      "replicate_voice_to_isolated_environment",
+      "--json",
+      input,
+      "--max-credits",
+      "1",
+    ]);
+    const error = errorRecord(parseEnvelope(capped.stdout));
+
+    expect(capped.code).toBe(5);
+    expect(error.code).toBe("budget");
+    expect(recordValue(error.raw).budget_policy).toBe("unknown_unbounded");
+  });
+
+  it("budget-gates Dubbing target regeneration before confirmation or network", async () => {
+    const cases = [
+      [
+        "alias",
+        [
+          "dubbing-project",
+          "target-transcript",
+          "regenerate",
+          "--project-id",
+          "project_1",
+          "--language-id",
+          "es",
+          "--max-credits",
+          "0",
+          "--base-url",
+          "http://127.0.0.1:9",
+          "--yes",
+        ],
+      ],
+      [
+        "call",
+        [
+          "call",
+          "dubbing_target_transcript_regenerate",
+          "--json",
+          '{"path":{"project_id":"project_1","language_id":"es"}}',
+          "--max-credits",
+          "0",
+          "--base-url",
+          "http://127.0.0.1:9",
+          "--yes",
+        ],
+      ],
+      [
+        "http",
+        [
+          "http",
+          "POST",
+          "/v1/dubbing/project/project_1/language/es/transcript/regenerate",
+          "--base-url",
+          "http://127.0.0.1:9",
+          "--max-credits",
+          "0",
+          "--yes",
+        ],
+      ],
+    ] as const;
+
+    for (const [name, args] of cases) {
+      const result = await runCli([...args]);
+      const error = errorRecord(parseEnvelope(result.stdout));
+      expect(result.code, name).toBe(5);
+      expect(error.code, name).toBe("budget_estimate_unavailable");
+      expect(recordValue(error.raw).budget_policy, name).toBe("estimate_unavailable");
     }
   });
 });

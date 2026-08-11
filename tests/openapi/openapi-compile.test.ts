@@ -35,9 +35,9 @@ describe("OpenAPI compiler", () => {
     const compiled = await compileSpec({ sourcePath: snapshotPath });
     const ids = compiled.operations.map((op) => op.operationId);
 
-    expect(compiled.totalOperations).toBe(352);
+    expect(compiled.totalOperations).toBe(364);
     expect(compiled.skippedOperations).toBe(1);
-    expect(compiled.operations).toHaveLength(351);
+    expect(compiled.operations).toHaveLength(363);
     expect(new Set(ids).size).toBe(ids.length);
     expect(() => JSON.stringify(compiled.operations)).not.toThrow();
 
@@ -99,6 +99,18 @@ describe("OpenAPI compiler", () => {
       "export_batch_call",
       "get_knowledge_base_bulk_dependent_agents_route",
       "post_knowledge_base_bulk_delete_route",
+      "list_procedures_route",
+      "create_procedure_route",
+      "get_procedure_route",
+      "remove_procedure_route",
+      "get_procedure_draft_route",
+      "update_procedure_draft_route",
+      "delete_procedure_draft_route",
+      "compile_procedures_route",
+      "dubbing_transcript_segments_update",
+      "dubbing_target_transcript_segments_update",
+      "get_voice_accents",
+      "replicate_voice_to_isolated_environment",
     ];
     const aliasIds = [
       "add_voice",
@@ -220,6 +232,54 @@ describe("OpenAPI compiler", () => {
         },
       });
     }
+  });
+
+  it("compiles August 11 procedures, Dubbing v2, voice, and media metadata", async () => {
+    const compiled = await compileSpec({ sourcePath: snapshotPath });
+    const byId = new Map(compiled.operations.map((op) => [op.operationId, op]));
+    const augustOperationIds = [
+      "list_procedures_route",
+      "create_procedure_route",
+      "get_procedure_route",
+      "remove_procedure_route",
+      "get_procedure_draft_route",
+      "update_procedure_draft_route",
+      "delete_procedure_draft_route",
+      "compile_procedures_route",
+      "dubbing_transcript_segments_update",
+      "dubbing_target_transcript_segments_update",
+      "get_voice_accents",
+      "replicate_voice_to_isolated_environment",
+    ];
+
+    expect(augustOperationIds.every((id) => byId.has(id))).toBe(true);
+    expect(byId.get("replicate_voice_to_isolated_environment")).toMatchObject({
+      method: "POST",
+      pathTemplate: "/v1/voices/{voice_id}/replicate-to-isolated-environment",
+      risk: "external_side_effect",
+    });
+    for (const operationId of ["remove_procedure_route", "delete_procedure_draft_route"]) {
+      expect(byId.get(operationId)).toMatchObject({ method: "DELETE", risk: "destructive" });
+    }
+    expect(byId.get("dubbing_target_transcript_regenerate")?.responses).toContainEqual(
+      expect.objectContaining({
+        status: "202",
+        contentType: "application/json",
+        schema: { $ref: "#/components/schemas/DubbingRegenerateResponse" },
+        binary: false,
+      }),
+    );
+    expect(byId.get("video_to_music")).toMatchObject({
+      returnsBinary: true,
+      responses: expect.arrayContaining([
+        expect.objectContaining({ status: "200", contentType: "audio/*", binary: true }),
+        expect.objectContaining({
+          status: "200",
+          contentType: "application/zip",
+          binary: true,
+        }),
+      ]),
+    });
   });
 
   it("bundles instead of dereferencing recursive schemas", async () => {

@@ -37,14 +37,14 @@ describe("spec update", () => {
       provenance: { sha256: string; schemas: number };
     };
 
-    expect(result.operations).toBe(351);
-    expect(result.totalOperations).toBe(352);
+    expect(result.operations).toBe(363);
+    expect(result.totalOperations).toBe(364);
     expect(result.skippedOperations).toBe(1);
     expect(cache.schema).toBe("elv.openapi.cache.v3");
-    expect(cache.operations).toHaveLength(351);
+    expect(cache.operations).toHaveLength(363);
     expect(cache.provenance).toMatchObject({
-      sha256: "494d96419d152f22c717162b89cd2c4c0e5b913d1f4fd39d935dfe83fce529dc",
-      schemas: 1372,
+      sha256: "d1a4847203cef628b0c43760b0c74ecd88fa280034bb47c973874ae911f6153a",
+      schemas: 1402,
     });
     expect(existsSync(rawSpecCachePath({ cacheDir }))).toBe(false);
   });
@@ -235,6 +235,23 @@ describe("spec update", () => {
     expect(result.diff.added_schemas).toEqual(["Alpha", "Zed"]);
     expect(result.diff.changed_schemas).toBe(1);
     expect(result.written).toBe(false);
+  });
+
+  it("does not report changes after serializing the active registry cache", async () => {
+    cacheDir = mkdtempSync(join(tmpdir(), "elv-spec-update-"));
+    await updateSpecCache({ from: "fixtures/fake-openapi.json", cacheDir });
+
+    const result = await diffSpec({ from: "fixtures/fake-openapi.json", cacheDir });
+
+    expect(result.diff).toMatchObject({
+      added_operations: [],
+      removed_operations: [],
+      changed_operations: [],
+      local_curation_changes: { risk: [], cost: [], stream: [] },
+      added_schemas: [],
+      removed_schemas: [],
+      changed_schemas: 0,
+    });
   });
 
   it("reports vendored and active provenance offline", async () => {

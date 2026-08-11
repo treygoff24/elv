@@ -8,9 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
-- Refreshed the vendored ElevenLabs OpenAPI document to the July 27, 2026 revision: 352 documented operations, 351 callable operations, 277 paths, and 1,372 schemas at SHA-256 `494d96419d152f22c717162b89cd2c4c0e5b913d1f4fd39d935dfe83fce529dc`. The July 27 OpenAPI-only additions are `export_batch_call`, `get_knowledge_base_bulk_dependent_agents_route`, and `post_knowledge_base_bulk_delete_route`.
+- Refreshed the vendored ElevenLabs OpenAPI document to the August 11, 2026 revision: 364 documented operations, 363 callable operations, 285 paths, and 1,402 schemas at SHA-256 `d1a4847203cef628b0c43760b0c74ecd88fa280034bb47c973874ae911f6153a`. New coverage includes eight Agents Procedures operations, Dubbing v2 bulk source/target transcript updates, voice accents, and cross-residency voice replication.
 - Added `music finetunes` lifecycle aliases and `--finetune-id` to regular, streaming, and detailed Music generation.
 - Added configured STT webhook delivery through `--webhook [--webhook-id ID]` and env-sourced single-use tokens through `--token-env ENV_NAME`.
+- Added `agents procedures`, Dubbing v2 atomic `update-segments`, and `voices accents|replicate` aliases over the refreshed contract.
+- Documented realtime STT `entity_detection` through arbitrary WebSocket `--query` fields, Dubbing v2 transcript editing, and the published Procedures and voice-replication surfaces.
 
 ### Fixed
 
@@ -18,6 +20,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Binary `text/csv` responses, including batch-call export, spill to `.csv` files and are never returned inline as `data`.
 - Rejected the obsolete `stt --webhook <url>` form with an actionable migration message instead of sending a URL in the provider's boolean `webhook` field.
 - Classified crawl cancellation and the July 27 bulk knowledge-base delete route as destructive because they delete associated knowledge-base documents or folders. Classified the July 27 bulk dependent-agent lookup as read-only despite its POST method.
+- Classified cross-residency voice replication as an external side effect so `call`, matching raw `http`, and aliases require `--yes`; Procedure DELETE operations remain destructive by method.
+- Classified Dubbing target-transcript regeneration as generation so a configured credit ceiling fails closed when the provider's charge cannot be estimated.
+- Made `spec diff` stable after an active registry cache round trip instead of reporting every operation changed when JSON serialization omitted undefined fields.
 
 ## [0.2.0] - 2026-07-16
 

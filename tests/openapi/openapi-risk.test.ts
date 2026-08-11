@@ -26,12 +26,15 @@ describe("risk classifier", () => {
   it("method ordering keeps reads ungated and DELETE destructive", () => {
     expect(classifyRisk(op("get_batch_call", "GET"))).toBe("read");
     expect(classifyRisk(op("delete_voice", "DELETE"))).toBe("destructive");
+    expect(classifyRisk(op("remove_procedure_route", "DELETE"))).toBe("destructive");
+    expect(classifyRisk(op("delete_procedure_draft_route", "DELETE"))).toBe("destructive");
   });
 
   it("classifies the known credit-burning generation operations", () => {
     expect(classifyRisk(op("text_to_speech_full", "POST"))).toBe("generate");
     expect(classifyRisk(op("sound_generation", "POST"))).toBe("generate");
     expect(classifyRisk(op("audio_isolation", "POST"))).toBe("generate");
+    expect(classifyRisk(op("dubbing_target_transcript_regenerate", "POST"))).toBe("generate");
   });
 
   it("classifies the POST knowledge-base query as read-only", () => {
@@ -48,6 +51,9 @@ describe("risk classifier", () => {
   it("classifies outbound side effects and curated cost hints", () => {
     expect(classifyRisk(op("handle_twilio_outbound_call", "POST"))).toBe("external_side_effect");
     expect(classifyRisk(op("whatsapp_outbound_message", "POST"))).toBe("external_side_effect");
+    expect(classifyRisk(op("replicate_voice_to_isolated_environment", "POST"))).toBe(
+      "external_side_effect",
+    );
     expect(costHintForOperationId("text_to_speech_full")).toBe("characters");
     expect(costHintForOperationId("sound_generation")).toBe("per_generation");
     expect(costHintForOperationId("audio_isolation")).toBe("audio_seconds");

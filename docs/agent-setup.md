@@ -124,7 +124,7 @@ elv usage
 
 ## Step 6: Discover capabilities and operations
 
-The pinned July 27, 2026 ElevenLabs OpenAPI document contains 352 operations. `elv` compiles 351 and skips one deprecated signed-URL operation whose current replacement is available. Start with the service map, then search the registry, inspect an operation, and copy a runnable skeleton:
+The pinned August 11, 2026 ElevenLabs OpenAPI document contains 364 operations. `elv` compiles 363 and skips one deprecated signed-URL operation whose current replacement is available. Start with the service map, then search the registry, inspect an operation, and copy a runnable skeleton:
 
 ```bash
 elv capabilities
@@ -140,6 +140,8 @@ The `--example` output is a ready-to-run `elv call` skeleton; required arrays in
 `elv models list` is account-visible state from `/v1/models`, not a complete cross-product model catalog. Use documented model IDs for each service; current STT examples should use `scribe_v2` rather than deprecated `scribe_v1`.
 
 Music Finetunes use `elv music finetunes list|get|create|update|delete`; training files are repeatable `--file` arguments, and generation accepts `--finetune-id`. The provider's entitlement, charges, and ownership/copyright rules still apply. For STT webhook delivery, configure a workspace webhook and use bare `--webhook` plus optional `--webhook-id`; use `--token-env ENV_NAME` for a single-use token so the credential value stays out of argv.
+
+Agents Procedures, Dubbing v2 bulk transcript editing, voice accents, and cross-residency voice replication are in the compiled REST registry and exposed through `agents procedures`, `dubbing-project ... update-segments`, and `voices accents|replicate`. Use `ops search` and `ops schema --example` to discover their exact request shapes. Voice replication and both Procedure DELETE operations require `--yes`. Realtime STT accepts current query fields without a client release, for example `elv ws stt-realtime --query entity_detection=true ...`.
 
 ## Troubleshooting
 

@@ -17,7 +17,23 @@ interface AgentsFlags extends JsonBodyFlags, Pick<CliOptionValues, "text" | "sea
   testId?: string;
   invocationId?: string;
   branchId?: string;
+  procedureId?: string;
+  versionId?: string;
   query?: string;
+}
+
+function procedureCollectionPath(flags: AgentsFlags): Record<string, string> {
+  return {
+    agent_id: required(flags.agentId, "--agent-id"),
+    branch_id: required(flags.branchId, "--branch-id"),
+  };
+}
+
+function procedurePath(flags: AgentsFlags): Record<string, string> {
+  return {
+    ...procedureCollectionPath(flags),
+    procedure_id: required(flags.procedureId, "--procedure-id"),
+  };
 }
 
 export function buildAgentsListInput(flags: AgentsFlags): BuiltOperation {
@@ -147,6 +163,69 @@ export function buildAgentRagQueryInput(flags: AgentsFlags): BuiltOperation {
   };
 }
 
+export function buildAgentProceduresListInput(flags: AgentsFlags): BuiltOperation {
+  return {
+    operationId: "list_procedures_route",
+    input: { path: procedureCollectionPath(flags) },
+  };
+}
+
+export function buildAgentProcedureCreateInput(flags: AgentsFlags): BuiltOperation {
+  const hasBody = flags.json !== undefined || flags.jsonFile !== undefined;
+  return {
+    operationId: "create_procedure_route",
+    input: compactInput({
+      path: procedureCollectionPath(flags),
+      body: hasBody ? readJsonBody(flags) : undefined,
+    }),
+  };
+}
+
+export function buildAgentProcedureGetInput(flags: AgentsFlags): BuiltOperation {
+  return {
+    operationId: "get_procedure_route",
+    input: compactInput({
+      path: procedurePath(flags),
+      query: compact({ version_id: flags.versionId }),
+    }),
+  };
+}
+
+export function buildAgentProcedureRemoveInput(flags: AgentsFlags): BuiltOperation {
+  return {
+    operationId: "remove_procedure_route",
+    input: { path: procedurePath(flags) },
+  };
+}
+
+export function buildAgentProcedureDraftGetInput(flags: AgentsFlags): BuiltOperation {
+  return {
+    operationId: "get_procedure_draft_route",
+    input: { path: procedurePath(flags) },
+  };
+}
+
+export function buildAgentProcedureDraftUpdateInput(flags: AgentsFlags): BuiltOperation {
+  return {
+    operationId: "update_procedure_draft_route",
+    input: { path: procedurePath(flags), body: readJsonBody(flags) },
+  };
+}
+
+export function buildAgentProcedureDraftDeleteInput(flags: AgentsFlags): BuiltOperation {
+  return {
+    operationId: "delete_procedure_draft_route",
+    input: { path: procedurePath(flags) },
+  };
+}
+
+export function buildAgentProceduresCompileInput(flags: AgentsFlags): BuiltOperation {
+  return {
+    operationId: "compile_procedures_route",
+    input: { path: procedureCollectionPath(flags) },
+  };
+}
+
 export function registerAgentsCommand(
   program: Command,
   addCommonFlags: (command: Command) => Command,
@@ -189,6 +268,59 @@ export function registerAgentsCommand(
       .action((options: AgentsFlags, command: Command) =>
         runListAlias(buildAgentsUpdateInput, options, command, { mergeOptions: true }),
       ),
+  );
+  const procedures = agents.command("procedures").description("Agent procedures");
+  addCommonFlags(
+    procedureCommand(procedures.command("list"), "List procedures").action(
+      (options: AgentsFlags, command: Command) =>
+        runAlias(buildAgentProceduresListInput, options, command),
+    ),
+  );
+  addCommonFlags(
+    procedureJsonCommand(procedures.command("create"), "Create a procedure", false).action(
+      (options: AgentsFlags, command: Command) =>
+        runAlias(buildAgentProcedureCreateInput, options, command),
+    ),
+  );
+  addCommonFlags(
+    procedureCommand(procedures.command("get"), "Get a procedure", true)
+      .option("--version-id <id>", "procedure version id; defaults to branch HEAD")
+      .action((options: AgentsFlags, command: Command) =>
+        runAlias(buildAgentProcedureGetInput, options, command),
+      ),
+  );
+  addCommonFlags(
+    procedureCommand(procedures.command("remove"), "Remove a procedure", true).action(
+      (options: AgentsFlags, command: Command) =>
+        runAlias(buildAgentProcedureRemoveInput, options, command),
+    ),
+  );
+  addCommonFlags(
+    procedureCommand(procedures.command("get-draft"), "Get a procedure draft", true).action(
+      (options: AgentsFlags, command: Command) =>
+        runAlias(buildAgentProcedureDraftGetInput, options, command),
+    ),
+  );
+  addCommonFlags(
+    procedureJsonCommand(
+      procedures.command("update-draft"),
+      "Update a procedure draft",
+      true,
+    ).action((options: AgentsFlags, command: Command) =>
+      runAlias(buildAgentProcedureDraftUpdateInput, options, command),
+    ),
+  );
+  addCommonFlags(
+    procedureCommand(procedures.command("delete-draft"), "Delete a procedure draft", true).action(
+      (options: AgentsFlags, command: Command) =>
+        runAlias(buildAgentProcedureDraftDeleteInput, options, command),
+    ),
+  );
+  addCommonFlags(
+    procedureCommand(procedures.command("compile"), "Compile all procedures").action(
+      (options: AgentsFlags, command: Command) =>
+        runAlias(buildAgentProceduresCompileInput, options, command),
+    ),
   );
   const tests = agents.command("tests").description("Agent response tests");
   addCommonFlags(
@@ -301,4 +433,19 @@ export function registerAgentsCommand(
         runAlias(buildAgentsSimulateInput, options, command),
       ),
   );
+}
+
+function procedureCommand(command: Command, description: string, procedure = false): Command {
+  command
+    .description(description)
+    .option("--agent-id <id>", "conversational agent id")
+    .option("--branch-id <id>", "agent branch id");
+  if (procedure) command.option("--procedure-id <id>", "procedure id");
+  return command;
+}
+
+function procedureJsonCommand(command: Command, description: string, procedure: boolean): Command {
+  return procedureCommand(command, description, procedure)
+    .option("--json <json>", "procedure request JSON")
+    .option("--json-file <path>", "procedure request JSON file");
 }

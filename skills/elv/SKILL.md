@@ -5,7 +5,7 @@ description: >-
   generate speech (TTS), transcribe audio (STT), create sound effects or music,
   clone, convert, or isolate voices, dub video/audio, edit Dubbing Project
   transcripts, and manage ElevenLabs voices, account-visible models,
-  conversational agents, workspaces, history, and usage. elv invokes all 351
+  conversational agents, workspaces, history, and usage. elv invokes all 363
   operations compiled from its pinned ElevenLabs OpenAPI document, plus raw REST
   and protocol-aware WebSocket calls.
   It is agent-first: every command is non-interactive and prints exactly one JSON
@@ -53,7 +53,7 @@ entry with a suggested next command (e.g. `elv config doctor` on an auth failure
    `voice-change`, `voice-isolate`, `dubbing`, `dubbing-project`, `voices`,
    `models`, `agents`, `history`, `usage`, `workspace`. Use these first when one
    fits.
-2. `elv call <operation_id> --json '{...}'` for all 351 callable operations in
+2. `elv call <operation_id> --json '{...}'` for all 363 callable operations in
    the pinned spec. Use this when no alias fits.
 3. Escape hatches when the registry is not enough: `elv http <METHOD> <path>`
    for forward-compatible REST, `elv ws <catalog|url>` for protocol-aware
@@ -84,17 +84,17 @@ elv spec status                           # active spec provenance
 
 `--example` prints a ready-to-run `call` with the input buckets filled in. Add
 `--raw` to `ops schema` for the raw JSON Schema. `elv <command> --help` prints
-that command's own flags and arguments. The pinned July 27, 2026 document has
-352 published operations at SHA-256
-`494d96419d152f22c717162b89cd2c4c0e5b913d1f4fd39d935dfe83fce529dc`;
-351 are callable and one deprecated signed-URL route is skipped. Use `spec diff`
+that command's own flags and arguments. The pinned August 11, 2026 document has
+364 published operations at SHA-256
+`d1a4847203cef628b0c43760b0c74ecd88fa280034bb47c973874ae911f6153a`;
+363 are callable and one deprecated signed-URL route is skipped. Use `spec diff`
 to inspect current drift and `spec update` to refresh the validated cache.
 
 ## Safety gates
 
 No interactive prompts ever. Destructive operations (DELETE), outbound
-calls/messages, API-key mutation, and member changes require `--yes`. GET reads
-are never gated.
+calls/messages, cross-residency voice replication, API-key mutation, and member
+changes require `--yes`. GET reads are never gated.
 
 ### Confirmation failure
 
@@ -235,15 +235,19 @@ Actual availability depends on the account and rollout.
 | Create agent test | `elv agents tests create --json-file test.json` |
 | Run agent tests | `elv agents tests run --agent-id AGENT_ID --json-file run.json` |
 | Agent RAG diagnostic | `elv agents rag-query --agent-id AGENT_ID --query "refund policy"` |
+| List Agent Procedures | `elv agents procedures list --agent-id AGENT_ID --branch-id BRANCH_ID` |
+| List voice accents | `elv voices accents --language en` |
+| Preview cross-residency voice replication | `elv voices replicate --voice-id VOICE_ID --target-workspace-id WORKSPACE_ID --dry-run` |
 | List workspace members | `elv workspace members list` |
 | Create service account | `elv workspace service-accounts create --name deployer --yes` (credential response is file-only) |
 | Get Dubbing Project transcript | `elv dubbing-project transcript get --project-id PROJECT_ID` |
+| Atomically update Dubbing v2 source segments | `elv dubbing-project transcript update-segments --project-id PROJECT_ID --json-file segments.json --dry-run` |
 | Speech history | `elv history list --limit 20` |
 | Any operation by id | `elv call <operation_id> --json '{"path":{...},"query":{...},"body":{...}}'` |
 | Inspect a spilled JSON result | `elv view <path> --path data.voices.0` |
 | Raw REST call | `elv http GET /v1/user` |
 | Scripted WebSocket session | `elv ws tts-realtime --query voice_id=VOICE --send script.ndjson --out ./session` |
-| Realtime STT WebSocket | `elv ws stt-realtime --send transcribe.ndjson --out ./session` (supports `send_binary_file`) |
+| Realtime STT WebSocket | `elv ws stt-realtime --query entity_detection=true --send transcribe.ndjson --out ./session` (supports `send_binary_file` and arbitrary published query fields) |
 | Receive conversation monitor | `elv ws convai-monitor --query conversation_id=ID --out ./monitor` |
 | Poll a long job | `elv wait --operation get_dubbed_metadata --json '{"path":{"dubbing_id":"abc"}}' --status-path '$.data.status' --success 'dubbed' --failure 'failed' --interval-ms 2000 --timeout-ms 600000` (`--failure` is optional; success-only polling works) |
 
@@ -257,7 +261,8 @@ monitoring does not. Use `--dry-run` before connecting. Speech Engine upstream
 is not a client target because ElevenLabs connects to a server you host.
 
 The public API does not expose ElevenCreative's UI-only Image & Video, Avatars,
-Ads, Flows, or editor workflows. Do not reverse-engineer private endpoints.
+Ads, Flows, or other private editor workflows. Do not reverse-engineer private
+endpoints.
 
 ### call input shape
 
