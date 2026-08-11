@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-08-11
+
 ### Added
 
 - Refreshed the vendored ElevenLabs OpenAPI document to the August 11, 2026 revision: 364 documented operations, 363 callable operations, 285 paths, and 1,402 schemas at SHA-256 `d1a4847203cef628b0c43760b0c74ecd88fa280034bb47c973874ae911f6153a`. New coverage includes eight Agents Procedures operations, Dubbing v2 bulk source/target transcript updates, voice accents, and cross-residency voice replication.
@@ -25,6 +27,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Classified cross-residency voice replication as an external side effect so `call`, matching raw `http`, and aliases require `--yes`; Procedure DELETE operations remain destructive by method.
 - Classified Dubbing target-transcript regeneration as generation so a configured credit ceiling fails closed when the provider's charge cannot be estimated.
 - Made `spec diff` stable after an active registry cache round trip instead of reporting every operation changed when JSON serialization omitted undefined fields.
+- Added an npm `prepack` build so normal `npm pack` and `npm publish` runs rebuild `dist/cli.js` before assembling the tarball, including from clean checkouts.
+
+### Security
+
+- Updated the transitive production dependencies `fast-uri` and `js-yaml`, plus the development-only `nanoid` and `postcss`, to patched releases; both full and production-only `npm audit` checks now report zero vulnerabilities.
 
 ## [0.2.0] - 2026-07-16
 

@@ -22,8 +22,6 @@ test -d node_modules || {
   exit 1
 }
 
-npm run build >/dev/null
-
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/elv-pack-smoke.XXXXXX")
 trap 'rm -rf "$WORK"' EXIT INT TERM
 
