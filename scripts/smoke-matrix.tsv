@@ -17,8 +17,11 @@
 0	config
 0	spec
 0	agents
+0	agents conversations
 0	agents procedures
 0	agents tests
+0	assets
+0	flows
 2	voices get
 9	call no_such_operation
 # A mistyped subcommand exits differently depending on the parent: registered

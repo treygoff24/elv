@@ -201,7 +201,16 @@ describe("CLI JSON output contract", () => {
   // validation error while ops/config/spec answered with help, so discovery
   // behaved differently depending on which branch of the tree you probed.
   it("alias parents and nested alias parents emit the same help envelope", () => {
-    for (const argv of [["agents"], ["voices"], ["workspace"], ["agents", "tests"]]) {
+    for (const argv of [
+      ["agents"],
+      ["assets"],
+      ["flows"],
+      ["flows", "image"],
+      ["agents", "conversations"],
+      ["voices"],
+      ["workspace"],
+      ["agents", "tests"],
+    ]) {
       const { stdout, code } = runCli(argv);
       expect(code).toBe(0);
       const envelope = parseEnvelope(stdout);

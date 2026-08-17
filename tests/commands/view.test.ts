@@ -177,4 +177,17 @@ describe("view command", () => {
     expect(exitCode).toBe(ExitCode.Success);
     expect(env).toMatchObject({ ok: true, data: { jwt: "x" } });
   });
+
+  it("renders already-redacted credential-shaped fields from a normal response spill", () => {
+    const file = join(dir, "redacted.response.json");
+    writeFileSync(file, JSON.stringify({ signed_url: "[REDACTED]", token: "[REDACTED]" }), "utf8");
+
+    const { env, exitCode } = buildViewResult(file);
+
+    expect(exitCode).toBe(ExitCode.Success);
+    expect(env).toMatchObject({
+      ok: true,
+      data: { signed_url: "[REDACTED]", token: "[REDACTED]" },
+    });
+  });
 });

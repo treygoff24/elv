@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- Refreshed the vendored ElevenLabs OpenAPI document to the August 17, 2026 revision: 378 documented operations, 377 callable operations, 294 paths, and 1,452 schemas at SHA-256 `c4bcaa50752fa4cc61d4e9fecdada4f387ce429b55b1eae7e1bda7e756748f06`. New coverage includes Assets, beta image/video generation, asynchronous TTS Flows, and conversation summaries.
+- Added `assets` aliases for upload, list/search, get, and confirmed deletion; `flows image|video|speech` aliases for JSON-first create, get, list, and optional polling; and `agents conversations summary`.
+
+### Fixed
+
+- Classified all three Flows create operations as generation so configured credit ceilings cannot be bypassed through an unpriced mutation. Asynchronous TTS uses a character estimate; image and video fail closed when no estimate is available.
+- Kept signed Asset and Flows `content_url` values out of stdout while preserving redacted structural data for pagination, field projection, and terminal status detection. Complete responses are written to mode-`0600` sensitive files.
+- Made root-union `ops schema --example` output select a runnable object variant instead of inventing `body.value`.
+- Made required multipart binary examples use `--file field=./input` and reject body-only file placeholders before the request can omit bytes.
+
 ## [0.3.0] - 2026-08-11
 
 ### Added

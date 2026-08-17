@@ -8,7 +8,7 @@ Independent project; not affiliated with or endorsed by ElevenLabs.
 
 The ElevenLabs MCP server sucks, and the official skills basically expect your agent to hand-roll raw API calls through brittle wrappers. Worse, the MCP exposes a thin slice of what ElevenLabs can actually do. The API has more than three hundred operations; the MCP surfaces a fraction of them.
 
-So we built `elv`: a simple, token-efficient, agent-first CLI over ElevenLabs' published API. The vendored August 11, 2026 OpenAPI document contains 364 operations; `elv` compiles 363 of them and deliberately skips one deprecated signed-URL route whose replacement is available. Each command returns one JSON envelope and an exit code an agent can branch on before parsing the result.
+So we built `elv`: a simple, token-efficient, agent-first CLI over ElevenLabs' published API. The vendored August 17, 2026 OpenAPI document contains 378 operations; `elv` compiles 377 of them and deliberately skips one deprecated signed-URL route whose replacement is available. Each command returns one JSON envelope and an exit code an agent can branch on before parsing the result.
 
 ## What is this?
 
@@ -34,9 +34,9 @@ The short version of the contract: run a command, check the exit code, and read 
 
 Three layers sit over the ElevenLabs OpenAPI spec, from most general to most convenient.
 
-The generic runner, `elv call <operation_id> --json '{...}'`, can invoke all 363 operations compiled from the pinned OpenAPI document. Nothing is hidden behind a hand-written subset. Escape hatches cover published endpoints that have not reached the pinned registry yet: `elv http <METHOD> <path>` makes an arbitrary REST call against the configured base URL, `elv ws <catalog|url>` runs a scripted WebSocket session, and `elv wait` polls an operation until a status field resolves. Known raw REST requests inherit registry metadata. Otherwise, safety and budget behavior depends on what protocol information is available.
+The generic runner, `elv call <operation_id> --json '{...}'`, can invoke all 377 operations compiled from the pinned OpenAPI document. Nothing is hidden behind a hand-written subset. Escape hatches cover published endpoints that have not reached the pinned registry yet: `elv http <METHOD> <path>` makes an arbitrary REST call against the configured base URL, `elv ws <catalog|url>` runs a scripted WebSocket session, and `elv wait` polls an operation until a status field resolves. Known raw REST requests inherit registry metadata. Otherwise, safety and budget behavior depends on what protocol information is available.
 
-Fourteen thin aliases wrap common workflows: `tts`, `stt`, `music`, `sfx`, `voice-change`, `voice-isolate`, `dubbing`, `dubbing-project`, `voices`, `agents`, `models`, `history`, `usage`, and `workspace`. Each one builds an input and calls the same runner as `call`. Discovery is built in too: `elv capabilities` reports the machine contract and service map; `elv ops list`, `ops search`, `ops get`, and `ops schema` inspect the registry; and `elv spec status`, `spec diff`, and `spec update` expose and refresh the active spec provenance.
+Sixteen thin aliases wrap common workflows: `tts`, `stt`, `music`, `sfx`, `voice-change`, `voice-isolate`, `dubbing`, `dubbing-project`, `voices`, `agents`, `assets`, `flows`, `models`, `history`, `usage`, and `workspace`. Each one builds an input and calls the same runner as `call`. Discovery is built in too: `elv capabilities` reports the machine contract and service map; `elv ops list`, `ops search`, `ops get`, and `ops schema` inspect the registry; and `elv spec status`, `spec diff`, and `spec update` expose and refresh the active spec provenance.
 
 Safety is on by default. Destructive operations, outbound calls and messages, API-key mutation, and member changes refuse to run without `--yes`. Plain GET reads are never gated. A budget guard blocks credit-consuming calls before any network request when the cost can be bounded. A configured ceiling fails closed for generation operations and STT or agent WebSocket sessions whose cost cannot be estimated. `--dry-run` validates a request and returns a redacted preview without spending anything.
 
@@ -108,7 +108,7 @@ The `--example` flag prints an `elv call` skeleton with the parameter shape fill
 
 ### Aliases
 
-The fourteen aliases are sugar over the same runner as `call`.
+The sixteen aliases are sugar over the same runner as `call`.
 
 | Alias | Purpose |
 | --- | --- |
@@ -121,7 +121,9 @@ The fourteen aliases are sugar over the same runner as `call`.
 | `dubbing` | Dubbing create, get, and audio workflows |
 | `dubbing-project` | Dubbing v2 source and target transcript editing, including atomic bulk updates |
 | `voices` | Voice list/filter, accents, search, get, clone, and confirmed replication |
-| `agents` | ElevenAgents lifecycle, Procedures, tests, test runs, and RAG diagnostics |
+| `agents` | ElevenAgents lifecycle, conversation summaries, Procedures, tests, test runs, and RAG diagnostics |
+| `assets` | Upload, search, inspect, and delete reusable media assets |
+| `flows` | Asynchronous image, video, and text-to-speech generation lifecycle |
 | `models` | List the models visible to the authenticated account from `/v1/models` |
 | `history` | Generated-audio history list, audio, delete |
 | `usage` | Subscription balance or date-range character stats |
@@ -134,6 +136,9 @@ elv usage --from 2026-06-01 --to 2026-06-25
 elv dubbing get --id abc123
 elv agents tests create --json-file test.json
 elv agents procedures list --agent-id AGENT_ID --branch-id BRANCH_ID
+elv agents conversations summary --conversation-id CONVERSATION_ID
+elv assets list --search intro --limit 10
+elv flows image list --status completed --limit 10
 elv voices accents --language en
 elv workspace members list
 elv music finetunes list --limit 10
@@ -158,9 +163,29 @@ elv stt --file note.m4a --model scribe_v2 --webhook --webhook-id WEBHOOK_ID
 elv stt --file note.m4a --model scribe_v2 --token-env SCRIBE_TOKEN
 ```
 
+Assets and Flows are published REST surfaces. Asset upload maps `--file` to the
+provider's multipart `asset` field and uses the file basename when `--name` is
+omitted. Flows request bodies are model-specific beta unions, so creation stays
+JSON-first rather than freezing a large flag vocabulary:
+
+```bash
+elv assets upload --file reference.png --dry-run
+elv flows image create \
+  --json '{"prompt":"A quiet desert observatory","model_id":"gpt-image-1"}' \
+  --dry-run
+elv flows video get --id GENERATION_ID
+```
+
+Image and video generation require eligible plans and models. Because the public
+contract does not expose a defensible pre-flight credit estimate, a configured
+`--max-credits` ceiling rejects those creates before network access. Completed
+Asset and Flows responses keep signed `content_url` values only in a mode-`0600`
+sensitive file; the JSON envelope retains redacted metadata, status, and cursor
+fields so polling and pagination still work.
+
 ### The generic runner
 
-For anything outside the alias surface, call any operation by id. The August 11 contract adds the complete eight-operation Agents Procedures family, Dubbing v2 bulk source/target transcript updates, voice accents, and cross-residency voice replication; the `agents procedures`, `dubbing-project`, and `voices` aliases cover their common workflows. Replication requires `--yes`; both Procedure DELETE routes inherit the same central destructive gate without special-case command code. The `--json` body uses the bucketed shape (`path`, `query`, `body`), and `--path key=value` is a shorthand for single path parameters.
+For anything outside the alias surface, call any operation by id. The August 17 contract adds Assets, asynchronous image/video/TTS Flows, and conversation summaries; it also refreshes Agents analytics pagination and live-count filters. The `assets`, `flows`, and `agents conversations` aliases cover their common workflows. Asset deletion inherits the central destructive gate without alias-specific safety code. The `--json` body uses the bucketed shape (`path`, `query`, `body`), and `--path key=value` is a shorthand for single path parameters.
 
 ```bash
 elv call text_to_speech_full \
@@ -181,7 +206,7 @@ elv call replicate_voice_to_isolated_environment \
 elv call delete_voice --path voice_id=VOICE_ID --yes
 ```
 
-Large or paginated results never flood stdout. The list aliases (`voices list`, `history list`, `agents list`, `dubbing list`, `music finetunes list`) and `call`/`http` take `--limit <n>` (sets the page size and caps what gets inlined), `--all` to fetch every page to disk (requires `--save-json`/`--out`), and `--save-json <path>` to write the full result somewhere you choose. A large single page spills to disk but still returns the `next` page command inline so you can keep paging. Inspect any spilled file without loading it into context with `elv view <path> [--path <dotted>] [--limit <n>]`.
+Large or paginated results never flood stdout. The list aliases (`voices list`, `history list`, `agents list`, `assets list`, `flows ... list`, `dubbing list`, `music finetunes list`) and `call`/`http` take `--limit <n>` (sets the page size and caps what gets inlined), `--all` to fetch every page to disk (requires `--save-json`/`--out`), and `--save-json <path>` to write the full result somewhere you choose. When `--all` follows pages that include signed URLs or similar credentials, the saved aggregate intentionally contains only the redacted items; raw per-page credential responses are not preserved. A large single page spills to disk but still returns the `next` page command inline so you can keep paging. Inspect any non-sensitive spilled file without loading it into context with `elv view <path> [--path <dotted>] [--limit <n>]`.
 
 To skip the spill entirely when you only need a couple of fields per row, the list aliases take `--fields <csv>`: `elv voices list --fields voice_id,name` projects each voice down to those keys and returns the whole list inline (sub-KB instead of ~100 KB). For arbitrary spilled files, `elv view <path> --path 'voices[].name'` does the same projection with a `[]` array wildcard.
 

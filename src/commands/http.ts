@@ -1,10 +1,11 @@
 import { exitCodeForError, validationError } from "../core/errors";
-import { envelopeForThrown, runPreparedOperation } from "../core/client";
+import { envelopeForThrown, runPreparedOperation, validateOperationInput } from "../core/client";
 import { InputNormalizationError } from "../core/request-builder";
 import { applyPaginationDefaults, type PaginatedRunOptions } from "../core/pagination";
 import { estimateCredits } from "../core/budget";
-import { loadRegistry } from "../openapi/registry";
+import { loadRegistry, readRegistryCache } from "../openapi/registry";
 import { classifyRisk } from "../openapi/risk";
+import { requiresYes } from "../core/safety";
 import { HTTP_METHODS } from "../openapi/types";
 import { errorMessage } from "../util/error";
 import { parseJson } from "../util/json";
@@ -62,6 +63,16 @@ export async function runHttp(
       });
     }
     const input = applyPaginationDefaults(op, parsed.input, opts.limit ?? 20);
+    if (opts.dryRun || opts.yes || !requiresYes(op)) {
+      const validation = await validateOperationInput(op, input, readRegistryCache()?.bundledSpec);
+      if (validation) {
+        return validationError(cmd, validation.message, {
+          operationId: op.operationId,
+          param: validation.param,
+          raw: validation.raw,
+        });
+      }
+    }
 
     return await runPreparedOperation({
       cmd,
@@ -126,6 +137,7 @@ async function httpOperation(
       op: {
         ...registryOp,
         pathTemplate: path,
+        pathParams: [],
         requestBody: requestBodyForRawInput(registryOp.requestBody, input, fileFields),
       },
       metadataWarning: {

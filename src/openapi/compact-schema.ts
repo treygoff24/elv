@@ -39,14 +39,18 @@ export function rawInputSchemaForOperation(
 
 export function buildExampleCommand(op: OperationCard, spec: OpenApiDocument): ExampleCommand {
   const schema = compactSchemaForOperation(op, spec);
+  const fileFields = requiredFileFields(op, schema);
+  const body = skeleton(schema.required.body);
+  for (const field of fileFields) delete body[field];
   const input = cleanEmptyBuckets({
     path: skeleton(schema.required.path),
     query: skeleton(schema.required.query),
-    body: skeleton(schema.required.body),
+    body,
     headers: skeleton(schema.required.header),
   });
   const out = op.returnsBinary || op.streamKind !== "none" ? " --out ./out" : "";
-  return { cmd: `elv call ${op.operationId} --json '${JSON.stringify(input)}'${out}` };
+  const files = fileFields.map((field) => ` --file ${field}=./input`).join("");
+  return { cmd: `elv call ${op.operationId} --json '${JSON.stringify(input)}'${files}${out}` };
 }
 
 function emptyCompactSchema(): CompactSchema {
@@ -68,7 +72,7 @@ function addParams(compact: CompactSchema, params: ParamCard[]): void {
 function addBody(compact: CompactSchema, op: OperationCard, spec: OpenApiDocument): void {
   if (!op.requestBody) return;
   const schema = rawInputSchemaForOperation(op, spec);
-  const object = asObject(resolveMaybeRef(schema, spec));
+  const object = requestBodyObjectShape(schema, spec);
   const required = new Set(asStringArray(object.required));
   const properties = asObject(object.properties);
   if (Object.keys(properties).length === 0) {
@@ -85,6 +89,38 @@ function addBody(compact: CompactSchema, op: OperationCard, spec: OpenApiDocumen
       new Set(op.requestBody.schemaRef ? [op.requestBody.schemaRef] : []),
     );
   }
+}
+
+function requestBodyObjectShape(schema: JsonValue | undefined, spec: OpenApiDocument): JsonObject {
+  const object = asObject(resolveMaybeRef(schema, spec));
+  if (Object.keys(asObject(object.properties)).length > 0) return object;
+  const variant = firstUsefulObjectVariant(object, spec);
+  return variant ?? object;
+}
+
+function firstUsefulObjectVariant(
+  object: JsonObject,
+  spec: OpenApiDocument,
+): JsonObject | undefined {
+  for (const key of ["anyOf", "oneOf", "allOf"] as const) {
+    const variants = Array.isArray(object[key]) ? (object[key] as JsonValue[]) : [];
+    for (const candidate of variants) {
+      const resolved = asObject(resolveMaybeRef(candidate, spec));
+      if (typeName(resolved) === "null") continue;
+      if (
+        Object.keys(asObject(resolved.properties)).length > 0 ||
+        isObjectShape(typeName(resolved), resolved)
+      )
+        return resolved;
+    }
+  }
+  return undefined;
+}
+
+function requiredFileFields(op: OperationCard, schema: CompactSchema): string[] {
+  if (!op.requestBody?.multipart) return [];
+  const knownFileFields = new Set(op.requestBody.fileFields ?? []);
+  return Object.keys(schema.required.body).filter((field) => knownFileFields.has(field));
 }
 
 function compactValue(
@@ -181,6 +217,7 @@ function placeholderFor(name: string, shape: CompactValue): JsonValue {
   }
   const object = asObject(shape);
   if (Array.isArray(object.enum)) return object.enum[0] ?? `<${name}>`;
+  if (object.const !== undefined) return object.const as JsonValue;
   if (object.type === "integer" || object.type === "number") return 0;
   if (object.type === "boolean") return false;
   if (object.type === "array")

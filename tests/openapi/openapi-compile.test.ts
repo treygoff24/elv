@@ -35,9 +35,9 @@ describe("OpenAPI compiler", () => {
     const compiled = await compileSpec({ sourcePath: snapshotPath });
     const ids = compiled.operations.map((op) => op.operationId);
 
-    expect(compiled.totalOperations).toBe(364);
+    expect(compiled.totalOperations).toBe(378);
     expect(compiled.skippedOperations).toBe(1);
-    expect(compiled.operations).toHaveLength(363);
+    expect(compiled.operations).toHaveLength(377);
     expect(new Set(ids).size).toBe(ids.length);
     expect(() => JSON.stringify(compiled.operations)).not.toThrow();
 
@@ -111,6 +111,20 @@ describe("OpenAPI compiler", () => {
       "dubbing_target_transcript_segments_update",
       "get_voice_accents",
       "replicate_voice_to_isolated_environment",
+      "list_assets",
+      "upload_asset",
+      "get_asset",
+      "delete_asset_endpoint",
+      "create_image_generation",
+      "get_image_generation",
+      "list_image_generations",
+      "create_video_generation",
+      "get_video_generation",
+      "list_video_generations",
+      "create_text_to_speech_generation",
+      "get_text_to_speech_generation",
+      "list_text_to_speech_generations",
+      "get_conversation_summary_route",
     ];
     const aliasIds = [
       "add_voice",
@@ -164,6 +178,7 @@ describe("OpenAPI compiler", () => {
     expect(byId.get("request_pvc_manual_verification")?.requestBody?.fileFields).toEqual(["files"]);
     expect(byId.get("video_to_music")?.requestBody?.fileFields).toEqual(["videos"]);
     expect(byId.get("create_finetune")?.requestBody?.fileFields).toEqual(["files"]);
+    expect(byId.get("upload_asset")?.requestBody?.fileFields).toEqual(["asset"]);
   });
 
   it("includes the single-use STT token query parameter", async () => {
@@ -282,6 +297,91 @@ describe("OpenAPI compiler", () => {
     });
   });
 
+  it("compiles August 17 Assets, Flows, summaries, and changed query contracts", async () => {
+    const compiled = await compileSpec({ sourcePath: snapshotPath });
+    const byId = new Map(compiled.operations.map((op) => [op.operationId, op]));
+
+    expect(byId.get("upload_asset")).toMatchObject({
+      method: "POST",
+      pathTemplate: "/v1/assets",
+      risk: "mutate",
+      requestBody: {
+        contentType: "multipart/form-data",
+        schemaRef: "#/components/schemas/Body_Upload_asset_v1_assets_post",
+        fileFields: ["asset"],
+      },
+    });
+    expect(byId.get("delete_asset_endpoint")).toMatchObject({
+      method: "DELETE",
+      pathTemplate: "/v1/assets/{asset_id}",
+      risk: "destructive",
+    });
+
+    for (const operationId of ["create_image_generation", "create_video_generation"]) {
+      expect(byId.get(operationId)).toMatchObject({
+        method: "POST",
+        risk: "generate",
+        costHint: "unknown",
+        responses: expect.arrayContaining([
+          expect.objectContaining({
+            status: "200",
+            schema: { $ref: "#/components/schemas/MediaGenerationCreateResponse" },
+          }),
+        ]),
+      });
+    }
+    expect(byId.get("create_text_to_speech_generation")).toMatchObject({
+      method: "POST",
+      pathTemplate: "/v1/flows/text-to-speech",
+      risk: "generate",
+      costHint: "characters",
+      requestBody: {
+        schemaRef: "#/components/schemas/TextToSpeechGenerationRequest",
+      },
+    });
+    for (const variant of objectVariants(
+      compiled.bundledSpec.components.schemas.TextToSpeechGenerationRequest,
+      compiled.bundledSpec.components.schemas,
+    )) {
+      expect(variant.required, String(variant.title)).toContain("text");
+      expect(variant.properties?.text, String(variant.title)).toMatchObject({ type: "string" });
+    }
+    expect(byId.get("get_conversation_summary_route")).toMatchObject({
+      method: "GET",
+      pathTemplate: "/v1/convai/conversations/{conversation_id}/summary",
+      risk: "read",
+      queryParams: expect.arrayContaining([expect.objectContaining({ name: "max_messages" })]),
+    });
+    expect(byId.get("get_agent_topics_route")?.queryParams).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: "page_size" }),
+        expect.objectContaining({ name: "sort_by" }),
+        expect.objectContaining({ name: "sort_direction" }),
+        expect.objectContaining({ name: "cursor" }),
+      ]),
+    );
+    expect(byId.get("get_live_count")?.queryParams).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: "agent_id" }),
+        expect.objectContaining({
+          name: "agent_ids",
+          schema: expect.objectContaining({
+            anyOf: expect.arrayContaining([
+              expect.objectContaining({
+                type: "array",
+                maxItems: 25,
+                items: { type: "string" },
+              }),
+            ]),
+          }),
+        }),
+      ]),
+    );
+    expect(compiled.bundledSpec.components.schemas.WorkspaceWebhookEventType).toMatchObject({
+      enum: expect.arrayContaining(["flows"]),
+    });
+  });
+
   it("bundles instead of dereferencing recursive schemas", async () => {
     const compiled = await compileSpec({ sourcePath: snapshotPath });
     const recursive = JSON.stringify(
@@ -302,3 +402,33 @@ describe("OpenAPI compiler", () => {
     await expect(compileSpec({ document: spec })).rejects.toThrow(/Duplicate operationId/iu);
   });
 });
+
+function objectVariants(
+  schema: unknown,
+  schemas: Record<string, unknown>,
+): Array<{ title?: unknown; required?: unknown; properties?: Record<string, unknown> }> {
+  const resolved = resolveSchema(schema, schemas) as Record<string, unknown>;
+  const variants = (Array.isArray(resolved.oneOf) ? resolved.oneOf : resolved.anyOf) as
+    | unknown[]
+    | undefined;
+  return (variants ?? [resolved])
+    .map((variant) => resolveSchema(variant, schemas))
+    .filter(
+      (
+        variant,
+      ): variant is { title?: unknown; required?: unknown; properties?: Record<string, unknown> } =>
+        typeof variant === "object" && variant !== null && "properties" in variant,
+    );
+}
+
+function resolveSchema(schema: unknown, schemas: Record<string, unknown>): unknown {
+  if (
+    typeof schema === "object" &&
+    schema !== null &&
+    "$ref" in schema &&
+    typeof schema.$ref === "string"
+  ) {
+    return schemas[schema.$ref.split("/").pop() ?? ""];
+  }
+  return schema;
+}

@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { runHttp } from "../../src/commands/http";
 import { runPreparedOperation } from "../../src/core/client";
@@ -225,6 +228,131 @@ describe("curated confirmation contract", () => {
       expect(result.code, name).toBe(5);
       expect(error.code, name).toBe("budget_estimate_unavailable");
       expect(recordValue(error.raw).budget_policy, name).toBe("estimate_unavailable");
+    }
+  });
+
+  it("budget-gates Flows image and video generation through alias, call, and raw HTTP", async () => {
+    const cases = [
+      [
+        "image alias",
+        ["flows", "image", "create", "--json", '{"prompt":"cat","model_id":"gpt-image-1"}'],
+      ],
+      [
+        "image call",
+        [
+          "call",
+          "create_image_generation",
+          "--json",
+          '{"body":{"prompt":"cat","model_id":"gpt-image-1"}}',
+        ],
+      ],
+      [
+        "image http",
+        [
+          "http",
+          "POST",
+          "/v1/flows/image",
+          "--body-json",
+          '{"prompt":"cat","model_id":"gpt-image-1"}',
+        ],
+      ],
+      [
+        "video alias",
+        [
+          "flows",
+          "video",
+          "create",
+          "--json",
+          '{"model_id":"creatify-aurora","image":{"type":"generation","generation_id":"img_1"},"audio":{"type":"generation","generation_id":"aud_1"}}',
+        ],
+      ],
+      [
+        "video call",
+        [
+          "call",
+          "create_video_generation",
+          "--json",
+          '{"body":{"model_id":"creatify-aurora","image":{"type":"generation","generation_id":"img_1"},"audio":{"type":"generation","generation_id":"aud_1"}}}',
+        ],
+      ],
+      [
+        "video http",
+        [
+          "http",
+          "POST",
+          "/v1/flows/video",
+          "--body-json",
+          '{"model_id":"creatify-aurora","image":{"type":"generation","generation_id":"img_1"},"audio":{"type":"generation","generation_id":"aud_1"}}',
+        ],
+      ],
+    ] as const;
+
+    for (const [name, baseArgs] of cases) {
+      for (const yes of [false, true]) {
+        const result = await runCli([
+          ...baseArgs,
+          "--base-url",
+          "http://127.0.0.1:9",
+          "--max-credits",
+          "1",
+          ...(yes ? ["--yes"] : []),
+        ]);
+        const error = errorRecord(parseEnvelope(result.stdout));
+        expect(result.code, `${name} yes=${yes}`).toBe(5);
+        expect(error.code, `${name} yes=${yes}`).toBe("budget_estimate_unavailable");
+        expect(recordValue(error.raw).budget_policy, `${name} yes=${yes}`).toBe(
+          "estimate_unavailable",
+        );
+      }
+    }
+  }, 20_000);
+
+  it("budget-gates asset upload through call and raw HTTP when a ceiling is configured", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "elv-asset-budget-"));
+    try {
+      const file = join(dir, "asset.txt");
+      writeFileSync(file, "asset");
+      const cases = [
+        [
+          "call",
+          [
+            "call",
+            "upload_asset",
+            "--json",
+            '{"body":{"name":"asset.txt"}}',
+            "--file",
+            `asset=${file}`,
+          ],
+        ],
+        [
+          "http",
+          [
+            "http",
+            "POST",
+            "/v1/assets",
+            "--body-json",
+            '{"name":"asset.txt"}',
+            "--file",
+            `asset=${file}`,
+          ],
+        ],
+      ] as const;
+
+      for (const [name, args] of cases) {
+        const result = await runCli([
+          ...args,
+          "--base-url",
+          "http://127.0.0.1:9",
+          "--max-credits",
+          "1",
+        ]);
+        const error = errorRecord(parseEnvelope(result.stdout));
+        expect(result.code, name).toBe(5);
+        expect(error.code, name).toBe("budget");
+        expect(recordValue(error.raw).budget_policy, name).toBe("unknown_unbounded");
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
     }
   });
 });

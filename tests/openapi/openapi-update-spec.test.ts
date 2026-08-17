@@ -38,14 +38,14 @@ describe("spec update", () => {
       provenance: { sha256: string; schemas: number };
     };
 
-    expect(result.operations).toBe(363);
-    expect(result.totalOperations).toBe(364);
+    expect(result.operations).toBe(377);
+    expect(result.totalOperations).toBe(378);
     expect(result.skippedOperations).toBe(1);
     expect(cache.schema).toBe("elv.openapi.cache.v3");
-    expect(cache.operations).toHaveLength(363);
+    expect(cache.operations).toHaveLength(377);
     expect(cache.provenance).toMatchObject({
-      sha256: "d1a4847203cef628b0c43760b0c74ecd88fa280034bb47c973874ae911f6153a",
-      schemas: 1402,
+      sha256: "c4bcaa50752fa4cc61d4e9fecdada4f387ce429b55b1eae7e1bda7e756748f06",
+      schemas: 1452,
     });
     expect(existsSync(rawSpecCachePath({ cacheDir }))).toBe(false);
   });

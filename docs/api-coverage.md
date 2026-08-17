@@ -4,16 +4,16 @@
 
 ## Pinned REST contract
 
-The vendored OpenAPI document was retrieved from `https://api.elevenlabs.io/openapi.json` on August 11, 2026 at `2026-08-11T14:43:48Z`:
+The vendored OpenAPI document was retrieved from `https://api.elevenlabs.io/openapi.json` on August 17, 2026 at `2026-08-17T14:46:37Z`:
 
 | Measure | Value |
 | --- | ---: |
-| SHA-256 | `d1a4847203cef628b0c43760b0c74ecd88fa280034bb47c973874ae911f6153a` |
-| Paths | 285 |
-| Documented operations | 364 |
-| Callable operations | 363 |
+| SHA-256 | `c4bcaa50752fa4cc61d4e9fecdada4f387ce429b55b1eae7e1bda7e756748f06` |
+| Paths | 294 |
+| Documented operations | 378 |
+| Callable operations | 377 |
 | Skipped operations | 1 |
-| Schemas | 1,402 |
+| Schemas | 1,452 |
 
 The skipped operation is `get_signed_url_deprecated`, an obsolete route marked `x-skip-spec` by the source document. Its replacement, `get_conversation_signed_link`, is callable.
 
@@ -64,7 +64,14 @@ ElevenLabs marks `eleven_turbo_v2_5`, `eleven_turbo_v2`, and `scribe_v1` depreca
 
 ## Recent workflow coverage
 
-The generic runner covers every operation in the pinned document. August 11 adds all eight Agents Procedures operations, Dubbing v2 bulk source/target transcript PATCH operations, `get_voice_accents`, and `replicate_voice_to_isolated_environment`. Voice replication is centrally classified as an external side effect, so `call`, matching `http`, and aliases require `--yes`; `remove_procedure_route` and `delete_procedure_draft_route` inherit the destructive gate directly from DELETE. Dubbing regeneration returns `DubbingRegenerateResponse`, and `video_to_music` now declares both audio and ZIP binary responses.
+The generic runner covers every operation in the pinned document. August 17 adds four Assets operations, three-operation Image, Video, and asynchronous TTS Flows families, and `get_conversation_summary_route`. It also adds cursor pagination and sorting to Agents topics, a 25-item `agent_ids` filter to live-count analytics, the `flows` workspace-webhook event, and current model/configuration enums. The singular live-count `agent_id` remains valid; `agent_ids` takes precedence when both are supplied.
+
+The three Flows create operations are centrally classified as generation. Async
+TTS uses the existing character estimate. Image and video lack a defensible
+published estimate, so a configured credit ceiling fails closed before network
+access; without a ceiling, generation follows the existing ungated generation
+policy. Asset upload remains an unpriced mutation and follows the existing
+unknown-unbounded consent path when a ceiling is configured.
 
 Current high-use workflow coverage includes:
 
@@ -73,18 +80,27 @@ Current high-use workflow coverage includes:
 - `stt --webhook [--webhook-id ID]` for configured webhook delivery and `--token-env ENV_NAME` for a single-use Scribe token
 - `agents tests` and `agents test-runs` for the preferred testing workflow
 - `agents rag-query` for read-only knowledge-base retrieval diagnostics
+- `agents conversations summary` for a bounded summary and optional inline message window
+- `assets` for multipart upload, search/list, get, and confirmed deletion
+- `flows image|video|speech` for JSON-first create, get, list, and optional status polling
 - `workspace members` and `workspace service-accounts`
 - Dubbing v2 source/target transcript editing and changed-segment regeneration through `dubbing-project`
 - Agents Procedures through `agents procedures`, Dubbing v2 bulk updates through `dubbing-project ... update-segments`, and voice accents/replication through `voices accents|replicate`
 
 `agents simulate` remains for compatibility but invokes an operation ElevenLabs marks deprecated. Use `agents tests create` and `agents tests run` for new work.
 
-Credential-producing responses, including service-account keys, single-use tokens, and signed URLs, never return the secret inline. `elv` writes the response to a mode `0600` file, marks it `sensitive: true`, and refuses to display it through `elv view`.
+Credential-producing responses, including service-account keys, single-use tokens, and signed URLs, never return the secret inline. `elv` writes the response to a mode `0600` file, marks it `sensitive: true`, and refuses to display it through `elv view`. For dynamically detected fields such as Asset and Flows `content_url`, the envelope also retains a structurally intact redacted `data` copy so pagination, projections, and status polling do not silently lose their control fields.
 
 ## Deliberate exclusions
 
 Speech Engine upstream is an inverted protocol: ElevenLabs opens a WebSocket connection to a server the customer hosts. An outbound scripted CLI is the wrong runtime shape, so it is not a named `elv ws` target. The REST operations that configure Speech Engine resources remain available through `call`.
 
-ElevenCreative product areas such as Image & Video, Avatars, Ads, Assets, Flows, and Templates remain outside the published OpenAPI document. `elv` does not reverse-engineer private endpoints. Published Dubbing transcript editing and Music Finetunes are compiled; provider entitlement can still limit access.
+Assets and beta Image, Video, and asynchronous TTS Flows are present in the published OpenAPI document and compiled. Provider plan, model, entitlement, and regional restrictions can still limit access. Avatars, Ads, Templates, and other private editor workflows remain outside the published contract; `elv` does not reverse-engineer them.
+
+Additional intentional non-goals:
+
+- No hosted webhook receiver: `elv` can create/update/list webhook configuration and pass callback URLs/tokens where the API accepts them, but it does not run an internet-reachable webhook service for the user.
+- No automatic signed-content download: signed URLs and other credential-bearing response fields are redacted from envelopes and saved as sensitive `0600` artifacts for explicit handling; the CLI will not silently fetch those URLs into prompts or ordinary JSON outputs.
+- No handwritten typed flags for beta polymorphic unions: beta media/Flows request bodies stay registry/JSON-driven because model-specific union variants and const discriminators are changing quickly. `elv ops schema --example` remains the source-backed skeleton, and aliases keep a thin JSON pass-through until those contracts stabilize.
 
 Public docs, beta and enterprise entitlements, server behavior, and the live OpenAPI document can change independently. `elv spec diff` is the check for current REST drift; the pinned counts above are a reproducible baseline, not a claim about unpublished backend capabilities.
