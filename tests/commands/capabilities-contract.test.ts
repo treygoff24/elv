@@ -39,11 +39,11 @@ describe("capabilities machine contract", () => {
     expect(record(data.spec)).toMatchObject({
       source: expect.any(String),
       sha256: expect.any(String),
-      paths: 285,
-      total_operations: 364,
-      callable_operations: 363,
+      paths: 294,
+      total_operations: 378,
+      callable_operations: 377,
       skipped_operations: 1,
-      schemas: 1402,
+      schemas: 1452,
     });
 
     const groups = array(data.service_groups).map((entry) => String(record(entry).name));
@@ -61,11 +61,35 @@ describe("capabilities machine contract", () => {
         "compile_procedures_route",
         "create_procedure_route",
         "delete_procedure_draft_route",
+        "get_conversation_summary_route",
         "get_procedure_draft_route",
         "get_procedure_route",
         "list_procedures_route",
         "remove_procedure_route",
         "update_procedure_draft_route",
+      ]),
+    });
+    const assets = aliasEntries.find((entry) => entry.name === "assets");
+    expect(assets).toMatchObject({
+      operation_ids: expect.arrayContaining([
+        "delete_asset_endpoint",
+        "get_asset",
+        "list_assets",
+        "upload_asset",
+      ]),
+    });
+    const flows = aliasEntries.find((entry) => entry.name === "flows");
+    expect(flows).toMatchObject({
+      operation_ids: expect.arrayContaining([
+        "create_image_generation",
+        "create_text_to_speech_generation",
+        "create_video_generation",
+        "get_image_generation",
+        "get_text_to_speech_generation",
+        "get_video_generation",
+        "list_image_generations",
+        "list_text_to_speech_generations",
+        "list_video_generations",
       ]),
     });
     const dubbingProject = aliasEntries.find((entry) => entry.name === "dubbing-project");

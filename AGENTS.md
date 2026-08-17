@@ -54,7 +54,7 @@ elv ops schema text_to_speech_full --example   # runnable skeleton
 elv spec status
 ```
 
-The pinned August 11, 2026 spec contains 364 documented operations (source URL, retrieval date, and SHA-256 in `spec/openapi.snapshot.meta.json`); 363 are callable and one deprecated signed-URL route is skipped. Use `elv call <operation_id> --json …` for that compiled REST surface. Use aliases (`tts`, `stt`, `music`, `sfx`, `voice-isolate`, `dubbing-project`, `voices`, `models`, `agents`, `workspace`, …) for common workflows. `elv http` is the forward-compatible REST escape hatch.
+The pinned August 17, 2026 spec contains 378 documented operations (source URL, retrieval date, and SHA-256 in `spec/openapi.snapshot.meta.json`); 377 are callable and one deprecated signed-URL route is skipped. Use `elv call <operation_id> --json …` for that compiled REST surface. Use aliases (`tts`, `stt`, `music`, `sfx`, `voice-isolate`, `dubbing-project`, `voices`, `models`, `agents`, `assets`, `flows`, `workspace`, …) for common workflows. `elv http` is the forward-compatible REST escape hatch.
 
 `elv models list` reports account-visible `/v1/models` results, not every model across every product. Current examples should prefer `scribe_v2` over deprecated `scribe_v1`, Flash over deprecated Turbo, and `agents tests create` plus `agents tests run` over deprecated `agents simulate`.
 
@@ -84,7 +84,7 @@ When a configured ceiling cannot bound a generation or STT/agent WebSocket sessi
 
 **Do not** `--dry-run` secret-create ops with real secret values. Redaction is key-name based and may echo secret body values.
 
-Provider responses containing tokens, signed URLs, API keys, or similar credentials are never returned inline. They are written to a mode `0600` file marked `sensitive: true`; `elv view` refuses to render it.
+Provider responses containing tokens, signed URLs, API keys, or similar credentials never return the credential inline. They are written to a mode `0600` file marked `sensitive: true`; dynamically detected credentials may also leave a structurally intact redacted `data` copy for polling and pagination. `elv view` refuses to render the sensitive file.
 
 ## Escape hatches
 
@@ -96,9 +96,9 @@ When the registry is not enough:
 
 The WebSocket catalog includes `tts-realtime`, `tts-multi`, `stt-realtime`, `convai`, and `convai-monitor`. Realtime STT scripts may use binary file actions and arbitrary published query fields such as `--query entity_detection=true`. Monitoring is receive-only without `--send`; outbound agent or monitor actions require `--yes`. Use `--dry-run` before a session. Speech Engine upstream is excluded because ElevenLabs connects to a server you host rather than accepting an outbound client connection.
 
-`elv music detailed-stream` parses the Music SSE response into audio plus metadata NDJSON files. `music finetunes` manages Finetune training and metadata; generation accepts `--finetune-id`. STT webhook delivery uses bare `--webhook` with an optional configured `--webhook-id`; single-use tokens use `--token-env ENV_NAME` so the token value never appears in argv. `dubbing-project` covers Dubbing v2 source/target transcript editing, `agents procedures` covers the branch-scoped Procedure lifecycle, and `voices accents|replicate` covers the new voice surfaces. `workspace` lists members and manages service accounts.
+`elv music detailed-stream` parses the Music SSE response into audio plus metadata NDJSON files. `music finetunes` manages Finetune training and metadata; generation accepts `--finetune-id`. STT webhook delivery uses bare `--webhook` with an optional configured `--webhook-id`; single-use tokens use `--token-env ENV_NAME` so the token value never appears in argv. `dubbing-project` covers Dubbing v2 source/target transcript editing, `agents procedures` covers the branch-scoped Procedure lifecycle, and `voices accents|replicate` covers the voice discovery and replication surfaces. `assets` manages published media assets, `flows image|video|speech` covers asynchronous media generation, and `agents conversations summary` returns the compact conversation view. `workspace` lists members and manages service accounts.
 
-The public API contract does not include ElevenCreative's UI-only Image & Video, Avatars, Ads, Flows, or other private editor workflows. `elv` does not reverse-engineer private endpoints.
+The public API contract includes Assets plus beta Image, Video, and asynchronous TTS Flows. Their aliases stay JSON-first because request fields vary by model. Avatars, Ads, Templates, and other private editor workflows remain outside the published contract; `elv` does not reverse-engineer them.
 
 ## Auth and config
 

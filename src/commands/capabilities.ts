@@ -26,7 +26,7 @@ const ALIAS_FAMILIES = [
   {
     name: "agents",
     description:
-      "Agent lifecycle, procedures, response tests, and RAG query; simulation is deprecated.",
+      "Agent lifecycle, conversations, procedures, response tests, and RAG query; simulation is deprecated.",
     operation_ids: [
       "compile_procedures_route",
       "create_agent_response_test_route",
@@ -37,6 +37,7 @@ const ALIAS_FAMILIES = [
       "get_agent_response_test_route",
       "get_agent_route",
       "get_agents_route",
+      "get_conversation_summary_route",
       "get_procedure_draft_route",
       "get_procedure_route",
       "get_test_invocation_route",
@@ -52,6 +53,11 @@ const ALIAS_FAMILIES = [
       "update_agent_response_test_route",
       "update_procedure_draft_route",
     ],
+  },
+  {
+    name: "assets",
+    description: "List, upload, inspect, and delete media assets.",
+    operation_ids: ["delete_asset_endpoint", "get_asset", "list_assets", "upload_asset"],
   },
   {
     name: "dubbing",
@@ -71,6 +77,21 @@ const ALIAS_FAMILIES = [
       "dubbing_transcript_segment_delete",
       "dubbing_transcript_segment_update",
       "dubbing_transcript_segments_update",
+    ],
+  },
+  {
+    name: "flows",
+    description: "Create, list, inspect, and optionally wait for asynchronous media generations.",
+    operation_ids: [
+      "create_image_generation",
+      "create_text_to_speech_generation",
+      "create_video_generation",
+      "get_image_generation",
+      "get_text_to_speech_generation",
+      "get_video_generation",
+      "list_image_generations",
+      "list_text_to_speech_generations",
+      "list_video_generations",
     ],
   },
   {

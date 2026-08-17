@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { buildViewResult } from "../../src/commands/view";
 import { redact, redactString } from "../../src/core/redaction";
-import { normalizeResponse } from "../../src/core/response-normalizer";
+import { normalizeResponse, spillIfLarge } from "../../src/core/response-normalizer";
 import { ExitCode } from "../../src/core/types";
 import { compileSpec } from "../../src/openapi/compile-spec";
 import type { OperationCard } from "../../src/openapi/types";
@@ -95,6 +95,10 @@ describe("secret result handling", () => {
       { cmd: "elv call create_service_account", out },
     );
     expect(secretEnv.ok && secretEnv.files?.[0]?.sensitive).toBe(true);
+    expect(secretEnv.ok && secretEnv.data).toEqual({
+      service_account_user_id: "user-1",
+      api_key: "[REDACTED]",
+    });
     expect(JSON.stringify(secretEnv)).not.toContain("canary-key");
 
     const ordinaryEnv = await normalizeResponse(
@@ -119,6 +123,51 @@ describe("secret result handling", () => {
     expect(redactString('{"accessToken":"canary"}')).toBe('{"accessToken":"[REDACTED]"}');
   });
 
+  it("spills content_url responses while returning redacted structure for pagination and waits", async () => {
+    const out = mkdtempSync(join(tmpdir(), "elv-content-url-"));
+    const canary = "https://signed.example.test/media.mp4?token=canary";
+    const env = await normalizeResponse(
+      jsonOp({ operationId: "get_video_generation", method: "GET", secretResult: false }),
+      new Response(
+        JSON.stringify({
+          status: "completed",
+          next_cursor: "next-page",
+          generations: [
+            {
+              id: "gen_1",
+              content_url: canary,
+              metadata: { name: "safe" },
+            },
+          ],
+        }),
+        { headers: { "content-type": "application/json" } },
+      ),
+      { cmd: "elv call get_video_generation", out, inline: true },
+    );
+
+    expect(env.ok).toBe(true);
+    if (!env.ok) throw new Error("expected success");
+    expect(env.truncated).toBe(false);
+    expect(env.data).toEqual({
+      status: "completed",
+      next_cursor: "next-page",
+      generations: [
+        {
+          id: "gen_1",
+          content_url: "[REDACTED]",
+          metadata: { name: "safe" },
+        },
+      ],
+    });
+    expect(env.files?.[0]?.sensitive).toBe(true);
+    expect(statSync(env.files![0]!.path).mode & 0o777).toBe(0o600);
+    expect(JSON.parse(readFileSync(env.files![0]!.path, "utf8")).generations[0].content_url).toBe(
+      canary,
+    );
+    expect(JSON.stringify(env)).not.toContain(canary);
+    expect(redactString(`{"content_url":"${canary}"}`)).toBe('{"content_url":"[REDACTED]"}');
+  });
+
   it("tightens an existing --save-json destination instead of retaining weak permissions", async () => {
     const out = mkdtempSync(join(tmpdir(), "elv-save-secret-"));
     const saveJson = join(out, "credential.json");
@@ -138,5 +187,43 @@ describe("secret result handling", () => {
     if (!env.ok) throw new Error("expected success");
     expect(env.files?.[0]?.path).toBe(saveJson);
     expect(statSync(saveJson).mode & 0o777).toBe(0o600);
+  });
+
+  it("writes dynamic credential --save-json output redacted while keeping raw in generated 0600 sidecar", async () => {
+    const out = mkdtempSync(join(tmpdir(), "elv-dynamic-save-secret-"));
+    const saveJson = join(out, "response.json");
+    const canary = "https://signed.example.test/media.mp4?token=canary";
+
+    const normalized = await normalizeResponse(
+      jsonOp({ operationId: "get_video_generation", method: "GET", secretResult: false }),
+      new Response(JSON.stringify({ id: "gen_1", content_url: canary }), {
+        headers: { "content-type": "application/json" },
+      }),
+      { cmd: "elv call get_video_generation", out, saveJson, inline: true },
+    );
+    const env = await spillIfLarge(
+      jsonOp({ operationId: "get_video_generation", method: "GET", secretResult: false }),
+      normalized,
+      { cmd: "elv call get_video_generation", out, saveJson },
+    );
+
+    expect(env.ok).toBe(true);
+    if (!env.ok) throw new Error("expected success");
+    expect(JSON.parse(readFileSync(saveJson, "utf8"))).toEqual({
+      id: "gen_1",
+      content_url: "[REDACTED]",
+    });
+    expect(env.files?.map((file) => file.path)).toContain(saveJson);
+    const sensitive = env.files?.find((file) => file.sensitive);
+    expect(sensitive?.path).toBeTruthy();
+    expect(sensitive?.path).not.toBe(saveJson);
+    expect(statSync(sensitive!.path).mode & 0o777).toBe(0o600);
+    expect(JSON.parse(readFileSync(sensitive!.path, "utf8"))).toEqual({
+      id: "gen_1",
+      content_url: canary,
+    });
+    expect(JSON.stringify(env)).not.toContain(canary);
+    expect(env.hints?.[0]?.cmd).not.toContain("cat ");
+    expect(env.hints?.[0]?.why).toContain("deliberate external handoff");
   });
 });

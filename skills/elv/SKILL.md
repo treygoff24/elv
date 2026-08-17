@@ -2,7 +2,7 @@
 name: elv
 description: >-
   Use elv for any ElevenLabs API workflow: text to speech, transcription,
-  music, sound effects, voices, dubbing, agents, workspace administration,
+  music, sound effects, voices, assets, image/video flows, dubbing, agents, workspace administration,
   usage or history, raw REST, and realtime WebSockets. Also use it to discover
   the installed ElevenLabs contract or safely preview an operation. elv is
   agent-first: every command returns one JSON envelope, while media and large
@@ -16,7 +16,7 @@ Use the installed `elv` binary for ElevenLabs work. In this repository,
 vendored operation registry are the source of truth; discover instead of
 guessing flags, operation IDs, models, or API coverage.
 
-The shipped August 11, 2026 registry documents 364 operations: 363 callable
+The shipped August 17, 2026 registry documents 378 operations: 377 callable
 and one skipped deprecated route. Confirm the active contract with
 `elv capabilities` and `elv spec status` when freshness matters.
 
@@ -50,7 +50,7 @@ and one skipped deprecated route. Confirm the active contract with
 
 | Need | Route |
 | --- | --- |
-| Common media or account workflow | Alias: `tts`, `stt`, `music`, `sfx`, `voice-change`, `voice-isolate`, `dubbing`, `dubbing-project`, `voices`, `models`, `agents`, `history`, `usage`, `workspace` |
+| Common media or account workflow | Alias: `tts`, `stt`, `music`, `sfx`, `voice-change`, `voice-isolate`, `dubbing`, `dubbing-project`, `voices`, `assets`, `flows`, `models`, `agents`, `history`, `usage`, `workspace` |
 | Unknown capability or input shape | `capabilities`, then `ops search|get|schema` |
 | Published operation without a useful alias | `elv call <operation_id>` |
 | Forward-compatible REST path | `elv http <METHOD> <path>` |
@@ -65,7 +65,7 @@ Load the reference for the branch you are taking:
 - For operation discovery, generic calls, raw REST, pagination, polling, or
   config/spec questions, read
   [`references/discovery-and-calls.md`](references/discovery-and-calls.md).
-- For TTS, STT, music, sound effects, voices, or dubbing recipes, read
+- For TTS, STT, music, sound effects, voices, Assets, Flows, or dubbing recipes, read
   [`references/media-workflows.md`](references/media-workflows.md).
 - For conversational agents, workspace administration, Dubbing Project edits,
   or WebSockets, read
@@ -110,8 +110,10 @@ A success usually carries `operation_id`, `http`, `cost`, and either `data` or
   can only report `unknown_unbounded`.
 - A repeated paid generation may charge twice. After interruption, inspect the
   envelope and provider state before repeating it.
-- Credential-bearing responses are file-only with mode `0600` and
-  `sensitive:true`; `elv view` refuses to render them.
+- Credential-bearing raw responses are mode `0600` files with
+  `sensitive:true`; dynamically detected credentials may also leave redacted
+  structural `data` for status and pagination. `elv view` refuses the sensitive
+  file.
 
 ## Result discipline
 
@@ -129,5 +131,7 @@ elv view <path> --path 'voices[].name' --limit 20
 
 For list work, request only what is needed: `--fields <csv>` projects rows,
 `--limit N` bounds a page and inline result, and `--all` writes every page to
-`--save-json` or `--out`. Prefer these controls over reading a large response
-and trimming it afterward.
+`--save-json` or `--out`. If paginated pages include signed URLs or similar
+credentials, the `--all` artifact intentionally stores only the redacted
+aggregate items and does not preserve raw per-page credential responses. Prefer
+these controls over reading a large response and trimming it afterward.

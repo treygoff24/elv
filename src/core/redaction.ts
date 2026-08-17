@@ -14,6 +14,7 @@ const CREDENTIAL_KEYS = new Set([
   "conversation_token",
   "conversation_signature",
   "signed_url",
+  "content_url",
   "client_secret",
   "webhook_secret",
 ]);
@@ -45,9 +46,14 @@ export function containsCredential(value: unknown, seen = new WeakSet<object>())
   if (Array.isArray(value)) return value.some((item) => containsCredential(item, seen));
   return Object.entries(value).some(
     ([key, child]) =>
-      (isCredentialKey(key) && typeof child !== "boolean" && child != null) ||
-      containsCredential(child, seen),
+      (isCredentialKey(key) && isCredentialValue(child)) || containsCredential(child, seen),
   );
+}
+
+function isCredentialValue(value: unknown): boolean {
+  if (value === null || value === undefined || typeof value === "boolean") return false;
+  if (typeof value === "string" && value === "[REDACTED]") return false;
+  return true;
 }
 
 export function redactString(value: string): string {
@@ -57,7 +63,7 @@ export function redactString(value: string): string {
       "$1[REDACTED]",
     )
     .replace(
-      /("(?:token|single_?use_?token|access_?token|refresh_?token|participant_?token|conversation_?token|conversation_?signature|signed_?url|client_?secret|webhook_?secret|xi-?api-?key|api_?key)"\s*:\s*")[^"]*/giu,
+      /("(?:token|single_?use_?token|access_?token|refresh_?token|participant_?token|conversation_?token|conversation_?signature|signed_?url|content_?url|client_?secret|webhook_?secret|xi-?api-?key|api_?key)"\s*:\s*")[^"]*/giu,
       "$1[REDACTED]",
     )
     .replace(/\bBearer\s+[^\s,;"')]+/giu, "Bearer [REDACTED]")

@@ -18,7 +18,7 @@ import {
 import { isRecord, parseJson as parseJsonValue } from "../util/json";
 import { errorMessage } from "../util/error";
 import { shellArg } from "../util/shell";
-import { containsCredential } from "./redaction";
+import { containsCredential, redact } from "./redaction";
 import { retryAfterMs } from "./retries";
 import type { HttpMethod, OperationCard } from "../openapi/types";
 import type { JsonObject, JsonValue } from "../util/json";
@@ -41,6 +41,7 @@ export interface ResponseContext extends Pick<RunOpts, "out" | "hash"> {
   method?: HttpMethod;
   inline?: boolean;
   saveJson?: string;
+  suppressDynamicCredentialSpill?: boolean;
 }
 
 type JsonSpillContext = Pick<ResponseContext, "cmd" | "out" | "hash"> & { saveJson?: string };
@@ -177,7 +178,7 @@ async function jsonSuccess(
   } catch (error) {
     return invalidJsonSuccess(op, ctx, base, warnings, text, error);
   }
-  if (op.secretResult || containsCredential(data)) {
+  if (op.secretResult) {
     const file = await spillSecretJsonFile(op, text, ctx);
     return success({
       ...base,
@@ -187,8 +188,38 @@ async function jsonSuccess(
       warnings: optional(warnings),
       hints: [
         {
-          cmd: `cat ${shellArg(file.path)}`,
-          why: "Read the credential directly; elv view refuses sensitive provider responses.",
+          cmd: `ls -l ${shellArg(file.path)}`,
+          why: "Sensitive provider response; use this file only for deliberate external handoff. elv view refuses it.",
+        },
+      ],
+    });
+  }
+  if (containsCredential(data)) {
+    const redactedData = redact(data);
+    if (ctx.suppressDynamicCredentialSpill) {
+      return success({
+        ...base,
+        data: redactedData,
+        data_summary: summarizeSensitiveData(data),
+        truncated: false,
+        warnings: optional(warnings),
+        hints: [],
+      });
+    }
+    // Dynamic credentials keep the requested JSON destination reserved for the redacted
+    // structural response. The raw sensitive body always gets a generated 0600 sidecar.
+    const file = await spillSecretJsonFile(op, text, { ...ctx, saveJson: undefined });
+    return success({
+      ...base,
+      data: redactedData,
+      data_summary: summarizeSensitiveData(data),
+      files: [{ ...file, sensitive: true }],
+      truncated: false,
+      warnings: optional(warnings),
+      hints: [
+        {
+          cmd: `ls -l ${shellArg(file.path)}`,
+          why: "Sensitive provider response; use this file only for deliberate external handoff. elv view refuses it.",
         },
       ],
     });

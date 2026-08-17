@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { buildAjv, getInputValidator } from "../../src/openapi/ajv";
 import { compileSpec } from "../../src/openapi/compile-spec";
 import {
   buildExampleCommand,
@@ -96,4 +97,125 @@ describe("compact schema", () => {
     );
     expect(example.cmd).not.toContain('"items":[{}]');
   });
+
+  it("emits root oneOf object variants directly under body in examples", async () => {
+    const compiled = await compileSpec({ sourcePath: "spec/openapi.snapshot.json" });
+
+    const expectations = new Map([
+      ["create_image_generation", '{"body":{"prompt":"<prompt>","model_id":"gpt-image-1"}}'],
+      [
+        "create_video_generation",
+        '"body":{"model_id":"creatify-aurora","image":{"type":"generation","generation_id":"<generation_id>"},"audio":{"type":"generation","generation_id":"<generation_id>"}}',
+      ],
+      [
+        "create_text_to_speech_generation",
+        '{"body":{"text":"<text>","voice":"<voice>","model_id":"eleven_flash_v2_5"}}',
+      ],
+    ]);
+
+    for (const [operationId, snippet] of expectations) {
+      const op = compiled.operations.find((candidate) => candidate.operationId === operationId);
+      expect(op).toBeDefined();
+
+      const schema = compactSchemaForOperation(op!, compiled.bundledSpec);
+      const example = buildExampleCommand(op!, compiled.bundledSpec);
+
+      expect(schema.required.body).not.toHaveProperty("value");
+      expect(example.cmd).toContain(snippet);
+      expect(example.cmd).not.toContain('"value"');
+    }
+  });
+
+  it("builds schema-valid examples for const-backed root unions and an existing root anyOf", async () => {
+    const compiled = await compileSpec({ sourcePath: "spec/openapi.snapshot.json" });
+    const ajv = buildAjv(compiled.bundledSpec);
+
+    for (const operationId of [
+      "create_image_generation",
+      "create_video_generation",
+      "create_text_to_speech_generation",
+      "create_agent_response_test_route",
+    ]) {
+      const op = compiled.operations.find((candidate) => candidate.operationId === operationId);
+      expect(op, operationId).toBeDefined();
+      const validate = getInputValidator(ajv, op!);
+      expect(validate, operationId).not.toBeNull();
+
+      const exampleInput = JSON.parse(
+        extractJsonArgument(buildExampleCommand(op!, compiled.bundledSpec).cmd),
+      );
+
+      expect(validate!(exampleInput.body), operationId).toBe(true);
+    }
+  });
+
+  it("routes required multipart file fields through --file examples", async () => {
+    const compiled = await compileSpec({ sourcePath: "spec/openapi.snapshot.json" });
+    const op = compiled.operations.find((candidate) => candidate.operationId === "upload_asset");
+    expect(op).toBeDefined();
+
+    const example = buildExampleCommand(op!, compiled.bundledSpec);
+
+    expect(example.cmd).toContain('{"body":{"name":"<name>"}}');
+    expect(example.cmd).toContain("--file asset=./input");
+    expect(example.cmd).not.toContain('"asset":"<asset>"');
+  });
+
+  it("keeps existing required multipart file examples out of the body bucket", async () => {
+    const compiled = await compileSpec({ sourcePath: "spec/openapi.snapshot.json" });
+    const op = compiled.operations.find((candidate) => candidate.operationId === "audio_isolation");
+    expect(op).toBeDefined();
+
+    const example = buildExampleCommand(op!, compiled.bundledSpec);
+
+    expect(example.cmd).toContain("--file audio=./input");
+    expect(example.cmd).not.toContain('"audio":"<audio>"');
+  });
+
+  it("preserves synthetic value examples for non-object root bodies", async () => {
+    const compiled = await compileSpec({
+      document: {
+        openapi: "3.1.0",
+        info: { title: "fixture", version: "1" },
+        paths: {
+          "/v1/raw": {
+            post: {
+              operationId: "raw_body",
+              requestBody: {
+                required: true,
+                content: {
+                  "application/json": {
+                    schema: { type: "string" },
+                  },
+                },
+              },
+              responses: {
+                "200": {
+                  description: "ok",
+                  content: { "application/json": { schema: { type: "object" } } },
+                },
+              },
+            },
+          },
+        },
+        components: { schemas: {} },
+      },
+    });
+    const op = compiled.operations.find((candidate) => candidate.operationId === "raw_body");
+    expect(op).toBeDefined();
+
+    const schema = compactSchemaForOperation(op!, compiled.bundledSpec);
+    const example = buildExampleCommand(op!, compiled.bundledSpec);
+
+    expect(schema.required.body).toHaveProperty("value");
+    expect(example.cmd).toContain('"body":{"value":');
+  });
 });
+
+function extractJsonArgument(command: string): string {
+  const match = / --json '(.+)'(?: --|$)/u.exec(command);
+  if (!match) throw new Error(`missing --json argument in ${command}`);
+  const json = match[1];
+  if (json === undefined) throw new Error(`missing --json capture in ${command}`);
+  return json;
+}

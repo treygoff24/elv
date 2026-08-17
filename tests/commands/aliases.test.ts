@@ -4,6 +4,7 @@ import { join, resolve } from "node:path";
 import { Command } from "commander";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
+  buildAgentConversationSummaryInput,
   buildAgentsCreateInput,
   buildAgentsGetInput,
   buildAgentsListInput,
@@ -11,11 +12,22 @@ import {
   buildAgentsUpdateInput,
 } from "../../src/commands/aliases/agents";
 import {
+  buildAssetsDeleteInput,
+  buildAssetsGetInput,
+  buildAssetsListInput,
+  buildAssetsUploadInput,
+} from "../../src/commands/aliases/assets";
+import {
   buildDubbingAudioInput,
   buildDubbingCreateInput,
   buildDubbingGetInput,
   buildDubbingListInput,
 } from "../../src/commands/aliases/dubbing";
+import {
+  buildFlowCreateInput,
+  buildFlowGetInput,
+  buildFlowListInput,
+} from "../../src/commands/aliases/flows";
 import {
   buildHistoryAudioInput,
   buildHistoryDeleteInput,
@@ -47,15 +59,18 @@ let dir: string;
 let audio: string;
 let video: string;
 let agentJson: string;
+let asset: string;
 let registry: Promise<Map<string, OperationCard>>;
 
 beforeAll(() => {
   dir = mkdtempSync(join(tmpdir(), "elv-aliases-"));
   audio = join(dir, "audio.wav");
   video = join(dir, "video.mp4");
+  asset = join(dir, "asset.png");
   agentJson = join(dir, "agent.json");
   writeFileSync(audio, "audio");
   writeFileSync(video, "video");
+  writeFileSync(asset, "asset");
   writeFileSync(agentJson, JSON.stringify({ conversation_config: {}, name: "Agent" }));
   registry = loadRegistry({ cacheDir: join(dir, "cache"), forceRecompile: true });
 });
@@ -238,6 +253,35 @@ const cases: Array<{ name: string; alias: () => BuiltOperation; call: () => Buil
     }),
   },
   {
+    name: "assets list",
+    alias: () => buildAssetsListInput({ search: "logo", cursor: "cur_1" }),
+    call: () => ({
+      operationId: "list_assets",
+      input: { query: { search: "logo", cursor: "cur_1" } },
+    }),
+  },
+  {
+    name: "assets get",
+    alias: () => buildAssetsGetInput({ id: "asset_1" }),
+    call: () => ({ operationId: "get_asset", input: { path: { asset_id: "asset_1" } } }),
+  },
+  {
+    name: "assets upload",
+    alias: () => buildAssetsUploadInput({ file: asset, name: "Logo" }),
+    call: () => ({
+      operationId: "upload_asset",
+      input: { files: { asset: resolve(asset) }, body: { name: "Logo" } },
+    }),
+  },
+  {
+    name: "assets delete",
+    alias: () => buildAssetsDeleteInput({ id: "asset_1" }),
+    call: () => ({
+      operationId: "delete_asset_endpoint",
+      input: { path: { asset_id: "asset_1" } },
+    }),
+  },
+  {
     name: "agents list",
     alias: () => buildAgentsListInput({ search: "demo" }),
     call: () => ({ operationId: "get_agents_route", input: { query: { search: "demo" } } }),
@@ -277,6 +321,15 @@ const cases: Array<{ name: string; alias: () => BuiltOperation; call: () => Buil
     }),
   },
   {
+    name: "agents conversation summary",
+    alias: () =>
+      buildAgentConversationSummaryInput({ conversationId: "conv_1", maxMessages: "12" }),
+    call: () => ({
+      operationId: "get_conversation_summary_route",
+      input: { path: { conversation_id: "conv_1" }, query: { max_messages: 12 } },
+    }),
+  },
+  {
     name: "models list",
     alias: () => buildModelsListInput({}),
     call: () => ({ operationId: "get_models", input: {} }),
@@ -300,6 +353,88 @@ const cases: Array<{ name: string; alias: () => BuiltOperation; call: () => Buil
     call: () => ({
       operationId: "delete_speech_history_item",
       input: { path: { history_item_id: "hist_1" } },
+    }),
+  },
+  {
+    name: "flows image create",
+    alias: () =>
+      buildFlowCreateInput("image", {
+        json: JSON.stringify({ prompt: "blue fox", model_id: "gpt-image-1" }),
+      }),
+    call: () => ({
+      operationId: "create_image_generation",
+      input: { body: { prompt: "blue fox", model_id: "gpt-image-1" } },
+    }),
+  },
+  {
+    name: "flows image get",
+    alias: () => buildFlowGetInput("image", { id: "gen_1" }),
+    call: () => ({
+      operationId: "get_image_generation",
+      input: { path: { generation_id: "gen_1" } },
+    }),
+  },
+  {
+    name: "flows image list",
+    alias: () =>
+      buildFlowListInput("image", { status: "completed", modelId: "gpt-image-1", cursor: "c" }),
+    call: () => ({
+      operationId: "list_image_generations",
+      input: { query: { status: "completed", model_id: "gpt-image-1", cursor: "c" } },
+    }),
+  },
+  {
+    name: "flows video create",
+    alias: () =>
+      buildFlowCreateInput("video", {
+        json: JSON.stringify({ prompt: "blue fox", model_id: "video_v1" }),
+      }),
+    call: () => ({
+      operationId: "create_video_generation",
+      input: { body: { prompt: "blue fox", model_id: "video_v1" } },
+    }),
+  },
+  {
+    name: "flows video get",
+    alias: () => buildFlowGetInput("video", { id: "gen_2" }),
+    call: () => ({
+      operationId: "get_video_generation",
+      input: { path: { generation_id: "gen_2" } },
+    }),
+  },
+  {
+    name: "flows video list",
+    alias: () => buildFlowListInput("video", { status: "failed" }),
+    call: () => ({
+      operationId: "list_video_generations",
+      input: { query: { status: "failed" } },
+    }),
+  },
+  {
+    name: "flows speech create",
+    alias: () =>
+      buildFlowCreateInput("speech", {
+        json: JSON.stringify({ text: "hello", voice_id: "voice_1", model_id: "eleven_v3" }),
+      }),
+    call: () => ({
+      operationId: "create_text_to_speech_generation",
+      input: { body: { text: "hello", voice_id: "voice_1", model_id: "eleven_v3" } },
+    }),
+  },
+  {
+    name: "flows speech get",
+    alias: () => buildFlowGetInput("speech", { id: "gen_3" }),
+    call: () => ({
+      operationId: "get_text_to_speech_generation",
+      input: { path: { generation_id: "gen_3" } },
+    }),
+  },
+  {
+    name: "flows speech list",
+    alias: () => buildFlowListInput("speech", { modelId: "eleven_v3" }),
+    call: () => ({
+      operationId: "list_text_to_speech_generations",
+      input: { query: { model_id: "eleven_v3" } },
     }),
   },
   {
@@ -342,8 +477,10 @@ describe("curated aliases", () => {
 
     expect(program.commands.map((command) => command.name()).sort()).toEqual([
       "agents",
+      "assets",
       "dubbing",
       "dubbing-project",
+      "flows",
       "history",
       "models",
       "music",
@@ -408,6 +545,31 @@ describe("curated aliases", () => {
       operationId: "get_user_voices_v2",
       input: { query: { search: "x", sort: "name" } },
     });
+  });
+
+  it("assets upload defaults name to file basename", () => {
+    expect(buildAssetsUploadInput({ file: asset })).toEqual({
+      operationId: "upload_asset",
+      input: { files: { asset: resolve(asset) }, body: { name: "asset.png" } },
+    });
+  });
+
+  it.each(["0", "201", "1.5"])(
+    "rejects invalid conversation summary --max-messages=%s",
+    (value) => {
+      expect(() =>
+        buildAgentConversationSummaryInput({ conversationId: "conv_1", maxMessages: value }),
+      ).toThrow("--max-messages must be an integer from 1 to 200");
+    },
+  );
+
+  it.each(["1", "200"])("accepts boundary conversation summary --max-messages=%s", (value) => {
+    const built = buildAgentConversationSummaryInput({
+      conversationId: "conv_1",
+      maxMessages: value,
+    });
+
+    expect(built.input.query?.max_messages).toBe(Number(value));
   });
 });
 

@@ -86,7 +86,7 @@ export async function runOperation(
       normalizeInput(op, input, { allowUnknown: opts.allowUnknown }),
       opts.limit ?? 20,
     );
-    const validation = await validateInput(op, normalized, cached?.bundledSpec);
+    const validation = await validateOperationInput(op, normalized, cached?.bundledSpec);
     if (validation)
       return validationError(cmd, validation.message, {
         operationId,
@@ -289,13 +289,13 @@ async function runAllPages(
       sendAndNormalize(await makeRequest(pageInput), op, {
         cmd,
         out: opts.out ?? outputDir,
-        saveJson: opts.saveJson,
         hash: opts.hash,
         creditsEstimated,
         retryPost: opts.retryPost,
         requestPath,
         method,
         inline: true,
+        suppressDynamicCredentialSpill: true,
       }),
   });
   return withWarnings(env, warnings);
@@ -459,7 +459,7 @@ async function sendAndNormalize(
   return normalizeResponse(op, res, ctx);
 }
 
-async function validateInput(
+export async function validateOperationInput(
   op: OperationCard,
   input: AgentInput,
   bundledSpec: OpenApiDocument | undefined,
@@ -470,6 +470,8 @@ async function validateInput(
 
   const missingBody = missingRequiredBodyError(op, input);
   if (missingBody) return missingBody;
+  const bodyFileField = bodyFileFieldError(op, input);
+  if (bodyFileField) return bodyFileField;
 
   const validator = await getInputValidatorForOperation(op, bundledSpec ?? minimalSpec());
   if (!validator) return null;
@@ -549,13 +551,35 @@ function hasRequestPayload(op: OperationCard, input: AgentInput): boolean {
 function validationBody(op: OperationCard, input: AgentInput): JsonInputValue {
   if (!op.requestBody?.multipart) return input.body ?? {};
   const props = asRecord(asRecord(op.requestBody.schema).properties);
+  const fileFields = new Set(op.requestBody.fileFields ?? []);
+  const body = Object.fromEntries(
+    Object.entries(asRecord(input.body)).filter(
+      ([key, value]) => !fileFields.has(key) || value === null,
+    ),
+  );
   const files = Object.fromEntries(
     Object.entries(input.files ?? {}).map(([key, value]) => [
       key,
       asRecord(props[key]).type === "array" && !Array.isArray(value) ? [value] : value,
     ]),
   );
-  return { ...asRecord(input.body), ...files };
+  return { ...body, ...files };
+}
+
+function bodyFileFieldError(op: OperationCard, input: AgentInput): NormalizedError | null {
+  if (!op.requestBody?.multipart) return null;
+  const body = asRecord(input.body);
+  for (const field of op.requestBody.fileFields ?? []) {
+    if (body[field] === undefined || body[field] === null) continue;
+    return {
+      type: "validation_error",
+      code: "validation_error",
+      message: `files: binary multipart field ${field} must be supplied with --file ${field}=PATH, not body.${field}`,
+      param: field,
+      raw: { field, bucket: "body" },
+    };
+  }
+  return null;
 }
 
 async function getInputValidatorForOperation(

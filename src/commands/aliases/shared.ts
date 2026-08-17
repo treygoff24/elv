@@ -29,7 +29,8 @@ type RequiredWaitFields = Required<Pick<WaitOptions, "operation" | "statusPath" 
 
 type OperationBuilder<T> = (flags: T) => BuiltOperation;
 
-interface WaitAfterCreateConfig extends RequiredWaitFields, Pick<WaitOptions, "failure"> {
+interface WaitAfterCreateConfig
+  extends RequiredWaitFields, Pick<WaitOptions, "failure" | "timeoutMs"> {
   commandName: string;
   idKeys: string[];
   missingIdMessage: string;
@@ -191,6 +192,7 @@ export async function waitAfterCreate(
   opts: RunOpts,
   config: WaitAfterCreateConfig,
 ): Promise<never> {
+  if (opts.dryRun) emit(env);
   const id = stringAt(env, config.idKeys);
   if (!id) {
     emitAndExit(
@@ -205,10 +207,21 @@ export async function waitAfterCreate(
       statusPath: config.statusPath,
       success: config.success,
       failure: config.failure,
+      timeoutMs: config.timeoutMs,
     },
     { runOperation: (operationId, input) => runOperation(operationId, input, opts) },
   );
   emitAndExit(result.env, result.exitCode);
+}
+
+export function validateWaitOptions(
+  flags: { wait?: boolean; timeoutMs?: unknown },
+  timeoutMs?: number,
+): void {
+  if (!flags.wait && flags.timeoutMs !== undefined)
+    throw new Error("--timeout-ms requires --wait; omit --timeout-ms or add --wait");
+  if (flags.wait && timeoutMs !== undefined && timeoutMs <= 0)
+    throw new Error("--timeout-ms must be greater than 0");
 }
 
 function stringAt(env: SuccessEnvelope, keys: string[]): string | null {

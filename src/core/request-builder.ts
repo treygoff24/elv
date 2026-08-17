@@ -234,7 +234,14 @@ async function buildMultipartBody(
   const bodyRecord = normalized.body === undefined ? {} : asRecord(normalized.body);
 
   for (const [field, value] of Object.entries(bodyRecord)) {
-    if (fileFields.has(field)) continue;
+    if (fileFields.has(field)) {
+      if (value === null || value === undefined) continue;
+      throw new InputNormalizationError(
+        `Binary multipart field "${field}" must be supplied with --file ${field}=PATH, not body.${field}`,
+        { field, bucket: "body" },
+        field,
+      );
+    }
     appendFormValue(form, field, value);
   }
 
@@ -277,7 +284,16 @@ async function appendFile(
   path: string,
   ctx: BuildRequestContext,
 ): Promise<void> {
-  const stats = statSync(path);
+  let stats: ReturnType<typeof statSync>;
+  try {
+    stats = statSync(path);
+  } catch {
+    throw new InputNormalizationError(
+      `Upload file "${field}" does not exist or is not readable: ${path}`,
+      { field, path },
+      field,
+    );
+  }
   const cap = uploadCapBytes(ctx);
   if (stats.size > cap) {
     throw new InputNormalizationError(

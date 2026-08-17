@@ -88,6 +88,44 @@ describe("http command", () => {
     });
   });
 
+  it("rejects missing required multipart files for matched raw HTTP dry-runs", async () => {
+    const fetch = vi.fn();
+    vi.stubGlobal("fetch", fetch);
+
+    const env = await runHttp("POST", "/v1/assets", {
+      bodyJson: '{"name":"asset.txt"}',
+      dryRun: true,
+      baseUrl: "https://api.test",
+      apiKey: "sk_test_secret",
+    });
+
+    expect(fetch).not.toHaveBeenCalled();
+    expect(env).toMatchObject({
+      ok: false,
+      operation_id: "upload_asset",
+      error: { type: "validation_error", code: "validation_error", param: "asset" },
+    });
+  });
+
+  it("rejects missing required multipart files for matched raw HTTP live calls before network", async () => {
+    const fetch = vi.fn();
+    vi.stubGlobal("fetch", fetch);
+
+    const env = await runHttp("POST", "/v1/assets", {
+      bodyJson: '{"name":"asset.txt"}',
+      yes: true,
+      baseUrl: "https://api.test",
+      apiKey: "sk_test_secret",
+    });
+
+    expect(fetch).not.toHaveBeenCalled();
+    expect(env).toMatchObject({
+      ok: false,
+      operation_id: "upload_asset",
+      error: { type: "validation_error", code: "validation_error", param: "asset" },
+    });
+  });
+
   it("requires --yes for off-registry raw outbound paths", async () => {
     const fetch = vi.fn();
     vi.stubGlobal("fetch", fetch);

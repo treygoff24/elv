@@ -50,6 +50,68 @@ describe("runner request validation", () => {
     }
   });
 
+  it("rejects multipart binary fields supplied in the body bucket before dry-run", async () => {
+    const env = await runOperation(
+      "upload_asset",
+      { body: { asset: "/tmp/file.mp4", name: "clip" } },
+      { dryRun: true },
+    );
+
+    expect(env.ok).toBe(false);
+    if (env.ok) throw new Error("expected validation failure");
+    expect(env.error.message).toContain("--file asset=PATH");
+    expect(env.error.param).toBe("asset");
+  });
+
+  it("does not reject null multipart binary body fields with the body-bucket guard", async () => {
+    const env = await runOperation(
+      "upload_asset",
+      { body: { asset: null, name: "clip" } },
+      { dryRun: true },
+    );
+
+    expect(env.ok).toBe(false);
+    if (env.ok) throw new Error("expected schema validation failure");
+    expect(env.error.message).toContain("must be string");
+    expect(env.error.message).not.toContain("--file asset=PATH");
+  });
+
+  it("fails closed for unpriced Flows image/video generation under a credit ceiling", async () => {
+    for (const [operationId, body] of [
+      ["create_image_generation", { prompt: "cat", model_id: "gpt-image-1" }],
+      [
+        "create_video_generation",
+        {
+          model_id: "creatify-aurora",
+          image: { type: "generation", generation_id: "img_1" },
+          audio: { type: "generation", generation_id: "aud_1" },
+        },
+      ],
+    ] as const) {
+      for (const yes of [false, true]) {
+        const env = await runOperation(operationId, { body }, { maxCredits: 1, yes });
+
+        expect(env.ok, `${operationId} yes=${yes}`).toBe(false);
+        if (env.ok) throw new Error("expected budget failure");
+        expect(env.error.code, `${operationId} yes=${yes}`).toBe("budget_estimate_unavailable");
+        expect(env.cost?.credits_estimated, `${operationId} yes=${yes}`).toBeNull();
+      }
+    }
+  });
+
+  it("bounds asynchronous Flows text-to-speech generation by characters", async () => {
+    const env = await runOperation(
+      "create_text_to_speech_generation",
+      { body: { text: "hello", voice: "voice_1", model_id: "eleven_flash_v2_5" } },
+      { maxCredits: 2 },
+    );
+
+    expect(env.ok).toBe(false);
+    if (env.ok) throw new Error("expected budget failure");
+    expect(env.error.code).toBe("budget");
+    expect(env.cost?.credits_estimated).toBe(2.5);
+  });
+
   it("points stale model enum failures to the spec refresh workflow", async () => {
     const env = await runOperation(
       "generate",

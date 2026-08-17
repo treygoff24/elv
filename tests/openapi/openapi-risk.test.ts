@@ -35,6 +35,9 @@ describe("risk classifier", () => {
     expect(classifyRisk(op("sound_generation", "POST"))).toBe("generate");
     expect(classifyRisk(op("audio_isolation", "POST"))).toBe("generate");
     expect(classifyRisk(op("dubbing_target_transcript_regenerate", "POST"))).toBe("generate");
+    expect(classifyRisk(op("create_image_generation", "POST"))).toBe("generate");
+    expect(classifyRisk(op("create_video_generation", "POST"))).toBe("generate");
+    expect(classifyRisk(op("create_text_to_speech_generation", "POST"))).toBe("generate");
   });
 
   it("classifies the POST knowledge-base query as read-only", () => {
@@ -57,6 +60,8 @@ describe("risk classifier", () => {
     expect(costHintForOperationId("text_to_speech_full")).toBe("characters");
     expect(costHintForOperationId("sound_generation")).toBe("per_generation");
     expect(costHintForOperationId("audio_isolation")).toBe("audio_seconds");
+    expect(costHintForOperationId("create_text_to_speech_generation")).toBe("characters");
+    expect(costHintForOperationId("create_image_generation")).toBe("unknown");
     expect(costHintForOperationId("get_voices")).toBe("unknown");
   });
 

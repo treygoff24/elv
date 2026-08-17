@@ -79,6 +79,41 @@ describe("multipart request builder (native FormData + openAsBlob)", () => {
     expect((audioEntry as File).name).toBe(basename(audio));
   });
 
+  it("rejects binary file fields supplied through the JSON body bucket", async () => {
+    const audio = join(dir, "noisy.mp3");
+    writeFileSync(audio, "mp3");
+
+    await expect(
+      buildHttpRequest(
+        multipartOp(),
+        { body: { audio, model_id: "scribe" } },
+        { baseUrl: "https://api.test" },
+      ),
+    ).rejects.toThrow(InputNormalizationError);
+  });
+
+  it("treats nullable binary body fields as omitted", async () => {
+    const req = await buildHttpRequest(
+      multipartOp(),
+      { body: { audio: null, model_id: "scribe" } },
+      { baseUrl: "https://api.test" },
+    );
+
+    const form = req.body as FormData;
+    expect(count(form, "audio")).toBe(0);
+    expect(count(form, "model_id")).toBe(1);
+  });
+
+  it("reports missing upload files as input errors before request dispatch", async () => {
+    await expect(
+      buildHttpRequest(
+        multipartOp(),
+        { files: { audio: join(dir, "missing.mp3") } },
+        { baseUrl: "https://api.test" },
+      ),
+    ).rejects.toThrow(InputNormalizationError);
+  });
+
   it("builds speech_to_text multipart with file as the upload field", async () => {
     const file = join(dir, "speech.wav");
     writeFileSync(file, "wav");

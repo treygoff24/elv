@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -263,6 +263,53 @@ describe("pagination cursor derivation", () => {
         { id: "job_1" },
         { id: "job_2" },
       ]);
+    } finally {
+      rmSync(out, { recursive: true, force: true });
+    }
+  });
+
+  it("--all writes only the requested redacted aggregate for redacted page data", async () => {
+    const out = mkdtempSync(join(tmpdir(), "elv-pages-redacted-"));
+    try {
+      const saveJson = join(out, "all.json");
+      const operation = op({
+        operationId: "get_user_voices_v2",
+        pathTemplate: "/v2/voices",
+        queryParams: [
+          { name: "page_size", location: "query", required: false, schema: { type: "integer" } },
+          {
+            name: "next_page_token",
+            location: "query",
+            required: false,
+            schema: { type: "string" },
+          },
+        ],
+      });
+      const env = await collectAllPages({
+        op: operation,
+        input: {},
+        out,
+        saveJson,
+        command: { kind: "call" },
+        fetchPage: async (input) =>
+          input.query?.next_page_token === "tok_2"
+            ? ok({ voices: [{ voice_id: "v2", content_url: "[REDACTED]" }], has_more: false })
+            : ok({
+                voices: [{ voice_id: "v1", content_url: "[REDACTED]" }],
+                has_more: true,
+                next_page_token: "tok_2",
+              }),
+      });
+
+      expect(env.ok).toBe(true);
+      if (!env.ok) throw new Error("expected success");
+      expect(env.files).toHaveLength(1);
+      expect(env.files?.[0]?.path).toBe(saveJson);
+      expect(JSON.parse(readFileSync(saveJson, "utf8"))).toEqual([
+        { voice_id: "v1", content_url: "[REDACTED]" },
+        { voice_id: "v2", content_url: "[REDACTED]" },
+      ]);
+      expect(readdirSync(out)).toEqual(["all.json"]);
     } finally {
       rmSync(out, { recursive: true, force: true });
     }

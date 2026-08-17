@@ -74,6 +74,31 @@ Cross-residency replication is an external side effect and requires deliberate
 confirmation after preview. Voice creation and mutation may also require
 confirmation; follow exit 4 rather than adding `--yes` preemptively.
 
+## Assets and asynchronous Flows
+
+```bash
+elv assets list --search intro --limit 20
+elv assets upload --file intro.wav --dry-run
+elv flows image create --json-file image-request.json --dry-run
+elv flows video get --id GENERATION_ID
+elv flows speech list --status completed --limit 20
+```
+
+Image, video, and asynchronous speech creation use model-specific JSON request
+bodies. Inspect the current variant with
+`elv ops schema <create-operation> --raw` or copy its runnable `--example`; do
+not guess fields from another model.
+
+Image and video generation fail closed when `--max-credits` is configured because
+the public contract does not expose a defensible estimate. An Asset upload with
+an unknown cost exits 5 when a ceiling is active; add `--yes` only if the human
+accepts that the ceiling cannot guarantee a bound.
+
+Completed records contain expiring signed `content_url` values. The raw response
+is stored in a mode-`0600` sensitive file, while inline `data` keeps the URL
+redacted so list pagination and status polling remain usable. Never paste the
+signed URL into logs or prompts.
+
 ## Dubbing
 
 ```bash
@@ -93,5 +118,6 @@ responses over a memorized model list. For new examples, start with `scribe_v2`
 for STT and a current Flash model for low-latency TTS, then honor the user's
 quality, language, latency, and availability requirements.
 
-The public API contract does not include ElevenCreative's UI-only editors,
-Image & Video, Avatars, Ads, or Flows. Keep private endpoints out of the plan.
+The public API contract includes Assets and beta Image, Video, and asynchronous
+TTS Flows. Avatars, Ads, Templates, and other private editor surfaces still have
+no published contract; keep reverse-engineered endpoints out of the plan.

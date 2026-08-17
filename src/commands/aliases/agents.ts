@@ -1,5 +1,6 @@
 import type { Command } from "commander";
 import type { CliOptionValues } from "../options";
+import { numberValue, OptionValueError } from "../options";
 import {
   addPaginationFlags,
   compact,
@@ -14,6 +15,8 @@ import {
 
 interface AgentsFlags extends JsonBodyFlags, Pick<CliOptionValues, "text" | "search"> {
   agentId?: string;
+  conversationId?: string;
+  maxMessages?: string | number;
   testId?: string;
   invocationId?: string;
   branchId?: string;
@@ -161,6 +164,25 @@ export function buildAgentRagQueryInput(flags: AgentsFlags): BuiltOperation {
       body: { query: required(flags.query, "--query") },
     }),
   };
+}
+
+export function buildAgentConversationSummaryInput(flags: AgentsFlags): BuiltOperation {
+  return {
+    operationId: "get_conversation_summary_route",
+    input: compactInput({
+      path: { conversation_id: required(flags.conversationId, "--conversation-id") },
+      query: compact({ max_messages: maxMessagesValue(flags.maxMessages) }),
+    }),
+  };
+}
+
+function maxMessagesValue(value: string | number | undefined): number | undefined {
+  const parsed = numberValue(value);
+  if (parsed === undefined) return undefined;
+  if (!Number.isInteger(parsed) || parsed < 1 || parsed > 200) {
+    throw new OptionValueError("--max-messages must be an integer from 1 to 200");
+  }
+  return parsed;
 }
 
 export function buildAgentProceduresListInput(flags: AgentsFlags): BuiltOperation {
@@ -419,6 +441,17 @@ export function registerAgentsCommand(
       .option("--branch-id <id>", "agent branch id")
       .action((options: AgentsFlags, command: Command) =>
         runAlias(buildAgentRagQueryInput, options, command),
+      ),
+  );
+  const conversations = agents.command("conversations").description("Agent conversations");
+  addCommonFlags(
+    conversations
+      .command("summary")
+      .description("Get a compact conversation summary")
+      .option("--conversation-id <id>", "conversation id")
+      .option("--max-messages <n>", "maximum chat message turns to include inline")
+      .action((options: AgentsFlags, command: Command) =>
+        runAlias(buildAgentConversationSummaryInput, options, command),
       ),
   );
   addCommonFlags(
