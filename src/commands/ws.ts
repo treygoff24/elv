@@ -22,6 +22,7 @@ import {
   validateBinaryFiles,
   WsProtocolValidator,
 } from "../ws/events";
+import { writeDuplexEventLine } from "../ws/duplex-sink";
 import { runWsSession, WsSessionError } from "../ws/session";
 import { errorMessage } from "../util/error";
 import { shellArg } from "../util/shell";
@@ -172,7 +173,7 @@ async function runScriptedWs(
           input: options.duplexInput ?? process.stdin,
           protocol,
           modelId,
-          onEvent: options.duplexEventSink ?? ((line: string) => process.stderr.write(`${line}\n`)),
+          onEvent: options.duplexEventSink ?? writeDuplexEventLine,
         }
       : undefined,
   });
