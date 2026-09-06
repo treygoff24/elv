@@ -1,6 +1,5 @@
 import {
   chmodSync,
-  createReadStream,
   existsSync,
   lstatSync,
   mkdtempSync,
@@ -270,6 +269,6 @@ describe("files", () => {
 
   it("writes a JSON manifest", async () => {
     const path = await writeManifest(dir, { files: ["a"] });
-    expect(await sha256File(path)).toBe(await sha256File(createReadStream(path).path.toString()));
+    expect(JSON.parse(readFileSync(path, "utf8"))).toEqual({ files: ["a"] });
   });
 });

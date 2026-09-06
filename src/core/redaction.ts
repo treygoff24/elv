@@ -27,10 +27,12 @@ const NORMALIZED_CREDENTIAL_KEYS = new Set(
   [...CREDENTIAL_KEYS].map((key) => normalizeCredentialKey(key)),
 );
 
-// CloudFront signs with Signature/Policy/Key-Pair-Id; S3 and GCS with x-*-signature;
-// Azure SAS with sig. Azure's se/sv/sp/sr are left alone: too generic to match safely.
+// CloudFront signs with Signature/Key-Pair-Id (its optional Policy is a statement, not a
+// secret, and `?policy=` is too generic for a spill gate that runs on every response);
+// S3 and GCS with x-*-signature; Azure SAS with sig. Azure's se/sv/sp/sr are left alone
+// for the same reason. The inline media path strips whole query strings regardless.
 const URL_CREDENTIAL =
-  /([?&](?:single_?use_?token|access_?token|refresh_?token|signed_?token|authorization|token|x-goog-signature|x-amz-signature|x-amz-credential|signature|policy|key-?pair-?id|sig)=)([^&#\s,;"')]+)/giu;
+  /([?&](?:single_?use_?token|access_?token|refresh_?token|signed_?token|authorization|token|x-goog-signature|x-amz-signature|x-amz-credential|signature|key-?pair-?id|sig)=)([^&#\s,;"')]+)/giu;
 
 /** A URL carrying a query string in a media response is presumptively signed. */
 const MEDIA_URL = /^(https?:\/\/[^\s?#]*)\?[^\s]*$/iu;

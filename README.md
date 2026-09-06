@@ -237,7 +237,7 @@ Use `--token-env TOKEN_VARIABLE` for single-use authentication and `--url-env UR
 
 `send_binary_file` is reserved for unknown raw protocols. Known URL paths inherit their catalog's safety and budget rules, without forwarding your profile key to an arbitrary host.
 
-Agents can answer live tool calls with `elv ws convai --duplex --query agent_id=AGENT --yes --out ./session`. All catalog protocols also accept live stdin with `--duplex`: send wrapped NDJSON actions and consume redacted events on stderr; stdout still contains one final envelope. Initial `--send` actions can seed a live session. Dynamic speech, dialogue, transcription, and conversation costs cannot be bounded, so configured credit ceilings block those sessions before connection. EOF closes the transport; send the protocol's flush/end controls and wait for final events before closing stdin if queued output matters.
+Agents can answer live tool calls with `elv ws convai --duplex --query agent_id=AGENT --yes --out ./session`. All catalog protocols also accept live stdin with `--duplex`: send wrapped NDJSON actions and consume redacted events on stderr; stdout still contains one final envelope. Events are written to stderr synchronously so none are lost at exit, which means the caller must keep draining stderr: a session whose stderr pipe is never read blocks until it is. Initial `--send` actions can seed a live session. Dynamic speech, dialogue, transcription, and conversation costs cannot be bounded, so configured credit ceilings block those sessions before connection. EOF closes the transport; send the protocol's flush/end controls and wait for final events before closing stdin if queued output matters.
 
 ### Music detailed streaming
 

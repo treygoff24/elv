@@ -243,6 +243,9 @@ export async function handleCapabilities(options: CapabilitiesOptions): Promise<
             path: entry.pathTemplate,
             auth: entry.auth,
             scriptable: entry.scriptable,
+            duplex: entry.duplex,
+            first_message: entry.firstMessage,
+            terminal_rule: entry.terminalRule,
             required_params: entry.requiredParams,
           })),
         protocol: {

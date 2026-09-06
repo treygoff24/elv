@@ -105,6 +105,12 @@ describe("capabilities machine contract", () => {
     });
     const websockets = array(data.websockets).map((entry) => String(record(entry).name));
     expect(websockets).toEqual([...websockets].sort());
+    for (const entry of array(data.websockets)) {
+      const route = record(entry);
+      expect(typeof route.duplex).toBe("boolean");
+      expect(typeof route.first_message).toBe("string");
+      expect(typeof route.terminal_rule).toBe("string");
+    }
 
     expect(record(data.protocol)).toMatchObject({
       stdout: "exactly_one_json_envelope",

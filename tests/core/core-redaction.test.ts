@@ -47,8 +47,10 @@ describe("redaction", () => {
       "https://s.blob.core.windows.net/a.mp3?sv=2021&sig=[REDACTED]&se=2030-01-01",
     );
     expect(redactString("https://cdn/a?Policy=eyJTdGF0ZW1lbnQi&Signature=SIG")).toBe(
-      "https://cdn/a?Policy=[REDACTED]&Signature=[REDACTED]",
+      "https://cdn/a?Policy=eyJTdGF0ZW1lbnQi&Signature=[REDACTED]",
     );
+    // A benign policy/settings link must not turn a whole response into a private spill.
+    expect(containsCredential({ docs: "https://elevenlabs.io/app?policy=privacy" })).toBe(false);
   });
 
   it("strips every query string from media URLs while keeping polling fields", () => {
