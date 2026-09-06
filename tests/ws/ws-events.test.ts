@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseSendScript, ttsCharacterEstimate } from "../../src/ws/events";
+import { parseSendScript, ttsCharacterEstimate, WsProtocolValidator } from "../../src/ws/events";
 
 function script(...data: Record<string, unknown>[]): string {
   return data.map((value) => JSON.stringify({ type: "send", data: value })).join("\n");
@@ -135,5 +135,72 @@ describe("WebSocket protocol scripts", () => {
     expect(() =>
       parseSendScript(JSON.stringify({ type: "send_binary_file", path: "sample.pcm" }), "raw"),
     ).not.toThrow();
+  });
+
+  it("uses the same persistent model and closure invariants for finite TTD scripts", () => {
+    expect(() =>
+      parseSendScript(script({ voices: ["a", "b"] }), "ttd", {
+        modelId: "eleven_v3_conversational",
+      }),
+    ).toThrow(/exactly one voice/iu);
+    expect(() =>
+      parseSendScript(
+        script(
+          { voices: ["a"] },
+          { close_socket: true },
+          { inputs: [{ text: "late", voice_id: "a" }] },
+        ),
+        "ttd",
+        { modelId: "eleven_v3" },
+      ),
+    ).toThrow(/closed/iu);
+  });
+
+  it("tracks STT first-chunk-only fields without retaining prior actions", () => {
+    const validator = new WsProtocolValidator("stt");
+    validator.validate({
+      type: "send_audio_file",
+      path: "first.pcm",
+      sampleRate: 16_000,
+      commit: false,
+      previousText: "context",
+    });
+
+    expect(() =>
+      validator.validate({
+        type: "send_audio_file",
+        path: "second.pcm",
+        sampleRate: 16_000,
+        commit: true,
+        previousText: "too late",
+      }),
+    ).toThrow(/first audio chunk/iu);
+  });
+
+  it("preserves TTS multi-context control messages after the initial handshake", () => {
+    expect(() =>
+      parseSendScript(
+        script(
+          { text: " ", context_id: "a" },
+          { context_id: "a", flush: true },
+          { context_id: "a", close_context: true },
+          { close_socket: true },
+        ),
+        "tts",
+      ),
+    ).not.toThrow();
+  });
+
+  it("accepts an empty-base64 STT commit-only chunk but rejects non-string audio", () => {
+    const commitOnly = {
+      message_type: "input_audio_chunk",
+      audio_base_64: "",
+      commit: true,
+      sample_rate: 16_000,
+    };
+    expect(() => parseSendScript(script(commitOnly), "stt")).not.toThrow();
+    expect(() => parseSendScript(script({ ...commitOnly, audio_base_64: 1 }), "stt")).toThrow(
+      /audio_base_64.*string/iu,
+    );
   });
 });

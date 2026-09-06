@@ -8,7 +8,7 @@ import {
   riskCurationInputs,
 } from "./risk";
 import { HTTP_METHODS } from "./types";
-import { parseJson } from "../util/json";
+import { isRecord, parseJson } from "../util/json";
 import type { JsonObject, JsonValue } from "../util/json";
 import type {
   BodyCard,
@@ -48,7 +48,10 @@ export interface CompileSpecResult {
 
 export async function compileSpec(options: CompileSpecOptions = {}): Promise<CompileSpecResult> {
   const source = await sourceForBundle(options);
-  const bundledSpec = (await bundle(source)) as OpenApiDocument;
+  assertInternalReferences(source);
+  const bundledSpec = (await bundle(source, {
+    resolve: { file: false, http: false },
+  })) as OpenApiDocument;
   const seen = new Set<string>();
   const operations: OperationCard[] = [];
   let totalOperations = 0;
@@ -108,11 +111,32 @@ export async function compileSpec(options: CompileSpecOptions = {}): Promise<Com
   return { bundledSpec, operations, totalOperations, skippedOperations };
 }
 
-async function sourceForBundle(options: CompileSpecOptions): Promise<string | JsonObject> {
-  if (options.document !== undefined) return options.document as JsonObject;
+async function sourceForBundle(options: CompileSpecOptions): Promise<JsonObject> {
   const sourcePath = options.sourcePath ?? "spec/openapi.snapshot.json";
-  if (options.sourcePath) return resolve(sourcePath);
-  return parseJson(await readFile(resolve(sourcePath), "utf8"), sourcePath) as JsonObject;
+  const document =
+    options.document !== undefined
+      ? options.document
+      : parseJson(await readFile(resolve(sourcePath), "utf8"), sourcePath);
+  if (!isRecord(document)) throw new Error("OpenAPI document must be a JSON object");
+  return document;
+}
+
+function assertInternalReferences(document: JsonObject): void {
+  const pending: JsonValue[] = [document];
+  const seen = new Set<object>();
+  while (pending.length) {
+    const value = pending.pop();
+    if (!value || typeof value !== "object" || seen.has(value)) continue;
+    seen.add(value);
+    for (const [key, entry] of Object.entries(value)) {
+      if (key === "$ref" && typeof entry === "string" && !entry.startsWith("#")) {
+        throw new Error(
+          "Unsupported external $ref: supply a self-contained OpenAPI JSON document with only in-document fragment references",
+        );
+      }
+      if (entry && typeof entry === "object") pending.push(entry);
+    }
+  }
 }
 
 function extractParameters(parameters: JsonValue[], spec: OpenApiDocument): ParamCard[] {
@@ -221,6 +245,7 @@ export function compilerSemanticsInputs() {
       bundle,
       compileSpec,
       sourceForBundle,
+      assertInternalReferences,
       extractParameters,
       extractRequestBody,
       extractResponses,

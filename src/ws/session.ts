@@ -11,10 +11,11 @@ import {
   MAX_BINARY_FILE_BYTES,
   MAX_DUPLEX_LINE_BYTES,
   NdjsonEventWriter,
-  parseSendScript,
+  parseSendScriptLine,
   redactWs,
   redactWsString,
   validateBinaryFiles,
+  WsProtocolValidator,
 } from "./events";
 import { isRecord, parseJson as parseJsonValue } from "../util/json";
 import type { FileRecord, SuccessEnvelope, WsInfo } from "../core/types";
@@ -25,6 +26,7 @@ import type { WsProtocol } from "./catalog";
 interface DuplexSessionOptions {
   input: NodeJS.ReadableStream;
   protocol: WsProtocol | "raw";
+  modelId?: string;
   onEvent: (line: string) => void;
 }
 
@@ -101,7 +103,12 @@ export async function runWsSession(options: WsSessionOptions): Promise<WsSession
     inactivity.reset();
     state.eventsSent = await playScript(socket, options.script);
     if (options.duplex) {
-      duplexReader = new DuplexActionReader(options.duplex.input, options.duplex.protocol);
+      duplexReader = new DuplexActionReader(
+        options.duplex.input,
+        options.duplex.protocol,
+        options.script,
+        options.duplex.modelId,
+      );
       await runDuplexSession(socket, state, closedPromise, duplexReader);
     } else {
       await closedPromise;
@@ -435,11 +442,19 @@ async function playScript(socket: WebSocket, script: SendScriptAction[]): Promis
 class DuplexActionReader {
   private readonly lines: ReadlineInterface;
   private readonly iterator: AsyncIterator<string>;
+  private readonly validator: WsProtocolValidator;
 
   constructor(
     input: NodeJS.ReadableStream,
-    private readonly protocol: WsProtocol | "raw",
+    protocol: WsProtocol | "raw",
+    initialActions: SendScriptAction[],
+    modelId?: string,
   ) {
+    this.validator = new WsProtocolValidator(protocol, { modelId });
+    for (const action of initialActions) {
+      if (action.type === "close") break;
+      this.validator.validate(action);
+    }
     this.lines = createInterface({ input, crlfDelay: Infinity, terminal: false });
     this.iterator = this.lines[Symbol.asyncIterator]();
   }
@@ -463,23 +478,18 @@ class DuplexActionReader {
           "Duplex input line is not valid JSON",
         );
       }
-      let actions: SendScriptAction[];
+      let action: SendScriptAction;
       try {
-        actions = parseSendScript(item.value, this.protocol);
-        validateBinaryFiles(actions);
+        action = parseSendScriptLine(item.value);
+        validateBinaryFiles([action]);
+        this.validator.validate(action);
       } catch (error) {
         throw new WsDuplexInputError(
           "ws_duplex_invalid_action",
           error instanceof Error ? error.message : String(error),
         );
       }
-      if (actions.length !== 1) {
-        throw new WsDuplexInputError(
-          "ws_duplex_invalid_action",
-          "Each duplex input line must contain exactly one action",
-        );
-      }
-      return actions[0]!;
+      return action;
     }
   }
 

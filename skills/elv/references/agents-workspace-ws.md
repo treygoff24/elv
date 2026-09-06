@@ -90,10 +90,13 @@ monitor action requires `--yes`; preview the session first. With a configured
 credit ceiling, supported TTS, STT, and agent sessions fail closed when cost
 cannot be bounded.
 
-For live Agents tool calls, add `--duplex`: read redacted received events from
+For live input or Agents tool calls, add `--duplex`: read redacted received events from
 stderr and send wrapped NDJSON actions on stdin. EOF closes the session;
-stdout returns one final envelope. This mode supports Agents, monitoring,
-and raw protocols. TTS/TTD/STT still require finite scripts.
+stdout returns one final envelope. All catalog protocols support it, with the
+same message validation as finite scripts. Send protocol flush/end controls
+and wait for final output before EOF; closing stdin does not guarantee that
+queued audio is flushed. A configured credit ceiling blocks dynamic speech,
+dialogue, transcription, and conversation sessions.
 
 Speech Engine is an inbound server, not an outbound `ws` target.
 `speech-engine serve --handler-json '["node","handler.mjs"]' --yes` listens

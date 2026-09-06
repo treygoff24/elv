@@ -20,7 +20,7 @@ import {
   scriptUsesModel,
   ttsCharacterEstimate,
   validateBinaryFiles,
-  validateTtdModel,
+  WsProtocolValidator,
 } from "../ws/events";
 import { runWsSession, WsSessionError } from "../ws/session";
 import { errorMessage } from "../util/error";
@@ -110,11 +110,6 @@ async function runScriptedWs(
   }
   const entry = namedEntry ?? actualEntry;
   const protocol = entry?.protocol ?? "raw";
-  if (input.duplex && !["convai", "monitor", "raw"].includes(protocol)) {
-    return inputError(
-      `--duplex is not yet supported for the ${protocol} protocol; use a complete --send script`,
-    );
-  }
   if (!input.send && !input.duplex && protocol !== "monitor") {
     return inputError("Missing --send script.ndjson");
   }
@@ -130,7 +125,8 @@ async function runScriptedWs(
     protocol,
     urlOverride,
   );
-  const script = input.send ? parseScriptFile(input.send, protocol) : [];
+  const modelId = query.model_id ?? entry?.defaultQuery?.model_id;
+  const script = input.send ? parseScriptFile(input.send, protocol, modelId) : [];
   validateScriptFiles(script);
   const resolved = resolveTargetForInput(target, namedEntry, query, config.baseUrl, urlOverride);
   const validationErrorResult = validateScriptedTarget(entry, resolved.url, script);
@@ -147,6 +143,8 @@ async function runScriptedWs(
   if (options.dryRun) {
     return dryRunResult(entry, protocol, script, resolved, headers, preflight);
   }
+  const budgetError = enforceWsBudget(preflight, config.maxCredits);
+  if (budgetError) return budgetError;
   if (preflight.requiresYes && !options.yes) {
     return {
       env: confirmationRequired(
@@ -159,8 +157,6 @@ async function runScriptedWs(
       exitCode: ExitCode.ConfirmationRequired,
     };
   }
-  const budgetError = enforceWsBudget(preflight, config.maxCredits);
-  if (budgetError) return budgetError;
 
   const result = await runWsSession({
     url: resolved.url,
@@ -175,6 +171,7 @@ async function runScriptedWs(
       ? {
           input: options.duplexInput ?? process.stdin,
           protocol,
+          modelId,
           onEvent: options.duplexEventSink ?? ((line: string) => process.stderr.write(`${line}\n`)),
         }
       : undefined,
@@ -221,11 +218,9 @@ function validateScriptedTarget(
   }
   if (entry?.protocol === "ttd" || entry?.protocol === "ttd-multi") {
     try {
-      validateTtdModel(
-        script,
-        entry.protocol,
-        url.searchParams.get("model_id") ?? entry.defaultQuery?.model_id ?? "",
-      );
+      new WsProtocolValidator(entry.protocol, {
+        modelId: url.searchParams.get("model_id") ?? entry.defaultQuery?.model_id ?? "",
+      });
     } catch (error) {
       return inputError(errorMessage(error));
     }
@@ -349,6 +344,7 @@ interface WsPreflight {
   budgetPolicy: BudgetDecision["policy"];
   wouldExceedBudget: boolean | null;
   unboundedBudget: boolean;
+  dynamicCostUnbounded: boolean;
   duplex: boolean;
 }
 
@@ -404,14 +400,16 @@ function wsPreflight(
 ): WsPreflight {
   const outboundActions = outboundActionCount(script);
   const protocol = entry?.protocol ?? "raw";
+  const dynamicCostUnbounded =
+    duplex && ["tts", "ttd", "ttd-multi", "stt", "convai"].includes(protocol);
   const creditsEstimated =
-    protocol === "tts" || protocol === "ttd" || protocol === "ttd-multi"
+    !dynamicCostUnbounded && (protocol === "tts" || protocol === "ttd" || protocol === "ttd-multi")
       ? ttsCharacterEstimate(
           script,
           url.searchParams.get("model_id") ?? entry?.defaultQuery?.model_id ?? "",
         )
       : null;
-  const estimateUnavailable = protocol === "stt" || protocol === "convai";
+  const estimateUnavailable = dynamicCostUnbounded || protocol === "stt" || protocol === "convai";
   const budgetPolicy =
     maxCredits === undefined
       ? "not_configured"
@@ -444,6 +442,7 @@ function wsPreflight(
     budgetPolicy,
     wouldExceedBudget,
     unboundedBudget,
+    dynamicCostUnbounded,
     duplex,
   };
 }
@@ -481,6 +480,7 @@ function dryRunResult(
         would_require_yes: preflight.requiresYes,
         would_exceed_budget: preflight.wouldExceedBudget,
         unbounded_budget: preflight.unboundedBudget,
+        dynamic_cost_unbounded: preflight.dynamicCostUnbounded,
         duplex: preflight.duplex,
       }),
     }),
@@ -538,9 +538,10 @@ function inputError(message: string): CommandResult {
 function parseScriptFile(
   path: string,
   protocol: WsProtocol | "raw",
+  modelId?: string,
 ): ReturnType<typeof parseSendScript> {
   try {
-    return parseSendScript(readFileSync(path, "utf8"), protocol).map((action) =>
+    return parseSendScript(readFileSync(path, "utf8"), protocol, { modelId }).map((action) =>
       (action.type === "send_binary_file" || action.type === "send_audio_file") &&
       !isAbsolute(action.path)
         ? { ...action, path: resolve(dirname(path), action.path) }

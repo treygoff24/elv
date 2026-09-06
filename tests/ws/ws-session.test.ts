@@ -1011,25 +1011,389 @@ describe("ws session", () => {
     }
   });
 
-  it("rejects duplex generation and transcription protocols before connecting", async () => {
-    const server = await startServer(() => undefined);
+  it("streams incremental TTS after a finite initialization script", async () => {
+    const server = await startServer((socket, received) => {
+      socket.send(JSON.stringify({ type: "next", step: "text" }));
+      socket.on("message", () => {
+        const message = JSON.parse(received.at(-1)!) as Record<string, unknown>;
+        if (message.text === "Hello ") {
+          socket.send(JSON.stringify({ type: "next", step: "eos" }));
+        } else if (message.text === "") {
+          socket.send(JSON.stringify({ audio: Buffer.from("tts-live").toString("base64") }));
+          socket.send(JSON.stringify({ isFinal: true }), () => socket.close(1000, "done"));
+        }
+      });
+    });
     const dir = await tempDir();
-    for (const [target, query] of [
-      ["tts-realtime", { voice_id: "voice-a" }],
-      ["ttd-realtime", {}],
-      ["ttd-multi", {}],
-      ["stt-realtime", {}],
-    ] as const) {
+    const initial = join(dir, "tts-init.ndjson");
+    writeFileSync(initial, JSON.stringify({ type: "send", data: { text: " " } }));
+    const input = new PassThrough();
+
+    const result = await runWs(
+      {
+        target: "tts-realtime",
+        duplex: true,
+        send: initial,
+        out: dir,
+        query: { voice_id: "voice-a" },
+      },
+      {
+        baseUrl: httpBase(server.url),
+        duplexInput: input,
+        duplexEventSink: (line) => {
+          const event = JSON.parse(line) as { step?: string };
+          if (event.step === "text") {
+            input.write(`${JSON.stringify({ type: "send", data: { text: "Hello " } })}\n`);
+          } else if (event.step === "eos") {
+            input.write(`${JSON.stringify({ type: "send", data: { text: "" } })}\n`);
+          }
+        },
+        timeoutMs: 500,
+      },
+    );
+    input.destroy();
+
+    expect(result.exitCode).toBe(0);
+    expect(server.received.map((raw) => JSON.parse(raw))).toEqual([
+      { text: " " },
+      { text: "Hello " },
+      { text: "" },
+    ]);
+    expect(readFileSync(join(dir, "audio.mp3"), "utf8")).toBe("tts-live");
+  });
+
+  it("streams incremental multi-context TTD lifecycle actions", async () => {
+    const server = await startServer((socket, received) => {
+      socket.send(JSON.stringify({ type: "next", step: "init-a" }));
+      socket.on("message", () => {
+        const message = JSON.parse(received.at(-1)!) as Record<string, unknown>;
+        const step =
+          Array.isArray(message.voices) && message.context_id === "a"
+            ? message.voices[0] === "voice-a"
+              ? "input-a"
+              : "input-b"
+            : Array.isArray(message.inputs)
+              ? message.context_id === "a" && message.close_context !== true
+                ? message.inputs.some(
+                    (item) =>
+                      typeof item === "object" &&
+                      item !== null &&
+                      (item as Record<string, unknown>).voice_id === "voice-a",
+                  )
+                  ? "close-a"
+                  : "close-socket"
+                : "close-socket"
+              : message.close_context === true
+                ? "init-b"
+                : undefined;
+        if (message.close_socket === true) {
+          socket.send(
+            JSON.stringify({
+              audio: Buffer.from("ttd-live").toString("base64"),
+              context_id: "a",
+            }),
+          );
+          socket.send(JSON.stringify({ is_final: true, context_id: "a" }), () =>
+            socket.close(1000, "done"),
+          );
+        } else if (step) {
+          socket.send(JSON.stringify({ type: "next", step }));
+        }
+      });
+    });
+    const dir = await tempDir();
+    const input = new PassThrough();
+    const actions: Record<string, unknown> = {
+      "init-a": { context_id: "a", voices: ["voice-a"] },
+      "input-a": { context_id: "a", inputs: [{ text: "One", voice_id: "voice-a" }] },
+      "close-a": { context_id: "a", close_context: true },
+      "init-b": { context_id: "a", voices: ["voice-b"] },
+      "input-b": { context_id: "a", inputs: [{ text: "Two", voice_id: "voice-b" }] },
+      "close-socket": { close_socket: true },
+    };
+
+    const result = await runWs(
+      { target: "ttd-multi", duplex: true, out: dir, query: {} },
+      {
+        baseUrl: httpBase(server.url),
+        duplexInput: input,
+        duplexEventSink: (line) => {
+          const event = JSON.parse(line) as { step?: string };
+          const data = event.step ? actions[event.step] : undefined;
+          if (data) input.write(`${JSON.stringify({ type: "send", data })}\n`);
+        },
+        timeoutMs: 500,
+      },
+    );
+    input.destroy();
+
+    expect(result.exitCode).toBe(0);
+    expect(server.received.map((raw) => JSON.parse(raw))).toEqual(Object.values(actions));
+    const audio = result.env.files?.find((file) => file.path.includes("audio.context-"));
+    expect(audio && readFileSync(audio.path, "utf8")).toBe("ttd-live");
+  });
+
+  it("streams a file-backed STT chunk and receives its transcript", async () => {
+    const audioBytes = Buffer.from([0, 1, 2, 3, 255]);
+    let received: Record<string, unknown> | undefined;
+    const server = await startServer((socket) => {
+      socket.send(JSON.stringify({ type: "ready" }));
+      socket.on("message", (data) => {
+        received = JSON.parse(data.toString()) as Record<string, unknown>;
+        socket.send(JSON.stringify({ message_type: "committed_transcript", text: "heard" }), () =>
+          socket.close(1000, "done"),
+        );
+      });
+    });
+    const dir = await tempDir();
+    const audioPath = join(dir, "live.pcm");
+    writeFileSync(audioPath, audioBytes);
+    const input = new PassThrough();
+    const observed: string[] = [];
+
+    const result = await runWs(
+      { target: "stt-realtime", duplex: true, out: dir, query: {} },
+      {
+        baseUrl: httpBase(server.url),
+        duplexInput: input,
+        duplexEventSink: (line) => {
+          observed.push(line);
+          const event = JSON.parse(line) as { type?: string };
+          if (event.type === "ready") {
+            input.write(
+              `${JSON.stringify({
+                type: "send_audio_file",
+                path: audioPath,
+                sample_rate: 16_000,
+                commit: true,
+              })}\n`,
+            );
+          }
+        },
+        timeoutMs: 500,
+      },
+    );
+    input.destroy();
+
+    expect(result.exitCode).toBe(0);
+    expect(received).toEqual({
+      message_type: "input_audio_chunk",
+      audio_base_64: audioBytes.toString("base64"),
+      commit: true,
+      sample_rate: 16_000,
+    });
+    expect(observed.join("\n")).toContain("committed_transcript");
+  });
+
+  it("streams an empty-base64 STT commit-only chunk", async () => {
+    let received: Record<string, unknown> | undefined;
+    const server = await startServer((socket) => {
+      socket.send(JSON.stringify({ type: "ready" }));
+      socket.on("message", (data) => {
+        received = JSON.parse(data.toString()) as Record<string, unknown>;
+        socket.send(JSON.stringify({ message_type: "committed_transcript", text: "" }), () =>
+          socket.close(1000, "done"),
+        );
+      });
+    });
+    const dir = await tempDir();
+    const input = new PassThrough();
+    const commitOnly = {
+      message_type: "input_audio_chunk",
+      audio_base_64: "",
+      commit: true,
+      sample_rate: 16_000,
+    };
+
+    const result = await runWs(
+      { target: "stt-realtime", duplex: true, out: dir, query: {} },
+      {
+        baseUrl: httpBase(server.url),
+        duplexInput: input,
+        duplexEventSink: (line) => {
+          const event = JSON.parse(line) as { type?: string };
+          if (event.type === "ready") {
+            input.write(`${JSON.stringify({ type: "send", data: commitOnly })}\n`);
+          }
+        },
+        timeoutMs: 500,
+      },
+    );
+    input.destroy();
+
+    expect(result.exitCode).toBe(0);
+    expect(received).toEqual(commitOnly);
+  });
+
+  it.each([
+    ["TTS", "tts-realtime", { voice_id: "voice-a" }, { text: "not a handshake" }],
+    ["TTD", "ttd-realtime", {}, { inputs: [{ text: "Hello", voice_id: "voice-a" }] }],
+  ])(
+    "rejects an invalid first incremental %s message with partial evidence",
+    async (_label, target, query, data) => {
+      const server = await startServer((socket) => {
+        socket.send(JSON.stringify({ type: "ready", token: "SERVER_SECRET" }));
+      });
+      const dir = await tempDir();
       const input = new PassThrough();
+
       const result = await runWs(
         { target, duplex: true, out: dir, query },
-        { baseUrl: httpBase(server.url), duplexInput: input, timeoutMs: 100 },
+        {
+          baseUrl: httpBase(server.url),
+          duplexInput: input,
+          duplexEventSink: (line) => {
+            const event = JSON.parse(line) as { type?: string };
+            if (event.type === "ready") {
+              input.write(`${JSON.stringify({ type: "send", data })}\n`);
+            }
+          },
+          timeoutMs: 500,
+        },
       );
       input.destroy();
+
       expect(result.exitCode).toBe(2);
-      expect(result.env.ok ? undefined : result.env.error.message).toContain("--duplex");
-      expect(server.connected).toBe(false);
-    }
+      expect(result.env.ok).toBe(false);
+      if (result.env.ok) throw new Error("expected incremental validation failure");
+      expect(result.env.error.code).toBe("ws_duplex_invalid_action");
+      expect(result.env.files?.every((file) => file.partial)).toBe(true);
+      const filesText = (result.env.files ?? [])
+        .map((file) => readFileSync(file.path, "utf8"))
+        .join("\n");
+      expect(filesText).toContain("ready");
+      expect(filesText).not.toContain("SERVER_SECRET");
+    },
+  );
+
+  it("seeds incremental validation from the initial script and rejects actions after close", async () => {
+    const server = await startServer((socket) => {
+      socket.send(JSON.stringify({ type: "ready" }));
+    });
+    const dir = await tempDir();
+    const initial = join(dir, "closed-ttd.ndjson");
+    writeFileSync(
+      initial,
+      [
+        { type: "send", data: { voices: ["voice-a"] } },
+        { type: "send", data: { close_socket: true } },
+      ]
+        .map((action) => JSON.stringify(action))
+        .join("\n"),
+    );
+    const input = new PassThrough();
+
+    const result = await runWs(
+      { target: "ttd-realtime", duplex: true, send: initial, out: dir, query: {} },
+      {
+        baseUrl: httpBase(server.url),
+        duplexInput: input,
+        duplexEventSink: () => {
+          input.write(
+            `${JSON.stringify({
+              type: "send",
+              data: { inputs: [{ text: "too late", voice_id: "voice-a" }] },
+            })}\n`,
+          );
+        },
+        timeoutMs: 500,
+      },
+    );
+    input.destroy();
+
+    expect(result.exitCode).toBe(2);
+    expect(result.env.ok ? undefined : result.env.error.code).toBe("ws_duplex_invalid_action");
+    expect(result.env.ok ? undefined : result.env.error.message).toContain("closed");
+  });
+
+  it("enforces the five-context limit across incremental TTD messages", async () => {
+    const server = await startServer((socket) => {
+      socket.send(JSON.stringify({ type: "ready" }));
+    });
+    const dir = await tempDir();
+    const input = new PassThrough();
+
+    const result = await runWs(
+      { target: "ttd-multi", duplex: true, out: dir, query: {} },
+      {
+        baseUrl: httpBase(server.url),
+        duplexInput: input,
+        duplexEventSink: () => {
+          for (let index = 1; index <= 6; index += 1) {
+            input.write(
+              `${JSON.stringify({
+                type: "send",
+                data: { context_id: String(index), voices: [`voice-${index}`] },
+              })}\n`,
+            );
+          }
+        },
+        timeoutMs: 500,
+      },
+    );
+    input.destroy();
+
+    expect(result.exitCode).toBe(2);
+    expect(result.env.ok ? undefined : result.env.error.code).toBe("ws_duplex_invalid_action");
+    expect(result.env.ok ? undefined : result.env.error.message).toContain("5 simultaneous");
+    expect(server.received).toHaveLength(5);
+  });
+
+  it.each([
+    ["tts-realtime", { voice_id: "voice-a" }],
+    ["ttd-realtime", {}],
+    ["ttd-multi", {}],
+    ["stt-realtime", {}],
+  ])("fails closed on a configured ceiling for dynamic %s", async (target, query) => {
+    const server = await startServer(() => undefined);
+    const dir = await tempDir();
+    const input = new PassThrough();
+    const result = await runWs(
+      { target, duplex: true, out: dir, query },
+      {
+        baseUrl: httpBase(server.url),
+        duplexInput: input,
+        maxCredits: 10,
+        yes: true,
+        timeoutMs: 100,
+      },
+    );
+    input.destroy();
+
+    expect(result.exitCode).toBe(5);
+    expect(result.env.ok ? undefined : result.env.error.code).toBe("budget_estimate_unavailable");
+    expect(server.connected).toBe(false);
+  });
+
+  it("dry-runs dynamic synthesis without reading stdin or connecting", async () => {
+    const server = await startServer(() => undefined);
+    const dir = await tempDir();
+    const input = new PassThrough();
+    input.end("{invalid live input}\n");
+
+    const result = await runWs(
+      {
+        target: "tts-realtime",
+        duplex: true,
+        out: dir,
+        query: { voice_id: "voice-a" },
+      },
+      {
+        baseUrl: httpBase(server.url),
+        duplexInput: input,
+        dryRun: true,
+        maxCredits: 10,
+      },
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(server.connected).toBe(false);
+    expect(input.listenerCount("data")).toBe(0);
+    expect(input.listenerCount("readable")).toBe(0);
+    const serialized = JSON.stringify(result.env);
+    expect(serialized).toContain('"credits_estimated":null');
+    expect(serialized).toContain('"budget_policy":"estimate_unavailable"');
+    expect(serialized).toContain('"dynamic_cost_unbounded":true');
   });
 
   it("fails closed when a ceiling is configured for a duplex agent session", async () => {
@@ -1182,7 +1546,18 @@ describe("ws session", () => {
     const server = await startServer(() => undefined);
     const dir = await tempDir();
     const script = join(dir, "script.ndjson");
-    writeFileSync(script, JSON.stringify({ type: "send", data: { type: "input_audio_chunk" } }));
+    writeFileSync(
+      script,
+      JSON.stringify({
+        type: "send",
+        data: {
+          message_type: "input_audio_chunk",
+          audio_base_64: "YXVkaW8=",
+          commit: true,
+          sample_rate: 16_000,
+        },
+      }),
+    );
 
     const result = await runWs(
       { target: "stt-realtime", send: script, out: dir, query: {} },
@@ -1199,7 +1574,18 @@ describe("ws session", () => {
     const server = await startServer(() => undefined);
     const dir = await tempDir();
     const script = join(dir, "script.ndjson");
-    writeFileSync(script, JSON.stringify({ type: "send", data: { type: "input_audio_chunk" } }));
+    writeFileSync(
+      script,
+      JSON.stringify({
+        type: "send",
+        data: {
+          message_type: "input_audio_chunk",
+          audio_base_64: "YXVkaW8=",
+          commit: true,
+          sample_rate: 16_000,
+        },
+      }),
+    );
 
     const result = await runWs(
       { target: "/v1/speech-to-text/realtime", send: script, out: dir, query: {} },

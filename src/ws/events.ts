@@ -55,14 +55,17 @@ export class NdjsonEventWriter {
 export function parseSendScript(
   raw: string,
   protocol: WsProtocol | "raw" = "tts",
+  options: { modelId?: string } = {},
 ): SendScriptAction[] {
   const actions = raw
     .split(/\r?\n/u)
     .map((line, index) => ({ line: line.trim(), index: index + 1 }))
     .filter(({ line }) => line.length > 0)
-    .map(({ line, index }) => parseLine(line, index));
+    .map(({ line, index }) => parseSendScriptLine(line, index));
 
-  validateProtocolActions(actions, protocol);
+  const validator = new WsProtocolValidator(protocol, options);
+  for (const action of actionsBeforeClose(actions)) validator.validate(action);
+  validator.finishStatic();
   return actions;
 }
 
@@ -106,22 +109,6 @@ export function ttsCharacterEstimate(actions: SendScriptAction[], modelId: strin
   return characters * (/flash|turbo/iu.test(modelId) ? 0.5 : 1);
 }
 
-export function validateTtdModel(
-  actions: SendScriptAction[],
-  protocol: Extract<WsProtocol, "ttd" | "ttd-multi">,
-  modelId: string,
-): void {
-  if (!modelId.toLowerCase().startsWith("eleven_v3")) {
-    throw new Error("Text to Dialogue WebSockets require a model_id beginning with eleven_v3");
-  }
-  if (modelId.toLowerCase() !== "eleven_v3_conversational") return;
-  for (const count of ttdInitialVoiceCounts(actions, protocol)) {
-    if (count !== 1) {
-      throw new Error("eleven_v3_conversational requires exactly one registered voice per context");
-    }
-  }
-}
-
 export function redactWs<T>(value: T): T {
   return redactWsStrings(redact(value)) as T;
 }
@@ -137,7 +124,7 @@ export function duplexEventLine(value: JsonValue): string {
   return JSON.stringify(stripDuplexAudio(redactWs(value)));
 }
 
-function parseLine(line: string, index: number): SendScriptAction {
+export function parseSendScriptLine(line: string, index = 1): SendScriptAction {
   let parsed: JsonValue;
   try {
     parsed = parseJson(line, `send-script line ${index}`);
@@ -188,26 +175,153 @@ function parseLine(line: string, index: number): SendScriptAction {
   return { type: "send", data: parsed.data as JsonObject };
 }
 
-function validateProtocolActions(actions: SendScriptAction[], protocol: WsProtocol | "raw"): void {
-  const activeActions = actionsBeforeClose(actions);
-  if (protocol !== "raw" && activeActions.some((action) => action.type === "send_binary_file")) {
-    throw new Error("send_binary_file is supported only by raw WebSocket sessions");
+export class WsProtocolValidator {
+  private position = 0;
+  private closed = false;
+  private ttsInitialized = false;
+  private sttChunks = 0;
+  private ttdVoices: Set<string> | undefined;
+  private readonly ttdContexts = new Map<string, Set<string>>();
+  private readonly modelId: string | undefined;
+
+  constructor(
+    private readonly protocol: WsProtocol | "raw",
+    options: { modelId?: string } = {},
+  ) {
+    this.modelId = options.modelId?.toLowerCase();
+    if (
+      (protocol === "ttd" || protocol === "ttd-multi") &&
+      this.modelId !== undefined &&
+      !this.modelId.startsWith("eleven_v3")
+    ) {
+      throw new Error("Text to Dialogue WebSockets require a model_id beginning with eleven_v3");
+    }
   }
-  if (protocol !== "stt" && activeActions.some((action) => action.type === "send_audio_file")) {
-    throw new Error("send_audio_file is only supported by the realtime STT protocol");
+
+  validate(action: SendScriptAction): void {
+    this.position += 1;
+    const label = `${this.protocol} message ${this.position}`;
+    if (this.closed) throw new Error(`${label} appears after the protocol was closed`);
+    if (action.type === "close") {
+      this.closed = true;
+      return;
+    }
+    if (action.type === "send_binary_file") {
+      if (this.protocol !== "raw") {
+        throw new Error("send_binary_file is supported only by raw WebSocket sessions");
+      }
+      return;
+    }
+    if (action.type === "send_audio_file") {
+      if (this.protocol !== "stt") {
+        throw new Error("send_audio_file is only supported by the realtime STT protocol");
+      }
+      this.validateSttPreviousText(action.previousText, label);
+      this.sttChunks += 1;
+      return;
+    }
+
+    if (this.protocol === "tts") this.validateTts(action.data, label);
+    else if (this.protocol === "stt") this.validateStt(action.data, label);
+    else if (this.protocol === "ttd") this.validateTtd(action.data, label);
+    else if (this.protocol === "ttd-multi") this.validateTtdMulti(action.data, label);
   }
-  if (protocol === "tts") {
-    const firstSend = activeActions[0];
-    if (!firstSend || firstSend.type !== "send") {
+
+  finishStatic(): void {
+    if (this.protocol === "tts" && !this.ttsInitialized) {
       throw new Error("send-script must contain a TTS keep-alive send event");
     }
-    const text = firstSend.data.text;
-    if (typeof text !== "string" || text.length === 0 || text.trim() !== "") {
-      throw new Error('first TTS send must be the keep-alive text " "');
+    if (this.protocol === "ttd" && !this.ttdVoices) {
+      throw new Error("send-script must begin with a Text to Dialogue send event");
+    }
+    if (this.protocol === "ttd-multi" && this.position === 0) {
+      throw new Error("send-script must begin with a multi-context Text to Dialogue send event");
     }
   }
-  if (protocol === "ttd") validateSingleTtd(activeActions);
-  if (protocol === "ttd-multi") validateMultiTtd(activeActions);
+
+  private validateTts(data: JsonObject, label: string): void {
+    const text = data.text;
+    if (!this.ttsInitialized) {
+      if (typeof text !== "string" || text.length === 0 || text.trim() !== "") {
+        throw new Error('first TTS send must be the keep-alive text " "');
+      }
+      this.ttsInitialized = true;
+      return;
+    }
+    if (text !== undefined && typeof text !== "string") {
+      throw new Error(`${label}.text must be a string when provided`);
+    }
+  }
+
+  private validateStt(data: JsonObject, label: string): void {
+    if (data.message_type !== "input_audio_chunk") {
+      throw new Error(`${label}.message_type must be input_audio_chunk`);
+    }
+    if (typeof data.audio_base_64 !== "string") {
+      throw new Error(`${label}.audio_base_64 must be a string`);
+    }
+    if (typeof data.commit !== "boolean") throw new Error(`${label}.commit must be a boolean`);
+    if (
+      typeof data.sample_rate !== "number" ||
+      !Number.isInteger(data.sample_rate) ||
+      data.sample_rate <= 0
+    ) {
+      throw new Error(`${label}.sample_rate must be a positive integer`);
+    }
+    this.validateSttPreviousText(data.previous_text, label);
+    this.sttChunks += 1;
+  }
+
+  private validateSttPreviousText(value: unknown, label: string): void {
+    if (value === undefined) return;
+    if (typeof value !== "string") throw new Error(`${label}.previous_text must be a string`);
+    if (this.sttChunks > 0) {
+      throw new Error(`${label}.previous_text is accepted only with the first audio chunk`);
+    }
+  }
+
+  private validateTtd(data: JsonObject, label: string): void {
+    if (!this.ttdVoices) {
+      this.ttdVoices = validateTtdInit(data, label);
+      this.validateTtdVoiceCount(this.ttdVoices.size, label);
+    } else {
+      rejectInitFields(data, label, true);
+    }
+    validateTtdMessage(data, this.ttdVoices, label);
+    if (data.close_socket === true) this.closed = true;
+  }
+
+  private validateTtdMulti(data: JsonObject, label: string): void {
+    validateBooleanFields(data, label, ["flush", "close_context", "close_socket", "keep_alive"]);
+    if (data.close_socket !== undefined) {
+      if (data.close_socket !== true || Object.keys(data).length !== 1) {
+        throw new Error(`${label} close_socket must be true and the only field`);
+      }
+      this.closed = true;
+      return;
+    }
+    const contextId = requiredString(data.context_id, `${label}.context_id`);
+    let voices = this.ttdContexts.get(contextId);
+    if (!voices) {
+      if (this.ttdContexts.size >= 5) {
+        throw new Error(`${label} exceeds the maximum of 5 simultaneous contexts`);
+      }
+      voices = validateTtdInit(data, label);
+      this.validateTtdVoiceCount(voices.size, label);
+      this.ttdContexts.set(contextId, voices);
+    } else {
+      rejectInitFields(data, label, false);
+    }
+    if (this.position > 1) rejectCredentialFields(data, label);
+    validateTtdMessage(data, voices, label);
+    if (data.close_context === true) this.ttdContexts.delete(contextId);
+  }
+
+  private validateTtdVoiceCount(count: number, label: string): void {
+    if (this.modelId === "eleven_v3_conversational" && count !== 1) {
+      throw new Error(`${label} requires exactly one voice for eleven_v3_conversational`);
+    }
+  }
 }
 
 function actionsBeforeClose(actions: SendScriptAction[]): SendScriptAction[] {
@@ -222,63 +336,6 @@ function messageCharacterCount(data: JsonObject): number {
     if (isRecord(input) && typeof input.text === "string") total += input.text.length;
   }
   return total;
-}
-
-function validateSingleTtd(actions: SendScriptAction[]): void {
-  const sends = sendActions(actions, "Text to Dialogue");
-  const voices = validateTtdInit(sends[0]!.data, "first Text to Dialogue message");
-  validateTtdMessage(sends[0]!.data, voices, "first Text to Dialogue message");
-  for (const [offset, action] of sends.slice(1).entries()) {
-    const label = `Text to Dialogue message ${offset + 2}`;
-    rejectInitFields(action.data, label, true);
-    validateTtdMessage(action.data, voices, label);
-  }
-}
-
-function validateMultiTtd(actions: SendScriptAction[]): void {
-  const sends = sendActions(actions, "multi-context Text to Dialogue");
-  const contexts = new Map<string, Set<string>>();
-  let socketClosed = false;
-  for (const [index, action] of sends.entries()) {
-    const data = action.data;
-    const label = `multi-context Text to Dialogue message ${index + 1}`;
-    if (socketClosed) throw new Error(`${label} appears after close_socket`);
-    validateBooleanFields(data, label, ["flush", "close_context", "close_socket", "keep_alive"]);
-    if (data.close_socket !== undefined) {
-      if (data.close_socket !== true || Object.keys(data).length !== 1) {
-        throw new Error(`${label} close_socket must be true and the only field`);
-      }
-      socketClosed = true;
-      continue;
-    }
-    const contextId = requiredString(data.context_id, `${label}.context_id`);
-    let voices = contexts.get(contextId);
-    if (!voices) {
-      if (contexts.size >= 5) {
-        throw new Error(`${label} exceeds the maximum of 5 simultaneous contexts`);
-      }
-      voices = validateTtdInit(data, label);
-      contexts.set(contextId, voices);
-    } else {
-      rejectInitFields(data, label, false);
-    }
-    if (index > 0) rejectCredentialFields(data, label);
-    validateTtdMessage(data, voices, label);
-    if (data.close_context === true) contexts.delete(contextId);
-  }
-}
-
-function sendActions(
-  actions: SendScriptAction[],
-  protocolName: string,
-): Extract<SendScriptAction, { type: "send" }>[] {
-  if (actions.length === 0 || actions[0]!.type !== "send") {
-    throw new Error(`send-script must begin with a ${protocolName} send event`);
-  }
-  if (actions.some((action) => action.type !== "send")) {
-    throw new Error(`${protocolName} scripts support JSON send events only`);
-  }
-  return actions as Extract<SendScriptAction, { type: "send" }>[];
 }
 
 function validateTtdInit(data: JsonObject, label: string): Set<string> {
@@ -384,20 +441,6 @@ function requiredString(value: unknown, label: string): string {
     throw new Error(`${label} must be a non-empty string`);
   }
   return value;
-}
-
-function ttdInitialVoiceCounts(
-  actions: SendScriptAction[],
-  protocol: Extract<WsProtocol, "ttd" | "ttd-multi">,
-): number[] {
-  const sends = actionsBeforeClose(actions).filter(
-    (action): action is Extract<SendScriptAction, { type: "send" }> => action.type === "send",
-  );
-  if (protocol === "ttd")
-    return [Array.isArray(sends[0]?.data.voices) ? sends[0].data.voices.length : 0];
-  return sends.flatMap((action) =>
-    Array.isArray(action.data.voices) ? [action.data.voices.length] : [],
-  );
 }
 
 function redactedEventLine(raw: string): string {

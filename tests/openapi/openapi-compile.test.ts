@@ -1,13 +1,120 @@
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { createServer } from "node:http";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
 import { compileSpec } from "../../src/openapi/compile-spec";
 import type { JsonObject } from "../../src/util/json";
+import { rejectPortProbe } from "../helpers/http";
 
 const snapshotPath = "spec/openapi.snapshot.json";
 const fixturePath = "fixtures/fake-openapi.json";
 
+function externalRefDocument(ref: string): JsonObject {
+  return {
+    openapi: "3.1.0",
+    info: { title: "External ref canary", version: "1" },
+    paths: {
+      "/canary": {
+        post: {
+          operationId: "canary_operation",
+          requestBody: {
+            required: true,
+            content: { "application/json": { schema: { $ref: ref } } },
+          },
+          responses: { "200": { description: "OK" } },
+        },
+      },
+    },
+    components: { schemas: {} },
+  };
+}
+
 describe("OpenAPI compiler", () => {
+  it("rejects a nested file reference instead of expanding a harmless local canary", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "elv-spec-ref-"));
+    const canary = join(directory, "canary.json");
+    writeFileSync(canary, JSON.stringify({ type: "string", enum: ["LOCAL_REF_CANARY"] }));
+    try {
+      await expect(
+        compileSpec({ document: externalRefDocument(pathToFileURL(canary).href) }),
+      ).rejects.toThrow(/unsupported external.*ref/iu);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects a nested HTTP reference before making any network request", async () => {
+    let requests = 0;
+    const server = createServer((req, res) => {
+      if (rejectPortProbe(req, res)) return;
+      requests++;
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ type: "string", enum: ["HTTP_REF_CANARY"] }));
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    try {
+      const address = server.address();
+      if (!address || typeof address === "string") throw new Error("Missing HTTP canary address");
+      const result = await compileSpec({
+        document: externalRefDocument(`http://127.0.0.1:${address.port}/nested.json`),
+      }).then(
+        (compiled) => ({ compiled, error: undefined }),
+        (error: unknown) => ({ compiled: undefined, error }),
+      );
+      expect(requests).toBe(0);
+      expect(result.compiled).toBeUndefined();
+      expect(result.error).toBeInstanceOf(Error);
+      expect(String(result.error)).toMatch(/unsupported external.*ref/iu);
+    } finally {
+      await new Promise<void>((resolve, reject) =>
+        server.close((error) => (error ? reject(error) : resolve())),
+      );
+    }
+  });
+
+  it("reads an explicitly selected JSON file but rejects its relative external references", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "elv-spec-source-"));
+    const sourcePath = join(directory, "openapi.json");
+    writeFileSync(
+      join(directory, "nested.json"),
+      JSON.stringify({ type: "string", enum: ["RELATIVE_REF_CANARY"] }),
+    );
+    writeFileSync(sourcePath, JSON.stringify(externalRefDocument("nested.json")));
+    try {
+      await expect(compileSpec({ sourcePath })).rejects.toThrow(/unsupported external.*ref/iu);
+      writeFileSync(sourcePath, readFileSync(fixturePath));
+      expect((await compileSpec({ sourcePath })).operations.map((op) => op.operationId)).toEqual([
+        "create_item",
+        "list_voices",
+        "text_to_speech_fake",
+        "upload_sample",
+      ]);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("does not reinterpret a JSON string document as another source path", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "elv-spec-string-"));
+    const sourcePath = join(directory, "openapi.json");
+    writeFileSync(sourcePath, JSON.stringify(fixturePath));
+    try {
+      await expect(compileSpec({ sourcePath })).rejects.toThrow(/must be a JSON object/u);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("compiles the default vendored source without external resolution", async () => {
+    const compiled = await compileSpec();
+    expect(compiled.operations).toHaveLength(387);
+    expect(compiled.bundledSpec.components.schemas["ArrayJsonSchemaProperty-Input"]).toBeDefined();
+    expect(() => JSON.stringify(compiled.bundledSpec)).not.toThrow();
+  });
+
   it("compiles the small fixture into operation cards", async () => {
     const compiled = await compileSpec({ sourcePath: fixturePath });
     const byId = new Map(compiled.operations.map((op) => [op.operationId, op]));

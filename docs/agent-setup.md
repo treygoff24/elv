@@ -114,7 +114,7 @@ elv tts --voice-id JBFqnCBsd6RMkjVDRZzb --text "Setup verification." \
   --model eleven_flash_v2_5 --dry-run
 ```
 
-A success here (exit 0, an envelope with `would_require_yes`, `would_exceed_budget`, `credits_estimated`, and the previewed `request`) means the CLI is built correctly, the key is wired up, and the operation validates. Do not dry-run a secret-create operation with a real secret value, because redaction is keyed on field names and may echo a secret passed in the body.
+A success here (exit 0, with gate flags, an estimate, and a request preview) proves local input validation. It does not authenticate with the provider or establish account entitlement. Do not dry-run a secret-create operation with a real secret value: unrecognized field names may echo it.
 
 A read that costs nothing is another good smoke test:
 
