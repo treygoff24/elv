@@ -36,6 +36,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Realtime STT file scripts use `send_audio_file` to emit the published JSON audio-chunk protocol; `send_binary_file` is reserved for unknown raw protocols.
 - `config doctor` is offline by default. `--online` opts into provider checks, which refuse redirects.
 - Updated the transitive `fast-uri` dependency to resolve its published security advisories.
+- Refreshed locked production dependencies and verified the installed dependency tree against them.
 - OpenAPI compilation now rejects nested external references before bundling, preventing provider documents from reading local files or fetching arbitrary URLs. Explicit local JSON sources and recursive internal references remain supported; multi-file specs require prebundling.
 
 ### Removed
