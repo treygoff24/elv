@@ -83,11 +83,8 @@ export async function runOperation(
       });
     }
 
-    const normalized = applyPaginationDefaults(
-      op,
-      normalizeInput(op, input, { allowUnknown: opts.allowUnknown }),
-      opts.limit ?? 20,
-    );
+    const rawInput = normalizeInput(op, input, { allowUnknown: opts.allowUnknown });
+    const normalized = applyPaginationDefaults(op, rawInput, opts.limit ?? 20);
     const validation = await validateInput(op, normalized, cached?.bundledSpec);
     if (validation) return paramValidationEnvelope(cmd, operationId, validation);
 
@@ -109,7 +106,10 @@ export async function runOperation(
         input: normalized,
       },
       creditsEstimated: estimate,
-      warnings: estimateWarnings,
+      warnings: [
+        ...estimateWarnings,
+        ...optionalWarning(pageSizeClampWarning(op, rawInput, opts.limit)),
+      ],
     });
   } catch (error) {
     return envelopeForThrown(cmd, operationId, error);
@@ -157,7 +157,6 @@ export function runPreparedOperation({
         ]
       : []),
     ...budgetPolicyWarnings(budget.policy, op, effectiveOpts),
-    ...optionalWarning(pageSizeClampWarning(op, input, effectiveOpts.limit)),
   ];
   const preflightEnvelope = preparedOperationPreflight({
     cmd,

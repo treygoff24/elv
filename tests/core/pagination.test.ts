@@ -69,19 +69,17 @@ describe("pagination cursor derivation", () => {
         },
       ],
     });
-    const clamped = applyPaginationDefaults(operation, {}, 500);
-
-    expect(pageSizeClampWarning(operation, clamped, 500)).toEqual({
+    expect(pageSizeClampWarning(operation, {}, 500)).toEqual({
       code: "page_size_clamped",
       message:
         "page_size was clamped from 500 to the provider maximum of 100; --limit still bounds the items inlined in the envelope.",
     });
-    expect(pageSizeClampWarning(operation, applyPaginationDefaults(operation, {}, 5), 5)).toBe(
-      undefined,
-    );
+    expect(pageSizeClampWarning(operation, {}, 5)).toBe(undefined);
     expect(pageSizeClampWarning(operation, { query: { page_size: 500 } }, 500)).toBe(undefined);
+    // A caller-supplied page size equal to the maximum was never clamped by elv.
+    expect(pageSizeClampWarning(operation, { query: { page_size: 100 } }, 500)).toBe(undefined);
     expect(pageSizeClampWarning(op({}), { query: {} }, 500)).toBe(undefined);
-    expect(pageSizeClampWarning(operation, clamped, undefined)).toBe(undefined);
+    expect(pageSizeClampWarning(operation, {}, undefined)).toBe(undefined);
   });
 
   it("carries the clamp warning into the envelope", async () => {

@@ -6,7 +6,11 @@ import {
   validateParameters,
 } from "../core/client";
 import { InputNormalizationError } from "../core/request-builder";
-import { applyPaginationDefaults, type PaginatedRunOptions } from "../core/pagination";
+import {
+  applyPaginationDefaults,
+  pageSizeClampWarning,
+  type PaginatedRunOptions,
+} from "../core/pagination";
 import { estimateCredits } from "../core/budget";
 import { loadRegistry, readRegistryCache } from "../openapi/registry";
 import { classifyRisk } from "../openapi/risk";
@@ -71,6 +75,7 @@ export async function runHttp(
         operationId: op.operationId,
       });
     }
+    const clampWarning = pageSizeClampWarning(op, parsed.input, opts.limit);
     const input = applyPaginationDefaults(op, parsed.input, opts.limit ?? 20);
     if (matchTemplate !== undefined) {
       const pathValues = matchPathValues(matchTemplate, parsed.path);
@@ -87,7 +92,7 @@ export async function runHttp(
       command: { kind: "http", method: op.method, path: parsed.path },
       dryRunRequest: { method: op.method, path: parsed.path, input },
       creditsEstimated: await estimateCredits(op, input, opts),
-      warnings: [metadataWarning],
+      warnings: [metadataWarning, ...(clampWarning ? [clampWarning] : [])],
       requestPath: parsed.path,
       method: op.method,
     });
