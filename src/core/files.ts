@@ -105,6 +105,8 @@ class TempFileWriterImpl implements TempFileWriter {
   }
 }
 
+export async function sha256File(path: string, opts: HashOptions & { hash: true }): Promise<string>;
+export async function sha256File(path: string, opts?: HashOptions): Promise<string | null>;
 export async function sha256File(path: string, opts: HashOptions = {}): Promise<string | null> {
   const maxBytes = opts.maxBytes ?? DEFAULT_HASH_CAP_BYTES;
   const stats = statSync(path);
@@ -252,29 +254,83 @@ async function publishTempFile(
   options: WriteOptions = {},
 ): Promise<string> {
   let contentHash: string | undefined;
+  const support: LinkSupport = { hardLinks: true };
   for (let attempt = 0; attempt < 10_000; attempt += 1) {
     const candidate = publicationCandidate(requestedPath, contentHash ?? "", attempt);
-    try {
-      await link(tmpPath, candidate);
+    if (await occupyCandidate(tmpPath, candidate, options.mode, support)) {
       await rm(tmpPath, { force: true });
       return candidate;
-    } catch (error) {
-      if (!isNodeError(error, "EEXIST")) {
-        throw new Error(
-          `Atomic output publication requires exclusive same-directory hard-link support (${errorCode(error)})`,
-          { cause: error },
-        );
-      }
     }
     // Fresh names need no extra read of a potentially large streamed file.
-    contentHash ??= (await sha256File(tmpPath, { hash: true })) ?? undefined;
-    if (!contentHash) throw new Error("Could not hash temporary output file");
+    contentHash ??= await sha256File(tmpPath, { hash: true });
     if (await reusablePublishedFile(candidate, contentHash, options.mode)) {
       await rm(tmpPath, { force: true });
       return candidate;
     }
   }
-  throw new Error("Could not publish output without replacing an occupied path");
+  throw new OutTargetError(
+    "Could not publish output without replacing an occupied path",
+    "Choose a different --out path or clear the colliding files; elv never overwrites an existing file.",
+  );
+}
+
+interface LinkSupport {
+  hardLinks: boolean;
+}
+
+// exFAT/FAT32, SMB without Unix extensions, and some FUSE backends reject link(2).
+const LINK_UNSUPPORTED = new Set(["EPERM", "ENOTSUP", "EOPNOTSUPP", "EXDEV", "EMLINK", "ENOSYS"]);
+
+/** Claim `candidate` exclusively, or report false when it is already occupied. */
+async function occupyCandidate(
+  tmpPath: string,
+  candidate: string,
+  mode: number | undefined,
+  support: LinkSupport,
+): Promise<boolean> {
+  if (support.hardLinks) {
+    try {
+      await link(tmpPath, candidate);
+      return true;
+    } catch (error) {
+      if (isNodeError(error, "EEXIST")) return false;
+      if (!LINK_UNSUPPORTED.has(errorCode(error))) throw publicationFailure(candidate, error);
+      support.hardLinks = false;
+    }
+  }
+  return await copyToCandidate(tmpPath, candidate, mode);
+}
+
+/** Hard-link-free publication: exclusive create keeps the never-replace guarantee. */
+async function copyToCandidate(
+  tmpPath: string,
+  candidate: string,
+  mode: number | undefined,
+): Promise<boolean> {
+  let handle;
+  try {
+    handle = await open(candidate, "wx", mode);
+  } catch (error) {
+    if (isNodeError(error, "EEXIST")) return false;
+    throw publicationFailure(candidate, error);
+  }
+  try {
+    // An explicit mode is still subject to umask; restate it on the handle we own.
+    if (mode !== undefined) await handle.chmod(mode);
+    await pipeline(createReadStream(tmpPath), handle.createWriteStream());
+    return true;
+  } catch (error) {
+    await handle.close().catch(() => undefined);
+    await rm(candidate, { force: true });
+    throw publicationFailure(candidate, error);
+  }
+}
+
+function publicationFailure(candidate: string, error: unknown): OutTargetError {
+  return new OutTargetError(
+    `Could not publish output file ${candidate} (${errorCode(error)})`,
+    "Choose an --out directory that allows creating new files; elv publishes by hard link, falls back to exclusive create, and never replaces an existing file.",
+  );
 }
 
 function publicationCandidate(path: string, contentHash: string, attempt: number): string {
@@ -290,50 +346,33 @@ async function reusablePublishedFile(
   contentHash: string,
   requestedMode: number | undefined,
 ): Promise<boolean> {
-  let initial: Stats;
+  let stats: Stats;
   try {
-    initial = await lstat(path);
+    stats = await lstat(path);
   } catch {
     return false;
   }
-  if (!initial.isFile()) return false;
-  if (requestedMode !== undefined && (initial.mode & 0o777) !== (requestedMode & 0o777)) {
+  if (!stats.isFile()) return false;
+  if (requestedMode !== undefined && (stats.mode & 0o777) !== (requestedMode & 0o777)) {
     return false;
   }
 
   let handle;
   try {
+    // O_NOFOLLOW keeps a symlink swapped in after the lstat from being read.
     handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
   } catch {
     return false;
   }
   try {
-    const before = await handle.stat();
-    if (!sameFileIdentity(initial, before)) return false;
     const hash = createHash("sha256");
     await pipeline(handle.createReadStream({ autoClose: false }), hash);
-    const after = await handle.stat();
-    if (!sameStableFile(before, after)) return false;
-    const final = await lstat(path);
-    return sameFileIdentity(after, final) && hash.digest("hex") === contentHash;
+    return hash.digest("hex") === contentHash;
   } catch {
     return false;
   } finally {
     await handle.close().catch(() => undefined);
   }
-}
-
-function sameFileIdentity(left: Stats, right: Stats): boolean {
-  return left.dev === right.dev && left.ino === right.ino && left.isFile() && right.isFile();
-}
-
-function sameStableFile(left: Stats, right: Stats): boolean {
-  return (
-    sameFileIdentity(left, right) &&
-    left.size === right.size &&
-    left.mtimeMs === right.mtimeMs &&
-    left.ctimeMs === right.ctimeMs
-  );
 }
 
 function isNodeError(error: unknown, code: string): boolean {
