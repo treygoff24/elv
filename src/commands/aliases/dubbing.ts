@@ -4,6 +4,7 @@ import { runOperation } from "../../core/client";
 import type { CliOptionValues } from "../options";
 import {
   addPaginationFlags,
+  addWaitFlags,
   type BuiltOperation,
   compact,
   compactInput,
@@ -13,14 +14,15 @@ import {
   aliasRunOpts,
   validationOrExit,
   waitAfterCreate,
+  waitTiming,
+  type WaitFlags,
 } from "./shared";
 
-interface DubbingCreateFlags {
+interface DubbingCreateFlags extends WaitFlags {
   file?: string;
   source?: string;
   target?: string;
   name?: string;
-  wait?: boolean;
 }
 
 interface DubbingIdFlags extends Pick<CliOptionValues, "language"> {
@@ -66,30 +68,34 @@ export function registerDubbingCommand(
 ): void {
   const dubbing = program.command("dubbing").description("Dubbing");
   addCommonFlags(
-    dubbing
-      .command("create")
-      .description("Create a dubbing project")
-      .option("--file <path>", "source video or audio file to dub")
-      .option("--source <code>", "source language code")
-      .option("--target <code>", "target language code")
-      .option("--name <name>", "dubbing project name")
-      .option("--wait", "poll until dubbing completes")
-      .action(async (options: DubbingCreateFlags, command: Command) => {
-        const opts = validationOrExit(command, () => aliasRunOpts(command));
-        const built = validationOrExit(command, () => buildDubbingCreateInput(options));
-        const env = await runOperation(built.operationId, built.input, opts);
-        if (!options.wait || !env.ok) emit(env);
-        await waitAfterCreate(env, opts, {
-          commandName: "elv dubbing create",
-          idKeys: ["dubbing_id", "id"],
-          missingIdMessage: "--wait could not find a dubbing id in the response",
-          operation: "get_dubbed_metadata",
-          pathKey: "dubbing_id",
-          statusPath: "$.data.status",
-          success: "dubbed",
-          failure: "failed",
-        });
-      }),
+    addWaitFlags(
+      dubbing
+        .command("create")
+        .description("Create a dubbing project")
+        .option("--file <path>", "source video or audio file to dub")
+        .option("--source <code>", "source language code")
+        .option("--target <code>", "target language code")
+        .option("--name <name>", "dubbing project name"),
+      "poll until dubbing completes",
+    ).action(async (options: DubbingCreateFlags, command: Command) => {
+      const opts = validationOrExit(command, () => aliasRunOpts(command));
+      const built = validationOrExit(command, () => buildDubbingCreateInput(options));
+      const timing = validationOrExit(command, () => waitTiming(options));
+      const env = await runOperation(built.operationId, built.input, opts);
+      if (!options.wait || !env.ok) emit(env);
+      await waitAfterCreate(env, opts, {
+        commandName: "elv dubbing create",
+        idKeys: ["dubbing_id", "id"],
+        missingIdMessage: "--wait could not find a dubbing id in the response",
+        operation: "get_dubbed_metadata",
+        pathKey: "dubbing_id",
+        statusPath: "$.data.status",
+        success: "dubbed",
+        failure: "failed",
+        timing,
+        repollCommand: (id) => `elv dubbing get --id ${id}`,
+      });
+    }),
   );
   addCommonFlags(
     dubbing

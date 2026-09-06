@@ -4,7 +4,7 @@ import type { Command } from "commander";
 import { runOperation } from "../../core/client";
 import { emitAndExit, exitCodeForError, validationError } from "../../core/errors";
 import { ExitCode } from "../../core/types";
-import { waitForOperation } from "../../core/wait-operation";
+import { parseWaitMs, waitForOperation } from "../../core/wait-operation";
 import { errorMessage } from "../../util/error";
 import { isRecord, parseJsonRecord } from "../../util/json";
 import type { JsonObject, JsonObjectInput } from "../../util/json";
@@ -16,7 +16,7 @@ import {
   paginationOptionsFromCommand,
   runOptsFromCommand,
 } from "../options";
-import type { AgentInput, Envelope, RunOpts, SuccessEnvelope } from "../../core/types";
+import type { AgentInput, Envelope, Hint, RunOpts, SuccessEnvelope } from "../../core/types";
 
 export interface BuiltOperation {
   operationId: string;
@@ -29,12 +29,45 @@ type RequiredWaitFields = Required<Pick<WaitOptions, "operation" | "statusPath" 
 
 type OperationBuilder<T> = (flags: T) => BuiltOperation;
 
+/** Flags every `--wait` alias accepts; names match `elv wait`. */
+export interface WaitFlags {
+  wait?: boolean;
+  intervalMs?: string | number;
+  timeoutMs?: string | number;
+}
+
+export interface WaitTiming {
+  intervalMs?: number;
+  timeoutMs?: number;
+}
+
 interface WaitAfterCreateConfig extends RequiredWaitFields, Pick<WaitOptions, "failure"> {
   commandName: string;
   idKeys: string[];
   missingIdMessage: string;
   pathKey: string;
   isComplete?: (env: SuccessEnvelope) => boolean;
+  timing?: WaitTiming;
+  /** Command an agent should run to re-poll the created job after a timeout. */
+  repollCommand?: (id: string) => string;
+}
+
+/**
+ * Adds the shared `--wait` trio. Poll bounds are validated before the create
+ * request so a bad value cannot cost a generation.
+ */
+export function addWaitFlags(command: Command, waitDescription: string): Command {
+  return command
+    .option("--wait", waitDescription)
+    .option("--interval-ms <ms>", "--wait poll interval in milliseconds (default 2000)")
+    .option("--timeout-ms <ms>", "--wait overall timeout in milliseconds (default 600000)");
+}
+
+export function waitTiming(flags: WaitFlags): WaitTiming {
+  return {
+    intervalMs: parseWaitMs(flags.intervalMs, "--interval-ms"),
+    timeoutMs: parseWaitMs(flags.timeoutMs, "--timeout-ms"),
+  };
 }
 
 export function aliasRunOpts(command: Command): RunOpts {
@@ -221,6 +254,9 @@ export async function waitAfterCreate(
       statusPath: config.statusPath,
       success: config.success,
       failure: config.failure,
+      intervalMs: config.timing?.intervalMs,
+      timeoutMs: config.timing?.timeoutMs,
+      timeoutHints: timeoutHints(config, id),
     },
     {
       runOperation: async (operationId, input) => {
@@ -231,6 +267,24 @@ export async function waitAfterCreate(
     },
   );
   emitAndExit(result.env, result.exitCode);
+}
+
+// A wait_timeout means the job is still running: name the exact re-poll command so
+// an agent resumes the existing id instead of resubmitting a paid create.
+function timeoutHints(config: WaitAfterCreateConfig, id: string): Hint[] {
+  const repoll =
+    config.repollCommand?.(id) ??
+    `elv call ${config.operation} --json '${JSON.stringify({ path: { [config.pathKey]: id } })}'`;
+  return [
+    {
+      cmd: repoll,
+      why: `The job is still running; poll ${id} instead of resubmitting ${config.commandName}.`,
+    },
+    {
+      cmd: `${config.commandName} --wait --timeout-ms <ms>`,
+      why: "Raise the --wait deadline for jobs that outlast the default 600000 ms.",
+    },
+  ];
 }
 
 function stringAt(env: SuccessEnvelope, keys: string[]): string | null {

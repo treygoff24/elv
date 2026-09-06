@@ -6,7 +6,7 @@ import { ExitCode } from "./types";
 import { errorMessage } from "../util/error";
 import { parseJson, parseJsonRecord } from "../util/json";
 import { readPath } from "../util/jsonpath";
-import type { AgentInput, CommandResult, Envelope, RunOpts } from "./types";
+import type { AgentInput, CommandResult, Envelope, Hint, RunOpts } from "./types";
 import type { JsonInputValue, JsonObject } from "../util/json";
 
 export interface WaitOptions extends Pick<RunOpts, "baseUrl" | "profile"> {
@@ -18,6 +18,8 @@ export interface WaitOptions extends Pick<RunOpts, "baseUrl" | "profile"> {
   intervalMs?: string | number;
   timeoutMs?: string | number;
   cmd?: string;
+  /** Attached to a wait_timeout envelope so callers re-poll instead of resubmitting. */
+  timeoutHints?: Hint[];
 }
 
 interface WaitDeps {
@@ -40,6 +42,7 @@ type ParsedCommon = {
   failure: Set<string>;
   intervalMs: number;
   timeoutMs: number;
+  timeoutHints: Hint[];
 };
 
 type ParsedWait =
@@ -107,14 +110,14 @@ async function pollUntilComplete(parsed: ParsedWait, runtime: WaitRuntime): Prom
   let last: PollObservation | undefined;
   for (;;) {
     if (last && remainingMs(runtime) <= 0) {
-      return waitTimeout(parsed.statusPath, last.status, last.env);
+      return waitTimeout(parsed, last.status, last.env);
     }
     const poll = await runPoll(parsed, runtime);
     if ("result" in poll) return poll.result;
     last = poll;
     const remaining = remainingMs(runtime);
     if (remaining <= 0) {
-      return waitTimeout(parsed.statusPath, poll.status, poll.env);
+      return waitTimeout(parsed, poll.status, poll.env);
     }
     await runtime.sleep(Math.min(parsed.intervalMs, remaining));
   }
@@ -206,6 +209,7 @@ function parseOptions(
       failure: csvSet(options.failure ?? ""),
       intervalMs: positiveMs(options.intervalMs, DEFAULT_INTERVAL_MS, "--interval-ms"),
       timeoutMs: positiveMs(options.timeoutMs, DEFAULT_TIMEOUT_MS, "--timeout-ms"),
+      timeoutHints: options.timeoutHints ?? [],
     };
   } catch (error) {
     return {
@@ -269,7 +273,7 @@ function waitFailure(status: string, env: Envelope): CommandResult {
   };
 }
 
-function waitTimeout(path: string, status: unknown, env: Envelope): CommandResult {
+function waitTimeout(parsed: ParsedCommon, status: unknown, env: Envelope): CommandResult {
   return {
     env: failure({
       cmd: "elv wait",
@@ -277,10 +281,11 @@ function waitTimeout(path: string, status: unknown, env: Envelope): CommandResul
       error: {
         type: "wait_timeout",
         code: "wait_timeout",
-        message: `Timed out waiting for ${path}`,
+        message: `Timed out waiting for ${parsed.statusPath} after ${parsed.timeoutMs}ms`,
         raw: { status, envelope: env },
       },
       retry: { recommended: true, after_ms: null },
+      ...(parsed.timeoutHints.length ? { hints: parsed.timeoutHints } : {}),
     }),
     exitCode: ExitCode.TransientExhausted,
   };
@@ -300,7 +305,15 @@ function csvSet(value: string): Set<string> {
 }
 
 function positiveMs(value: string | number | undefined, fallback: number, label: string): number {
-  if (value === undefined || value === "") return fallback;
+  return parseWaitMs(value, label) ?? fallback;
+}
+
+/**
+ * Validates a millisecond flag without applying a default, so alias commands can
+ * reject a bad `--timeout-ms` before they submit a paid create request.
+ */
+export function parseWaitMs(value: string | number | undefined, label: string): number | undefined {
+  if (value === undefined || value === "") return undefined;
   const parsed = Number(value);
   if (!Number.isFinite(parsed) || parsed <= 0) throw new Error(`${label} must be positive`);
   return Math.trunc(parsed);

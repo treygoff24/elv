@@ -5,6 +5,7 @@ import { isRecord } from "../../util/json";
 import type { CliOptionValues } from "../options";
 import {
   type BuiltOperation,
+  addWaitFlags,
   compact,
   compactInput,
   emit,
@@ -12,16 +13,17 @@ import {
   aliasRunOpts,
   validationOrExit,
   waitAfterCreate,
+  waitTiming,
+  type WaitFlags,
 } from "./shared";
 
-interface SttFlags extends Pick<CliOptionValues, "model" | "language"> {
+interface SttFlags extends Pick<CliOptionValues, "model" | "language">, WaitFlags {
   file?: string;
   timestamps?: string;
   diarize?: boolean;
   webhook?: boolean | string;
   webhookId?: string;
   tokenEnv?: string;
-  wait?: boolean;
 }
 
 export function buildSttInput(flags: SttFlags): BuiltOperation {
@@ -59,38 +61,41 @@ export function registerSttCommand(
   addCommonFlags: (command: Command) => Command,
 ): void {
   addCommonFlags(
-    program
-      .command("stt")
-      .description("Speech to text")
-      .option("--file <path>", "audio file to transcribe")
-      .option("--model <id>", "STT model id")
-      .option("--timestamps <granularity>", "timestamp granularity: none, word, character")
-      .option("--diarize", "enable speaker diarization")
-      .option("--language <code>", "expected language code")
-      .option("--webhook [legacy-url]", "deliver asynchronously to a configured workspace webhook")
-      .option("--webhook-id <id>", "configured workspace webhook id (requires --webhook)")
-      .option("--token-env <name>", "read a single-use STT token from an environment variable")
-      .option(
-        "--wait",
-        "return completed transcripts directly; otherwise poll a returned transcription id",
-      )
-      .action(async (options: SttFlags, command: Command) => {
-        const opts = validationOrExit(command, () => aliasRunOpts(command));
-        const built = validationOrExit(command, () => buildSttInput(options));
-        const env = await runOperation(built.operationId, built.input, opts);
-        if (!options.wait || !env.ok) emit(env);
-        await waitAfterCreate(env, opts, {
-          commandName: "elv stt",
-          idKeys: ["transcription_id", "transcript_id", "id"],
-          missingIdMessage: "--wait could not find a transcription id in the response",
-          operation: "get_transcript_by_id",
-          pathKey: "transcription_id",
-          statusPath: "$.data.status",
-          success: "completed,succeeded,done",
-          failure: "failed,error",
-          isComplete: (result) => completedTranscript(result, options.webhook === true),
-        });
-      }),
+    addWaitFlags(
+      program
+        .command("stt")
+        .description("Speech to text")
+        .option("--file <path>", "audio file to transcribe")
+        .option("--model <id>", "STT model id")
+        .option("--timestamps <granularity>", "timestamp granularity: none, word, character")
+        .option("--diarize", "enable speaker diarization")
+        .option("--language <code>", "expected language code")
+        .option(
+          "--webhook [legacy-url]",
+          "deliver asynchronously to a configured workspace webhook",
+        )
+        .option("--webhook-id <id>", "configured workspace webhook id (requires --webhook)")
+        .option("--token-env <name>", "read a single-use STT token from an environment variable"),
+      "return completed transcripts directly; otherwise poll a returned transcription id",
+    ).action(async (options: SttFlags, command: Command) => {
+      const opts = validationOrExit(command, () => aliasRunOpts(command));
+      const built = validationOrExit(command, () => buildSttInput(options));
+      const timing = validationOrExit(command, () => waitTiming(options));
+      const env = await runOperation(built.operationId, built.input, opts);
+      if (!options.wait || !env.ok) emit(env);
+      await waitAfterCreate(env, opts, {
+        commandName: "elv stt",
+        idKeys: ["transcription_id", "transcript_id", "id"],
+        missingIdMessage: "--wait could not find a transcription id in the response",
+        operation: "get_transcript_by_id",
+        pathKey: "transcription_id",
+        statusPath: "$.data.status",
+        success: "completed,succeeded,done",
+        failure: "failed,error",
+        isComplete: (result) => completedTranscript(result, options.webhook === true),
+        timing,
+      });
+    }),
   );
 }
 
