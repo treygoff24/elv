@@ -18,6 +18,12 @@ interface WsCatalogFields {
   scriptable: boolean;
   protocol: WsProtocol;
   costModel: WsCostModel;
+  /** Whether `--duplex` can drive this route from stdin. */
+  duplex: boolean;
+  /** What the first outbound message on this route has to be. */
+  firstMessage: string;
+  /** How a session on this route ends. */
+  terminalRule: string;
   /** Query parameter this route accepts a single-use credential in, for --token-env. */
   tokenParam?: "token" | "single_use_token";
   /** ElevenLabs rejects the eleven_v3 model families on this route. */
@@ -38,6 +44,10 @@ interface WsCatalogFields {
 const WS_CATALOG = [
   {
     name: "tts-realtime",
+    duplex: true,
+    firstMessage: 'Send {"text":" "} to open the stream before any real text.',
+    terminalRule:
+      'Send {"text":""} to force generation and end the context; {"type":"close"} then closes the socket.',
     costModel: "tts_characters",
     tokenParam: "single_use_token",
     rejectsV3: true,
@@ -53,6 +63,10 @@ const WS_CATALOG = [
   },
   {
     name: "tts-multi",
+    duplex: true,
+    firstMessage: 'Send {"text":" "} with the context_id you intend to use.',
+    terminalRule:
+      'Send {"close_context":true,"context_id":"..."} to end one context and {"close_socket":true} alone to end the socket.',
     costModel: "tts_characters",
     tokenParam: "single_use_token",
     rejectsV3: true,
@@ -68,6 +82,10 @@ const WS_CATALOG = [
   },
   {
     name: "ttd-realtime",
+    duplex: true,
+    firstMessage:
+      'First send must declare 1 to 10 "voices" (exactly one for eleven_v3_conversational).',
+    terminalRule: 'Send {"close_socket":true} to end the session.',
     costModel: "tts_characters",
     tokenParam: "single_use_token",
     urlTemplate: "wss://api.elevenlabs.io/v1/text-to-dialogue/stream-input?model_id={model_id}",
@@ -81,6 +99,11 @@ const WS_CATALOG = [
   },
   {
     name: "ttd-multi",
+    duplex: true,
+    firstMessage:
+      'First send per context must carry "context_id" and 1 to 10 "voices", up to 5 contexts.',
+    terminalRule:
+      'Send {"close_context":true,"context_id":"..."} to end one context and {"close_socket":true} alone to end the socket.',
     costModel: "tts_characters",
     tokenParam: "single_use_token",
     urlTemplate:
@@ -95,6 +118,10 @@ const WS_CATALOG = [
   },
   {
     name: "stt-realtime",
+    duplex: true,
+    firstMessage:
+      'Send send_audio_file actions; "previous_text" is accepted only with the first chunk.',
+    terminalRule: 'Send {"type":"close"} or close stdin to end the session.',
     costModel: "unbounded",
     tokenParam: "token",
     urlTemplate: "wss://api.elevenlabs.io/v1/speech-to-text/realtime?model_id={model_id}",
@@ -107,6 +134,10 @@ const WS_CATALOG = [
   },
   {
     name: "convai",
+    duplex: true,
+    firstMessage:
+      'Any agent message, for example {"type":"send","data":{"type":"user_message","text":"..."}}; the agent may speak first.',
+    terminalRule: 'Send {"type":"close"} or close stdin; the agent can also end the conversation.',
     costModel: "unbounded",
     urlTemplate: "wss://api.elevenlabs.io/v1/convai/conversation?agent_id={agent_id}",
     pathTemplate: "/v1/convai/conversation",
@@ -118,6 +149,9 @@ const WS_CATALOG = [
   },
   {
     name: "convai-monitor",
+    duplex: true,
+    firstMessage: "Receive-only by default; outbound control messages require --yes.",
+    terminalRule: 'Send {"type":"close"} or close stdin to stop monitoring.',
     costModel: "unknown",
     urlTemplate: "wss://api.elevenlabs.io/v1/convai/conversations/{conversation_id}/monitor",
     pathTemplate: "/v1/convai/conversations/{conversation_id}/monitor",

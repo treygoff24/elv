@@ -37,6 +37,30 @@ describe("ws catalog", () => {
     expect(getWsCatalogEntry("stt-realtime")?.auth).toContain("xi-api-key");
   });
 
+  it("advertises duplex support and the protocol rules an agent has to follow", () => {
+    for (const entry of listWsCatalog()) {
+      expect(entry.duplex).toBe(true);
+      expect(entry.firstMessage.length).toBeGreaterThan(0);
+      expect(entry.terminalRule.length).toBeGreaterThan(0);
+      expect(["tts_characters", "unbounded", "unknown"]).toContain(entry.costModel);
+    }
+
+    expect(getWsCatalogEntry("tts-realtime")).toMatchObject({
+      costModel: "tts_characters",
+      tokenParam: "single_use_token",
+      rejectsV3: true,
+      defaultAudioFormat: "mp3_44100_128",
+    });
+    expect(getWsCatalogEntry("stt-realtime")).toMatchObject({
+      costModel: "unbounded",
+      tokenParam: "token",
+    });
+    expect(getWsCatalogEntry("convai")?.tokenParam).toBeUndefined();
+    expect(getWsCatalogEntry("convai")?.defaultAudioFormat).toBeUndefined();
+    expect(getWsCatalogEntry("convai-monitor")?.costModel).toBe("unknown");
+    expect(getWsCatalogEntry("tts-realtime")?.firstMessage).toContain('"text":" "');
+  });
+
   it("builds regional urls without leaking auth into catalog metadata", () => {
     const url = buildCatalogUrl(getWsCatalogEntry("tts-realtime")!, {
       baseUrl: "https://api.eu.residency.elevenlabs.io",

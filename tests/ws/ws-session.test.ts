@@ -124,6 +124,48 @@ describe("ws session", () => {
     expect(`${events}\n${manifest}`).not.toContain("tok_secret");
   });
 
+  it("hints the next command on the common ws input errors", async () => {
+    const dir = await tempDir();
+
+    const missingTarget = await runWs({ query: {} }, {});
+    expect(missingTarget.exitCode).toBe(2);
+    expect(hintCommands(missingTarget)).toContain("elv ws --list");
+
+    const missingSend = await runWs(
+      { target: "tts-realtime", out: dir, query: { voice_id: "voice-a" } },
+      { dryRun: true },
+    );
+    expect(missingSend.exitCode).toBe(2);
+    expect(hintCommands(missingSend)).toEqual([
+      "elv ws <target> --send script.ndjson",
+      "elv ws <target> --duplex",
+    ]);
+
+    const tokenName = "ELV_TEST_HINT_WS_TOKEN";
+    const original = process.env[tokenName];
+    process.env[tokenName] = "HINT_TOKEN_SECRET";
+    const script = join(dir, "hint.ndjson");
+    writeFileSync(script, JSON.stringify({ type: "send", data: { text: " " } }));
+    try {
+      const foreignHost = await runWs(
+        {
+          target: "wss://gateway.example/v1/text-to-speech/voice-a/stream-input",
+          tokenEnv: tokenName,
+          send: script,
+          out: dir,
+          query: {},
+        },
+        { baseUrl: "https://api.elevenlabs.io", dryRun: true },
+      );
+      expect(foreignHost.exitCode).toBe(2);
+      expect(hintCommands(foreignHost)).toContain("elv ws --list");
+      expect(JSON.stringify(foreignHost.env)).not.toContain("HINT_TOKEN_SECRET");
+    } finally {
+      if (original === undefined) delete process.env[tokenName];
+      else process.env[tokenName] = original;
+    }
+  });
+
   it("rejects invalid scripts before connecting", async () => {
     const server = await startServer(() => undefined);
     const dir = await tempDir();
@@ -2333,4 +2375,9 @@ function httpBase(wsUrl: string): string {
   url.pathname = "/";
   url.search = "";
   return url.toString();
+}
+
+function hintCommands(result: Awaited<ReturnType<typeof runWs>>): string[] {
+  if (result.env.ok) throw new Error("expected an error envelope");
+  return (result.env.hints ?? []).map(({ cmd }) => cmd);
 }

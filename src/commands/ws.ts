@@ -33,7 +33,7 @@ import { runWsSession, WsSessionError } from "../ws/session";
 import { errorMessage } from "../util/error";
 import { shellArg } from "../util/shell";
 import type { BudgetDecision } from "../core/budget";
-import type { CommandResult, RunOpts, Warning } from "../core/types";
+import type { CommandResult, Hint, RunOpts, Warning } from "../core/types";
 import type { WsCatalogEntry, WsProtocol } from "../ws/catalog";
 import type { SendScriptAction } from "../ws/events";
 
@@ -86,7 +86,16 @@ function validateWsInput(
   input: WsCommandInput,
 ): { ok: true; input: ValidatedWsInput } | { ok: false; result: CommandResult } {
   if (!input.target && !input.urlEnv) {
-    return { ok: false, result: inputError("Missing WS target or --url-env") };
+    return {
+      ok: false,
+      result: inputError("Missing WS target or --url-env", [
+        CATALOG_HINT,
+        {
+          cmd: "elv ws --url-env SIGNED_WS_URL",
+          why: "Reads a signed WebSocket URL from an environment variable instead of argv.",
+        },
+      ]),
+    };
   }
   return { ok: true, input };
 }
@@ -113,6 +122,16 @@ async function runScriptedWs(
   if (namedEntry && urlOverride && actualEntry && actualEntry.name !== namedEntry.name) {
     return inputError(
       `Named WebSocket target ${namedEntry.name} does not match the known WebSocket route ${actualEntry.name} from --url-env`,
+      [
+        {
+          cmd: `elv ws ${actualEntry.name} --url-env <name>`,
+          why: "Name the route the signed URL actually points at.",
+        },
+        {
+          cmd: "elv ws --url-env <name>",
+          why: "Or drop the named target and let the signed URL decide the route.",
+        },
+      ],
     );
   }
   const entry = namedEntry ?? actualEntry;
@@ -129,7 +148,7 @@ async function runScriptedWs(
   //     known ElevenLabs route when it is talking to some other host.
   const catalogName = namedEntry?.name ?? (targetHost === baseHost ? actualEntry?.name : undefined);
   if (!input.send && !input.duplex && protocol !== "monitor") {
-    return inputError("Missing --send script.ndjson");
+    return inputError("Missing --send script.ndjson", [SEND_SCRIPT_HINT, DUPLEX_HINT]);
   }
   const defaultQuery = withConfiguredTtsModel(
     { ...entry?.defaultQuery },
@@ -154,6 +173,7 @@ async function runScriptedWs(
     // seed asked to close. Reject the combination instead of ignoring the close.
     return inputError(
       'A --send seed script cannot contain {"type":"close"} under --duplex; send that line on stdin to end the session',
+      [DUPLEX_HINT],
     );
   }
   let resolved: ResolvedWsTarget;
@@ -258,6 +278,12 @@ function validateScriptedTarget(
   if (entry && rejectsElevenV3(entry, url, script)) {
     return inputError(
       "eleven_v3 is not supported over ElevenLabs WebSocket TTS; use eleven_flash_v2_5",
+      [
+        {
+          cmd: `elv ws ${entry.name} --query model_id=eleven_flash_v2_5`,
+          why: "Realtime TTS runs on the flash models.",
+        },
+      ],
     );
   }
   if (entry?.protocol === "ttd" || entry?.protocol === "ttd-multi") {
@@ -266,7 +292,12 @@ function validateScriptedTarget(
         modelId: url.searchParams.get("model_id") ?? entry.defaultQuery?.model_id ?? "",
       });
     } catch (error) {
-      return inputError(errorMessage(error));
+      return inputError(errorMessage(error), [
+        {
+          cmd: `elv ws ${entry.name} --query model_id=eleven_v3_conversational`,
+          why: "Text to Dialogue WebSockets require an eleven_v3 model.",
+        },
+      ]);
     }
   }
   return undefined;
@@ -417,23 +448,43 @@ interface TokenEnvironmentInput {
 function withTokenEnvironment(input: TokenEnvironmentInput): Record<string, string> {
   const { query, tokenEnv, entry, urlOverride, targetHost, baseHost } = input;
   if (!tokenEnv) return query;
-  if (urlOverride) throw new ScriptValidationError("--token-env cannot be combined with --url-env");
+  if (urlOverride) {
+    throw new ScriptValidationError("--token-env cannot be combined with --url-env", [
+      {
+        cmd: "elv ws --url-env SIGNED_WS_URL",
+        why: "A signed URL already carries its credential; drop --token-env.",
+      },
+      {
+        cmd: "elv ws <catalog-name> --token-env WS_TOKEN",
+        why: "Or name a catalog route and let --token-env add the token parameter.",
+      },
+    ]);
+  }
   // The token travels in the connection URL, so it is only safe on the host the
   // profile is configured for -- the same rule wsUrlFromPath enforces for profile auth.
   if (targetHost !== undefined && targetHost !== baseHost) {
     throw new ScriptValidationError(
       `--token-env sends the token to the connection host, and ${targetHost} is not the configured API host ${baseHost}`,
+      [
+        {
+          cmd: "elv ws --url-env SIGNED_WS_URL",
+          why: "Reach another host through a signed URL, which carries its own credential.",
+        },
+        CATALOG_HINT,
+      ],
     );
   }
   const parameter = entry?.tokenParam;
   if (!parameter) {
     throw new ScriptValidationError(
       "--token-env is supported only for named TTS, Text to Dialogue, and realtime STT protocols",
+      [CATALOG_HINT],
     );
   }
   if (query.token !== undefined || query.single_use_token !== undefined) {
     throw new ScriptValidationError(
       "Use --token-env or an explicit token query parameter, not both",
+      [{ cmd: "elv ws <target> --token-env WS_TOKEN", why: "Keep the token out of argv." }],
     );
   }
   return { ...query, [parameter]: environmentValue(tokenEnv, "--token-env") };
@@ -596,9 +647,24 @@ function enforceWsBudget(
   return undefined;
 }
 
-function inputError(message: string): CommandResult {
-  return { env: validationError("elv ws", message), exitCode: ExitCode.InputValidation };
+function inputError(message: string, hints?: Hint[]): CommandResult {
+  return { env: validationError("elv ws", message, { hints }), exitCode: ExitCode.InputValidation };
 }
+
+const SEND_SCRIPT_HINT: Hint = {
+  cmd: "elv ws <target> --send script.ndjson",
+  why: 'One NDJSON action per line, for example {"type":"send","data":{"text":" "}}.',
+};
+
+const DUPLEX_HINT: Hint = {
+  cmd: "elv ws <target> --duplex",
+  why: "Stream actions on stdin and read received events on stderr instead of scripting a file.",
+};
+
+const CATALOG_HINT: Hint = {
+  cmd: "elv ws --list",
+  why: "Lists every route with its protocol, first message, terminal rule, and duplex support.",
+};
 
 function parseScriptFile(
   path: string,
@@ -613,7 +679,7 @@ function parseScriptFile(
         : action,
     );
   } catch (error) {
-    throw new ScriptValidationError(errorMessage(error));
+    throw new ScriptValidationError(errorMessage(error), [SEND_SCRIPT_HINT, CATALOG_HINT]);
   }
 }
 
@@ -626,7 +692,7 @@ function validateScriptFiles(script: SendScriptAction[]): void {
 }
 
 function errorEnvelope(error: unknown): CommandResult {
-  if (error instanceof ScriptValidationError) return inputError(error.message);
+  if (error instanceof ScriptValidationError) return inputError(error.message, error.hints);
   if (error instanceof ConfigFileError) {
     return {
       env: configFileError("elv ws", error.message, { raw: { path: error.path } }),
@@ -681,7 +747,10 @@ function errorEnvelope(error: unknown): CommandResult {
 }
 
 class ScriptValidationError extends Error {
-  constructor(message: string) {
+  constructor(
+    message: string,
+    readonly hints: Hint[] = [],
+  ) {
     super(message);
     this.name = "ScriptValidationError";
   }
