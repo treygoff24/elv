@@ -84,7 +84,7 @@ When a configured ceiling cannot bound a generation or STT/agent WebSocket sessi
 
 **Do not** `--dry-run` secret-create ops with real secret values. Redaction is key-name based and may echo secret body values.
 
-Provider responses containing tokens, signed URLs, API keys, or similar credentials are never returned inline. They are written to a mode `0600` file marked `sensitive: true`; `elv view` refuses to render it.
+Provider responses containing tokens, signed URLs, API keys, or similar credentials are written to a mode `0600` file marked `sensitive: true`; `elv view` refuses to render it. The one narrowing is media responses (Flows, Assets, project media): IDs, status, and cursors stay inline with every URL's query string stripped so polling works, while the signed originals remain only in the private file.
 
 ## Escape hatches
 
