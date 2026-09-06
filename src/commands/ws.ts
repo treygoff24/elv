@@ -33,7 +33,7 @@ import { runWsSession, WsSessionError } from "../ws/session";
 import { errorMessage } from "../util/error";
 import { shellArg } from "../util/shell";
 import type { BudgetDecision } from "../core/budget";
-import type { CommandResult, RunOpts } from "../core/types";
+import type { CommandResult, RunOpts, Warning } from "../core/types";
 import type { WsCatalogEntry, WsProtocol } from "../ws/catalog";
 import type { SendScriptAction } from "../ws/events";
 
@@ -194,7 +194,7 @@ async function runScriptedWs(
     script,
     headers,
     timeoutMs: options.timeoutMs,
-    outputFormat: resolved.url.searchParams.get("output_format") ?? input.query.output_format,
+    outputFormat: resolved.url.searchParams.get("output_format") ?? entry?.defaultAudioFormat,
     duplex: input.duplex
       ? {
           input: options.duplexInput ?? process.stdin,
@@ -215,18 +215,27 @@ async function runScriptedWs(
         credits_charged: null,
         credits_source: preflight.creditsEstimated === null ? "none" : "estimate",
       },
-      warnings: preflight.unboundedBudget
-        ? [
-            {
-              code: "budget_unbounded",
-              message:
-                "Configured max-credits could not bound this raw WebSocket session; --yes accepted the unbounded request.",
-            },
-          ]
-        : undefined,
+      warnings: sessionWarnings(preflight, result.warnings),
     }),
     exitCode: ExitCode.Success,
   };
+}
+
+function sessionWarnings(
+  preflight: WsPreflight,
+  sessionWarnings: Warning[],
+): Warning[] | undefined {
+  const warnings: Warning[] = preflight.unboundedBudget
+    ? [
+        {
+          code: "budget_unbounded",
+          message:
+            "Configured max-credits could not bound this raw WebSocket session; --yes accepted the unbounded request.",
+        },
+      ]
+    : [];
+  warnings.push(...sessionWarnings);
+  return warnings.length > 0 ? warnings : undefined;
 }
 
 function validateScriptedTarget(

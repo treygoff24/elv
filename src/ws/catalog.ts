@@ -12,6 +12,14 @@ interface WsCatalogFields {
   outboundRisk?: Extract<Risk, "external_side_effect" | "destructive">;
   notes?: string;
   defaultQuery?: Record<string, string>;
+  /**
+   * Encoding of the audio this route returns when the request does not set
+   * output_format. ElevenLabs TTS and Text to Dialogue WebSockets default to
+   * mp3_44100_128 (documented default; the pinned OpenAPI snapshot carries no
+   * WebSocket definitions). Agent audio is configured server-side per agent, so
+   * convai declares nothing and its bytes are written without a format label.
+   */
+  defaultAudioFormat?: string;
 }
 
 const WS_CATALOG = [
@@ -24,6 +32,7 @@ const WS_CATALOG = [
     auth: "xi-api-key header, single_use_token query, or xi_api_key in first message",
     scriptable: true,
     protocol: "tts",
+    defaultAudioFormat: "mp3_44100_128",
     defaultQuery: { model_id: "eleven_flash_v2_5" },
   },
   {
@@ -35,6 +44,7 @@ const WS_CATALOG = [
     auth: "xi-api-key header, single_use_token query, or xi_api_key in first message",
     scriptable: true,
     protocol: "tts-multi",
+    defaultAudioFormat: "mp3_44100_128",
     defaultQuery: { model_id: "eleven_flash_v2_5" },
   },
   {
@@ -45,6 +55,7 @@ const WS_CATALOG = [
     auth: "xi-api-key or Authorization header, single_use_token query, or credential in first message",
     scriptable: true,
     protocol: "ttd",
+    defaultAudioFormat: "mp3_44100_128",
     defaultQuery: { model_id: "eleven_v3_conversational" },
   },
   {
@@ -56,6 +67,7 @@ const WS_CATALOG = [
     auth: "xi-api-key or Authorization header, single_use_token query, or credential in first message",
     scriptable: true,
     protocol: "ttd-multi",
+    defaultAudioFormat: "mp3_44100_128",
     defaultQuery: { model_id: "eleven_v3_conversational" },
   },
   {

@@ -18,7 +18,7 @@ import {
   WsProtocolValidator,
 } from "./events";
 import { isRecord, parseJson as parseJsonValue } from "../util/json";
-import type { FileRecord, SuccessEnvelope, WsInfo } from "../core/types";
+import type { FileRecord, SuccessEnvelope, Warning, WsInfo } from "../core/types";
 import type { JsonObject, JsonValue } from "../util/json";
 import type { SendScriptAction } from "./events";
 import type { WsProtocol } from "./catalog";
@@ -42,7 +42,9 @@ interface WsSessionOptions {
   duplex?: DuplexSessionOptions;
 }
 
-type WsSessionResult = Required<Pick<SuccessEnvelope, "ws" | "files">>;
+type WsSessionResult = Required<Pick<SuccessEnvelope, "ws" | "files">> & {
+  warnings: Warning[];
+};
 
 export class WsSessionError extends Error {
   constructor(
@@ -215,8 +217,11 @@ async function processSessionMessage(
   inactivity.reset();
   state.eventsReceived += 1;
   if (isBinary) {
-    const path = await writeBinaryFrame(data, events.path, state.binaryPaths.length + 1);
-    state.binaryPaths.push(path);
+    const frame = await writeBinaryFrame(data, events.path, state.binaryPaths.length + 1);
+    state.binaryPaths.push(frame.path);
+    // A binary frame carries no JSON event, so without this a duplex agent sees nothing
+    // on stderr and cannot know a file arrived until the final envelope.
+    onDuplexEvent?.(JSON.stringify({ type: "binary", bytes: frame.bytes, path: frame.path }));
     return;
   }
   await processMessage(data, socket, events, audio, onDuplexEvent);
@@ -271,6 +276,7 @@ async function finishSession(
   return {
     ws: wsInfo(options, state, inactivity.timedOut(), false),
     files,
+    warnings: audio.warnings,
   };
 }
 
@@ -338,6 +344,7 @@ function sessionManifest(
     binary_frames_received: state.binaryPaths.length,
     ...(audioOutputs.length > 0
       ? {
+          audio_format: options.outputFormat ?? null,
           audio_files: audioOutputs.map(({ path, contextId }) => ({
             file: basename(path),
             context_id: contextId,
@@ -603,9 +610,15 @@ function rawDataToString(data: RawData): string {
   return Buffer.from(data).toString("utf8");
 }
 
-async function writeBinaryFrame(data: RawData, eventPath: string, index: number): Promise<string> {
+async function writeBinaryFrame(
+  data: RawData,
+  eventPath: string,
+  index: number,
+): Promise<{ path: string; bytes: number }> {
   const name = `binary.received-${String(index).padStart(6, "0")}.bin`;
-  return await writeBufferToFile(rawDataToBuffer(data), join(dirname(eventPath), name));
+  const buffer = rawDataToBuffer(data);
+  const path = await writeBufferToFile(buffer, join(dirname(eventPath), name));
+  return { path, bytes: buffer.length };
 }
 
 function rawDataToBuffer(data: RawData): Buffer {

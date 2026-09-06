@@ -1798,6 +1798,35 @@ describe("ws session", () => {
     input.destroy();
   });
 
+  it("emits a duplex event for a received binary frame", async () => {
+    const server = await startServer((socket) => {
+      socket.send(Buffer.from("binary-payload"), { binary: true }, () =>
+        socket.close(1000, "done"),
+      );
+    });
+    const dir = await tempDir();
+    const input = new PassThrough();
+    const events: string[] = [];
+
+    const result = await runWs(
+      { target: server.url, duplex: true, out: dir, query: {} },
+      {
+        duplexInput: input,
+        duplexEventSink: (line) => events.push(line),
+        timeoutMs: 500,
+      },
+    );
+    input.destroy();
+
+    expect(result.exitCode).toBe(0);
+    const binaryEvents = events
+      .map((line) => JSON.parse(line) as { type?: string; bytes?: number; path?: string })
+      .filter((event) => event.type === "binary");
+    expect(binaryEvents).toHaveLength(1);
+    expect(binaryEvents[0]?.bytes).toBe("binary-payload".length);
+    expect(readFileSync(binaryEvents[0]!.path!, "utf8")).toBe("binary-payload");
+  });
+
   it("closes a duplex socket cleanly on input EOF", async () => {
     let clientClosed = false;
     const server = await startServer((socket) => {
