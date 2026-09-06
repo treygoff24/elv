@@ -116,7 +116,7 @@ function buildProgram(version: string): Command {
   addCommonFlags(
     program
       .command("ws [target]")
-      .description("Open a WebSocket session or list the catalog")
+      .description("Open a scripted or duplex WebSocket session, or list the catalog")
       .option("--list", "list the WebSocket catalog")
       .option("--query <key=value>", "add query parameter", collect, [])
       .option("--send <path>", "NDJSON send-script")

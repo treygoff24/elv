@@ -229,7 +229,7 @@ elv wait --operation get_dubbed_metadata \
 
 The WebSocket catalog contains `tts-realtime`, `tts-multi`, `ttd-realtime`, `ttd-multi`, `stt-realtime`, `convai`, and `convai-monitor`. Dialogue sessions use a voices initialization message and `inputs` arrays, not TTS's initial space. TTD supports v3 dialogue models; the older TTS protocol rejects `eleven_v3`. Multi-context audio is saved separately with context-to-file mappings in the result. `--dry-run`, `--yes`, and `--max-credits` apply; a ceiling rejects STT and agent sessions whose cost cannot be bounded.
 
-Use `--token-env TOKEN_VARIABLE` for single-use authentication and `--url-env URL_VARIABLE` for a signed WebSocket URL. Neither secret needs to appear in argv. STT's `send_audio_file` action wraps PCM bytes in the published JSON audio-chunk message:
+Use `--token-env TOKEN_VARIABLE` for single-use authentication and `--url-env URL_VARIABLE` for a signed WebSocket URL. Neither secret needs to appear in argv. `--token-env` only works against the configured API host, because the token travels in the connection URL; reach any other host through a signed `--url-env` URL, which carries its own credential. `elv ws --list` shows each route's protocol, duplex support, first message, and terminal rule. Agent audio of an undeclared encoding is written as `audio.bin` with a `ws_audio_format_unknown` warning unless the session sets `output_format`. STT's `send_audio_file` action wraps PCM bytes in the published JSON audio-chunk message:
 
 ```json
 {"type":"send_audio_file","path":"audio.pcm","sample_rate":16000,"commit":true}

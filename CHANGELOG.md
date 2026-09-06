@@ -14,6 +14,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Added Text-to-Dialogue single/multi-context WebSockets, separate audio files per context, and environment-sourced WebSocket tokens and signed URLs.
 - Added opt-in duplex WebSockets for every catalog protocol and raw targets: live NDJSON actions on stdin, redacted events on stderr, and one final stdout envelope. This supports live synthesis/transcription and responses to server-generated tool-call IDs, with shared incremental protocol validation.
 - Added explicit REST query-array flags such as `--query 'sources[]=qa'`.
+- `flows`, `stt`, and `dubbing` `--wait` accept `--interval-ms` and `--timeout-ms`; a `wait_timeout` envelope now names the deadline and carries hints for re-polling the created id instead of resubmitting a paid job. Poll bounds are validated before the create request.
+- `elv ws --list` reports each route's duplex support, first message, and terminal rule, and WebSocket input errors carry hints naming the next command. `elv capabilities` reports the pinned spec's source URL and retrieval date.
 
 ### Fixed
 
@@ -28,11 +30,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Malformed successful JSON and opaque credential responses are preserved privately instead of leaking parse previews. `view` refuses marked private files before parsing, including binary and collision-suffixed files.
 - Encoded HTTP/WebSocket paths inherit the same safety metadata as the routes the provider decodes; path values are decoded only once. TTS single/multi-context terminal rules now match their distinct protocols.
 - WAV timestamp responses and requested A-law/WAV WebSocket files retain the appropriate extensions. Multi-file output targets are checked before generation.
+- Duplex WebSocket events are written synchronously to stderr, so a slow consumer no longer loses buffered events when the process exits. An explicit close after a terminal message is accepted, a close inside a `--send` seed under `--duplex` is rejected before connecting, input errors are no longer masked by a concurrent remote close, received binary frames are reported as events, and a non-string `context_id` falls back to the default audio writer with a warning.
+- `--token-env` is refused for any host other than the configured API host, so a single-use token can never be forwarded to an arbitrary WebSocket URL; foreign hosts also no longer get a catalog label while still inheriting path-matched safety metadata. Agent audio without a declared `output_format` is saved as `audio.bin` with a `ws_audio_format_unknown` warning instead of a misleading `.mp3`.
+- Output publication falls back to exclusive create where hard links are unsupported (exFAT, FAT32, SMB, some FUSE mounts) while still never replacing an existing file; unusable `--out` targets report `invalid_out_target` with a hint, including from multipart responses.
+- Inline media responses strip every URL query string, including CloudFront `Signature`, `Policy`, and `Key-Pair-Id`, so undocumented signed sibling URLs cannot leak beside the private file. Caller-named sensitive binary targets no longer double the `.sensitive.bin` marker.
+- A `--limit` above the provider's page-size maximum reports a `page_size_clamped` warning. Generated `ops schema --example` commands emit `--file` for multipart file fields. Documentation count checks are bound to the pinned snapshot metadata and verify its digest.
 
 ### Changed
 
 - Realtime STT file scripts use `send_audio_file` to emit the published JSON audio-chunk protocol; `send_binary_file` is reserved for unknown raw protocols.
 - `config doctor` is offline by default. `--online` opts into provider checks, which refuse redirects.
+- WebSocket protocol rules (cost model, token parameter, v3 rejection, default audio format) live in the catalog rather than in command-level switch tables. The OpenAPI validation engine is built lazily on first use, and multipart metadata is collected in chunks instead of a 2 MiB preallocation.
 - Updated the transitive `fast-uri` dependency to resolve its published security advisories.
 - Refreshed locked production dependencies and verified the installed dependency tree against them.
 - OpenAPI compilation now rejects nested external references before bundling, preventing provider documents from reading local files or fetching arbitrary URLs. Explicit local JSON sources and recursive internal references remain supported; multi-file specs require prebundling.

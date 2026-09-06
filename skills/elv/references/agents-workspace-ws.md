@@ -75,8 +75,9 @@ Named protocols validate their scripts. For STT, use
 `{"type":"send_audio_file","path":"audio.pcm","sample_rate":16000,"commit":true}`;
 the CLI encodes the published JSON chunk frame. Raw binary actions are for
 unknown protocols only. `--token-env NAME` and `--url-env NAME` keep tokens and
-signed URLs out of argv. Known URL paths inherit protocol safety metadata,
-but arbitrary hosts never receive your profile key.
+signed URLs out of argv; `--token-env` only works against the configured API
+host, so use `--url-env` for any other host. Known URL paths inherit protocol
+safety metadata, but arbitrary hosts never receive your profile key or token.
 
 For dialogue, use `ttd-realtime` or `ttd-multi`: initialize with
 `{"voices":["VOICE_ID"]}`, then send
