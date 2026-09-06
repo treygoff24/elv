@@ -4,7 +4,7 @@ import { link, lstat, mkdir, mkdtemp, rm } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { StringDecoder } from "node:string_decoder";
-import { fileRecord } from "../core/files";
+import { fileRecord, writeManifest } from "../core/files";
 import { errorMessage } from "../util/error";
 import { isRecord } from "../util/json";
 import {
@@ -16,6 +16,9 @@ import {
 } from "./actions";
 import {
   emptyRtcInfo,
+  RTC_WORKER_EXIT_GRACE_MS,
+  RTC_WORKER_KILL_GRACE_MS,
+  RTC_SUPERVISOR_GRACE_MS,
   type OpenArtifact,
   type ParentMessage,
   type RtcInfo,
@@ -182,14 +185,17 @@ export async function runRtcSession(options: RtcSessionOptions): Promise<RtcSess
   const superviseExit = () => {
     if (termTimer || exited) return;
     termTimer = setTimeout(() => {
+      if (exited) return;
       failure ??= {
         code: "rtc_cleanup_error",
         message: "RTC worker did not exit after its final receipt",
       };
       child.kill("SIGTERM");
-      killTimer = setTimeout(() => child.kill("SIGKILL"), 250);
-    }, 1000);
-    supervisorTimer = setTimeout(resolveSupervisor, 2500);
+      killTimer = setTimeout(() => {
+        if (!exited) child.kill("SIGKILL");
+      }, RTC_WORKER_KILL_GRACE_MS);
+    }, RTC_WORKER_EXIT_GRACE_MS);
+    supervisorTimer = setTimeout(resolveSupervisor, RTC_SUPERVISOR_GRACE_MS);
   };
   const stop = (reason: string, error?: { code: string; message: string }) => {
     if (stopReason || exited) return;
@@ -258,8 +264,16 @@ export async function runRtcSession(options: RtcSessionOptions): Promise<RtcSess
     child.once("error", (error) => {
       failure = { code: "rtc_worker_error", message: errorMessage(error) };
     });
-    child.once("close", () => {
+    child.once("close", (code, signal) => {
       exited = true;
+      if ((code !== 0 || signal) && !failure && !response?.error) {
+        failure = {
+          code: "rtc_worker_error",
+          message: signal
+            ? `RTC worker terminated by ${signal}`
+            : `RTC worker exited with code ${code}`,
+        };
+      }
       inputAbort.abort();
       const error = new Error("RTC session ended");
       rejectReady(error);
@@ -333,7 +347,7 @@ export async function runRtcSession(options: RtcSessionOptions): Promise<RtcSess
     }
     await inputTask;
     if (!response || failure || response.error) await recoverArtifacts(directory, opened, files);
-    const issue =
+    let issue =
       failure ??
       response?.error ??
       (!response
@@ -346,6 +360,27 @@ export async function runRtcSession(options: RtcSessionOptions): Promise<RtcSess
       partial: Boolean(issue) || rtc.partial,
       reason: stopReason ?? rtc.reason,
     };
+    const finalFiles = [...files.values()].map((file) =>
+      rtc.partial ? { ...file, partial: true } : file,
+    );
+    try {
+      const manifest = await writeManifest(directory, {
+        rtc,
+        files: finalFiles,
+      } as unknown as JsonValue);
+      finalFiles.push({
+        ...(await fileRecord(manifest, { hash: true })),
+        mime: "application/json",
+        ...(rtc.partial ? { partial: true } : {}),
+      });
+    } catch (problem) {
+      issue ??= {
+        code: "rtc_manifest_error",
+        message: `Could not finalize RTC manifest: ${errorMessage(problem)}`,
+      };
+      rtc.partial = true;
+      for (const file of finalFiles) file.partial = true;
+    }
     if (issue) {
       const logs = [stdoutLogs.finish(), stderrLogs.finish()].filter(Boolean).join("\n");
       const diagnostics = logs ? `; native diagnostics: ${logs}` : "";
@@ -353,10 +388,10 @@ export async function runRtcSession(options: RtcSessionOptions): Promise<RtcSess
         issue.code,
         redactRtcText(issue.message, options.token) + diagnostics,
         rtc,
-        [...files.values()].map((file) => ({ ...file, partial: true })),
+        finalFiles,
       );
     }
-    return { rtc, files: [...files.values()] };
+    return { rtc, files: finalFiles };
   } finally {
     clearTimeout(deadline);
     if (supervisorTimer) clearTimeout(supervisorTimer);

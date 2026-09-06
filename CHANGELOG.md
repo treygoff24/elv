@@ -24,6 +24,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Agents WebSockets now preserve `agent_id`, acknowledge nested pings correctly, and decode nested audio events. Known absolute WebSocket paths inherit safety and budget metadata without forwarding profile credentials to arbitrary hosts.
 - Signed media URLs stay in private artifacts while redacted metadata supports polling, pagination, projection, and `view`. Failed later pages retain earlier private artifact paths.
 - Automatic pagination sizes respect published provider maxima.
+- `stt --wait` preserves completed synchronous transcripts and stops polling on actual transcript responses. STT/Dubbing dry-runs no longer poll, and missing-ID errors retain creation receipts.
 - Music's non-streaming detailed response now yields separate audio and JSON metadata files instead of an opaque multipart blob, with partial recovery on malformed or interrupted responses.
 - Output publication is atomic and never replaces occupied files, including modified collision targets and symlinks. Concurrent results return their actual distinct paths. Sensitive outputs retain explicit filename markers, including caller-named destinations; prior files and permissions remain unchanged.
 - Malformed successful JSON and opaque credential responses are preserved privately instead of leaking parse previews. `view` refuses marked private files before parsing, including binary and collision-suffixed files.

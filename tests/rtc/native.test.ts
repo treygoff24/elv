@@ -1,8 +1,8 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { createHmac, randomUUID } from "node:crypto";
+import { createHash, createHmac, randomUUID } from "node:crypto";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type * as LiveKit from "@livekit/rtc-node";
 import { parseEnvelope, recordValue, filesArray } from "../helpers/cli-result";
@@ -51,6 +51,29 @@ async function deadline<T>(promise: Promise<T>, ms = 10_000): Promise<T> {
   }
 }
 
+function assertManifest(envelope: ReturnType<typeof parseEnvelope>): void {
+  const files = filesArray(envelope);
+  const manifests = files.filter(
+    (file) =>
+      basename(String(file.path)).startsWith("manifest") && file.mime === "application/json",
+  );
+  expect(manifests, "every completed RTC receipt must name its final manifest").toHaveLength(1);
+  const manifest = manifests[0]!;
+  for (const file of files) {
+    const bytes = readFileSync(String(file.path));
+    expect(file.bytes, String(file.path)).toBe(bytes.length);
+    expect(file.sha256, String(file.path)).toBe(createHash("sha256").update(bytes).digest("hex"));
+  }
+  const parsed = recordValue(JSON.parse(readFileSync(String(manifest.path), "utf8")));
+  const result = envelope.ok
+    ? recordValue(envelope.data)
+    : recordValue(recordValue(recordValue(envelope.error).raw).rtc);
+  const { conversation_id: _conversationId, ...rtc } = result;
+  expect(parsed.rtc).toEqual(rtc);
+  expect(recordValue(parsed.rtc).transport).toBe("webrtc");
+  expect(parsed.files).toEqual(files.filter((file) => file.path !== manifest.path));
+}
+
 native("real local LiveKit CLI data and PCM transport (not live ElevenLabs)", () => {
   let sdk: typeof LiveKit;
   let directory: string;
@@ -95,7 +118,7 @@ native("real local LiveKit CLI data and PCM transport (not live ElevenLabs)", ()
     if (sdk) await sdk.dispose();
   });
 
-  function startCli(script: RtcAction[], flags: string[] = []) {
+  function startCli(script: RtcAction[], flags: string[] = [], detached = false) {
     const token = jwt(roomName, "elv-client-canary");
     const path = join(directory, "script.ndjson");
     writeFileSync(path, script.map((action) => JSON.stringify(action)).join("\n"));
@@ -119,6 +142,7 @@ native("real local LiveKit CLI data and PCM transport (not live ElevenLabs)", ()
       binary ?? process.execPath,
       binary ? args : ["--import", "tsx", "src/cli.ts", ...args],
       {
+        detached,
         env: {
           ...process.env,
           ELEVENLABS_API_KEY: "",
@@ -261,6 +285,7 @@ native("real local LiveKit CLI data and PCM transport (not live ElevenLabs)", ()
     const result = await deadline(started.result);
     expect(result.code, result.stdout + result.stderr).toBe(0);
     const envelope = parseEnvelope(result.stdout);
+    assertManifest(envelope);
     expect(incoming[0]).toMatchObject({
       data: {
         type: "conversation_initiation_client_data",
@@ -377,6 +402,7 @@ native("real local LiveKit CLI data and PCM transport (not live ElevenLabs)", ()
     const result = await deadline(started.result);
     expect(result.code).not.toBe(0);
     const envelope = parseEnvelope(result.stdout);
+    assertManifest(envelope);
     expect(recordValue(envelope.error).code).toBe("rtc_media_error");
     const raw = recordValue(recordValue(envelope.error).raw);
     const rtc = recordValue(raw.rtc ?? raw);
@@ -401,6 +427,7 @@ native("real local LiveKit CLI data and PCM transport (not live ElevenLabs)", ()
     const result = await deadline(started.result);
     expect(initialized).toBe(true);
     const envelope = parseEnvelope(result.stdout);
+    assertManifest(envelope);
     expect(result.code).not.toBe(0);
     expect(recordValue(envelope.error).code).toBe("rtc_timeout");
     const rtc = recordValue(recordValue(recordValue(envelope.error).raw).rtc);
@@ -425,10 +452,44 @@ native("real local LiveKit CLI data and PCM transport (not live ElevenLabs)", ()
     started.child.kill("SIGTERM");
     const result = await deadline(started.result);
     const envelope = parseEnvelope(result.stdout);
+    assertManifest(envelope);
     expect(result.code).not.toBe(0);
     expect(recordValue(envelope.error).code).toBe("rtc_aborted");
     const rtc = recordValue(recordValue(recordValue(envelope.error).raw).rtc);
     expect(rtc).toMatchObject({ closed: true, partial: true });
     expect(result.stdout + result.stderr).not.toContain(started.token);
   }, 20_000);
+
+  it.skipIf(process.platform !== "linux")(
+    "handles SIGINT for the owned CLI/worker process group and preserves the manifest",
+    async () => {
+      let resolveInit!: () => void;
+      const initialized = new Promise<void>((resolve) => {
+        resolveInit = resolve;
+      });
+      oracle.on(sdk.RoomEvent.DataReceived, (bytes) => {
+        if (
+          JSON.parse(new TextDecoder().decode(bytes)).type === "conversation_initiation_client_data"
+        )
+          resolveInit();
+      });
+      const started = startCli([], ["--duplex"], true);
+      await deadline(initialized);
+      const pid = started.child.pid!;
+      const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
+      const group = Number(stat.slice(stat.lastIndexOf(")") + 2).split(" ")[2]);
+      expect(group).toBe(pid);
+      process.kill(-group, "SIGINT");
+      const result = await deadline(started.result);
+      const envelope = parseEnvelope(result.stdout);
+      expect(recordValue(envelope.error).code).toBe("rtc_aborted");
+      expect(recordValue(recordValue(recordValue(envelope.error).raw).rtc)).toMatchObject({
+        closed: true,
+        partial: true,
+      });
+      assertManifest(envelope);
+      expect(result.stdout + result.stderr).not.toContain(started.token);
+    },
+    20_000,
+  );
 });

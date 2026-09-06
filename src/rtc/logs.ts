@@ -3,11 +3,13 @@ import { redactWs, redactWsString } from "../ws/events";
 import type { JsonValue } from "../util/json";
 
 export function redactRtcText(text: string, token: string): string {
-  for (const value of new Set([
-    token,
-    encodeURIComponent(token),
-    JSON.stringify(token).slice(1, -1),
-  ])) {
+  const variants = [token, JSON.stringify(token).slice(1, -1)];
+  try {
+    variants.push(encodeURIComponent(token));
+  } catch {
+    /* Malformed Unicode has no URI encoding; still redact raw and JSON forms. */
+  }
+  for (const value of new Set(variants)) {
     if (value) text = text.split(value).join("[REDACTED]");
   }
   return redactWsString(text);

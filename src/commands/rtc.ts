@@ -17,7 +17,7 @@ import { runRtcSession, RtcSessionError } from "../rtc/session";
 import { parseRtcScript, validateRtcFiles } from "../rtc/actions";
 import { errorMessage } from "../util/error";
 import { isRecord } from "../util/json";
-import { redactWsString } from "../ws/events";
+import { redactRtcText } from "../rtc/logs";
 import { numberValue, runOptsFromCommand } from "./options";
 
 const CMD = "elv rtc";
@@ -291,15 +291,13 @@ export async function runRtc(flags: RtcFlags, options: RtcRunOptions = {}): Prom
     return {
       env: success({
         cmd: CMD,
-        data: { ...result.rtc, transport: "webrtc", conversation_id: conversationId },
+        data: { ...result.rtc, conversation_id: conversationId },
         files: [...tokenFiles, ...result.files],
       }),
       exitCode: ExitCode.Success,
     };
   } catch (error) {
-    const message = redactWsString(
-      token ? errorMessage(error).split(token).join("[REDACTED]") : errorMessage(error),
-    );
+    const message = redactRtcText(errorMessage(error), token);
     if (error instanceof RtcSessionError)
       return {
         env: failure({

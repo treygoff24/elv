@@ -1,6 +1,11 @@
 import type { FileRecord } from "../core/types";
 import type { RtcAction } from "./actions";
 
+export const RTC_CLEANUP_STEP_MS = 750;
+export const RTC_WORKER_EXIT_GRACE_MS = 4 * RTC_CLEANUP_STEP_MS + 2000;
+export const RTC_WORKER_KILL_GRACE_MS = 500;
+export const RTC_SUPERVISOR_GRACE_MS = RTC_WORKER_EXIT_GRACE_MS + RTC_WORKER_KILL_GRACE_MS + 1000;
+
 export interface RtcAudioOutput {
   track_id: string;
   participant: string;
@@ -12,7 +17,7 @@ export interface RtcAudioOutput {
 }
 
 export interface RtcInfo {
-  transport: "livekit";
+  transport: "webrtc";
   events_sent: number;
   events_received: number;
   audio_input_bytes: number;
@@ -73,7 +78,7 @@ export type WorkerMessage =
 
 export function emptyRtcInfo(): RtcInfo {
   return {
-    transport: "livekit",
+    transport: "webrtc",
     events_sent: 0,
     events_received: 0,
     audio_input_bytes: 0,

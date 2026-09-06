@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import type * as LiveKit from "@livekit/rtc-node";
 import { decodeBase64 } from "../core/encoding";
-import { fileRecord, tempFileWriter, writeManifest, type TempFileWriter } from "../core/files";
+import { fileRecord, tempFileWriter, type TempFileWriter } from "../core/files";
 import { duplexEventLine } from "../ws/events";
 import { isRecord, type JsonObject, type JsonValue } from "../util/json";
 import { errorMessage } from "../util/error";
@@ -11,6 +11,7 @@ import { validateRtcAction, validateRtcFiles, type RtcAction } from "./actions";
 import { redactRtcText, redactRtcValue } from "./logs";
 import {
   emptyRtcInfo,
+  RTC_CLEANUP_STEP_MS,
   type OpenArtifact,
   type ParentMessage,
   type RtcAudioOutput,
@@ -76,7 +77,7 @@ async function bounded<T>(promise: Promise<T>, ms: number): Promise<T> {
 }
 
 async function settleCleanup(promises: Promise<unknown>[]): Promise<void> {
-  const results = await bounded(Promise.allSettled(promises), 750);
+  const results = await bounded(Promise.allSettled(promises), RTC_CLEANUP_STEP_MS);
   const failed = results.find((result) => result.status === "rejected");
   if (failed?.status === "rejected") throw failed.reason;
 }
@@ -116,6 +117,7 @@ async function run(options: WorkerOptions): Promise<void> {
   process.on("message", onMessage);
   process.once("disconnect", () => stop("supervisor_disconnected"));
   process.once("SIGTERM", () => stop("terminated"));
+  process.once("SIGINT", () => stop("aborted"));
   const timer = setTimeout(
     () => stop("timeout", { code: "rtc_timeout", message: "RTC session reached its deadline" }),
     options.timeoutMs ?? 20_000,
@@ -398,6 +400,7 @@ async function run(options: WorkerOptions): Promise<void> {
       for (const item of options.script.slice(0, initialization)) await action(item);
       await publish((options.script[initialization] as Extract<RtcAction, { type: "send" }>).data);
     } else await publish({ type: "conversation_initiation_client_data" });
+    if (controller.signal.aborted) return;
     rtc.reason = "connected";
     progress();
     await post({ type: "ready" });
@@ -432,43 +435,46 @@ async function run(options: WorkerOptions): Promise<void> {
     controller.abort();
     queue.end();
     process.removeListener("message", onMessage);
-    try {
-      await settleCleanup([...captures.values()].map(({ reader }) => reader.cancel()));
-      await settleCleanup([
+    const attempt = async (stage: () => Promise<unknown>) => {
+      try {
+        await stage();
+      } catch (problem) {
+        error ??= {
+          code: "rtc_cleanup_error",
+          message: redactRtcText(errorMessage(problem), options.token),
+        };
+        rtc.partial = true;
+      }
+    };
+    // An expected media-limit rejection must not skip unrelated output finalization.
+    await attempt(() => settleCleanup([...captures.values()].map(({ reader }) => reader.cancel())));
+    await attempt(() =>
+      settleCleanup([
         room?.disconnect() ?? Promise.resolve(),
         localTrack?.close(false) ?? Promise.resolve(),
         source?.close() ?? Promise.resolve(),
-      ]);
-      await settleCleanup([eventChain, ...captureTasks]);
+      ]),
+    );
+    await attempt(() => settleCleanup([eventChain, ...captureTasks]));
+    await attempt(async () => {
       if (events) {
         const path = await events.close();
         const file = { ...(await fileRecord(path, { hash: true })), mime: "application/x-ndjson" };
         files.push(file);
         await post({ type: "artifact", file });
       }
-      rtc.closed = true;
-      rtc.partial =
-        Boolean(error) ||
-        rtc.timed_out ||
-        !["closed", "input_ended", "agent_disconnected", "disconnected"].includes(rtc.reason);
-      const manifest = await writeManifest(options.outDir, { rtc, files } as unknown as JsonValue);
-      files.push({ ...(await fileRecord(manifest, { hash: true })), mime: "application/json" });
-    } catch (problem) {
-      error ??= {
-        code: "rtc_cleanup_error",
-        message: redactRtcText(errorMessage(problem), options.token),
-      };
-      rtc.partial = true;
-    }
-    try {
-      if (sdk) await bounded(sdk.dispose(), 750);
-    } catch {
-      error ??= {
-        code: "rtc_cleanup_error",
-        message: "Native RTC disposal failed or exceeded its deadline",
-      };
-      rtc.partial = true;
-    }
+    });
+    await attempt(async () => {
+      if (sdk) await bounded(sdk.dispose(), RTC_CLEANUP_STEP_MS);
+    });
+    rtc.closed = true;
+    rtc.partial =
+      rtc.partial ||
+      Boolean(error) ||
+      rtc.timed_out ||
+      !["closed", "input_ended", "agent_disconnected", "disconnected"].includes(rtc.reason);
+    if (rtc.partial) for (const file of files) file.partial = true;
+    // The supervisor authors the manifest after observing our actual exit status.
     await post({ type: "result", result: { rtc, files }, error });
   }
 }

@@ -2,6 +2,10 @@ import { describe, expect, it } from "vitest";
 import { RtcLogCollector, redactRtcText, redactRtcValue } from "../../src/rtc/logs";
 
 describe("native RTC diagnostics", () => {
+  it("redacts malformed Unicode tokens without throwing in error handling", () => {
+    const token = "\ud800";
+    expect(redactRtcText(JSON.stringify(token).slice(1, -1), token)).toBe("[REDACTED]");
+  });
   it("redacts a token across both chunk and retained-log boundaries", () => {
     const token = "eyJ-native-private-token.signature-canary";
     const logs = new RtcLogCollector(token, 40);

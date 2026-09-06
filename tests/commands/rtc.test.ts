@@ -178,6 +178,28 @@ describe("WebRTC command preflight", () => {
     expect(JSON.stringify(result)).not.toContain(token);
   });
 
+  it("redacts encoded tokens from local preflight errors", async () => {
+    const secret = 'RTC_CANARY/+"credential';
+    vi.stubEnv("ELV_RTC_TEST_TOKEN", secret);
+    const script = join(directory, "encoded-error.ndjson");
+    writeFileSync(
+      script,
+      JSON.stringify({
+        type: "send_audio_file",
+        path: join(directory, encodeURIComponent(secret) + ".pcm"),
+        sample_rate: 48000,
+      }),
+    );
+    const result = await runRtc(
+      { serverUrl: url, tokenEnv: "ELV_RTC_TEST_TOKEN", send: script },
+      { yes: true, out: directory },
+    );
+    expect(result.exitCode).toBe(2);
+    expect(JSON.stringify(result)).not.toContain(encodeURIComponent(secret));
+    expect(JSON.stringify(result)).not.toContain(secret);
+    expect(requests).toBe(0);
+  });
+
   it("requires an explicit server for an undocumented regional mapping", async () => {
     const result = await runRtc(
       {},
