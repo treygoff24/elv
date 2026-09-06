@@ -20,13 +20,17 @@ interface WsCatalogFields {
   costModel: WsCostModel;
   /** Whether `--duplex` can drive this route from stdin. */
   duplex: boolean;
-  /** What the first outbound message on this route has to be. */
+  /**
+   * What the first outbound message on this route has to be, and how a session on it
+   * ends. Both restate the rules WsProtocolValidator enforces, which are hand-written
+   * from ElevenLabs WebSocket documentation: the pinned OpenAPI snapshot defines no
+   * WebSocket routes, so nothing in this repository can check them.
+   */
   firstMessage: string;
-  /** How a session on this route ends. */
   terminalRule: string;
   /** Query parameter this route accepts a single-use credential in, for --token-env. */
   tokenParam?: "token" | "single_use_token";
-  /** ElevenLabs rejects the eleven_v3 model families on this route. */
+  /** ElevenLabs rejects the eleven_v3 model families on this route (documented, not in the snapshot). */
   rejectsV3?: boolean;
   outboundRisk?: Extract<Risk, "external_side_effect" | "destructive">;
   notes?: string;
