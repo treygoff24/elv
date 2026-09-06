@@ -148,6 +148,14 @@ async function runScriptedWs(
   const modelId = query.model_id ?? entry?.defaultQuery?.model_id;
   const script = input.send ? parseScriptFile(input.send, protocol, modelId) : [];
   validateScriptFiles(script);
+  if (input.duplex && script.some((action) => action.type === "close")) {
+    // playScript stops at the close without closing the socket and the duplex reader stops
+    // seeding the validator, so the session would keep streaming stdin into a socket the
+    // seed asked to close. Reject the combination instead of ignoring the close.
+    return inputError(
+      'A --send seed script cannot contain {"type":"close"} under --duplex; send that line on stdin to end the session',
+    );
+  }
   const resolved = resolveTargetForInput(target, namedEntry, query, config.baseUrl, urlOverride);
   const validationErrorResult = validateScriptedTarget(entry, resolved.url, script);
   if (validationErrorResult) return validationErrorResult;

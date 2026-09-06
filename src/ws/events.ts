@@ -204,11 +204,14 @@ export class WsProtocolValidator {
   validate(action: SendScriptAction): void {
     this.position += 1;
     const label = `${this.protocol} message ${this.position}`;
-    if (this.closed) throw new Error(`${label} appears after the protocol was closed`);
+    // An explicit close is accepted at any point, including after a terminal protocol
+    // message. Static scripts never validate it (parseSendScript stops at the close), so
+    // rejecting it over duplex stdin would fail a session that already completed.
     if (action.type === "close") {
       this.closed = true;
       return;
     }
+    if (this.closed) throw new Error(`${label} appears after the protocol was closed`);
     if (action.type === "send_binary_file") {
       if (this.protocol !== "raw") {
         throw new Error("send_binary_file is supported only by raw WebSocket sessions");

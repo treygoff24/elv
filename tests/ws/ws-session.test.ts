@@ -9,7 +9,12 @@ import WebSocket, { WebSocketServer } from "ws";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { runWs } from "../../src/commands/ws";
 import { MAX_BINARY_FILE_BYTES, parseSendScript } from "../../src/ws/events";
-import { runWsSession } from "../../src/ws/session";
+import {
+  DuplexActionReader,
+  runDuplexSession,
+  runWsSession,
+  type WsSessionState,
+} from "../../src/ws/session";
 
 const dirs: string[] = [];
 let servers: WebSocketServer[] = [];
@@ -1698,6 +1703,99 @@ describe("ws session", () => {
     if (result.env.ok) throw new Error("expected duplex failure");
     expect(result.env.error.type).toBe("validation_error");
     expect(result.env.error.code).toBe(code);
+  });
+
+  it("accepts an explicit close after a terminal duplex message", async () => {
+    const server = await startServer(() => undefined);
+    const dir = await tempDir();
+    const initial = join(dir, "tts-init.ndjson");
+    writeFileSync(initial, JSON.stringify({ type: "send", data: { text: " " } }));
+    const input = new PassThrough();
+    input.write(`${JSON.stringify({ type: "send", data: { text: "bye" } })}\n`);
+    input.write(`${JSON.stringify({ type: "send", data: { text: "" } })}\n`);
+    input.write(`${JSON.stringify({ type: "close" })}\n`);
+
+    const result = await runWs(
+      {
+        target: "tts-realtime",
+        duplex: true,
+        send: initial,
+        out: dir,
+        query: { voice_id: "voice-a" },
+      },
+      {
+        baseUrl: httpBase(server.url),
+        duplexInput: input,
+        duplexEventSink: () => undefined,
+        timeoutMs: 500,
+      },
+    );
+    input.destroy();
+
+    expect(result.exitCode).toBe(0);
+    expect(server.received.map((raw) => JSON.parse(raw))).toEqual([
+      { text: " " },
+      { text: "bye" },
+      { text: "" },
+    ]);
+  });
+
+  it("rejects a close action in a duplex seed script", async () => {
+    const server = await startServer(() => undefined);
+    const dir = await tempDir();
+    const seed = join(dir, "seed.ndjson");
+    writeFileSync(
+      seed,
+      [{ type: "send", data: { text: " " } }, { type: "close" }]
+        .map((line) => JSON.stringify(line))
+        .join("\n"),
+    );
+    const input = new PassThrough();
+
+    const result = await runWs(
+      {
+        target: "tts-realtime",
+        duplex: true,
+        send: seed,
+        out: dir,
+        query: { voice_id: "voice-a" },
+      },
+      {
+        baseUrl: httpBase(server.url),
+        duplexInput: input,
+        duplexEventSink: () => undefined,
+        timeoutMs: 500,
+      },
+    );
+    input.destroy();
+
+    expect(result.exitCode).toBe(2);
+    expect(result.env.ok ? undefined : result.env.error.message).toContain("--duplex");
+    expect(server.connected).toBe(false);
+  });
+
+  it("reports a duplex input error the remote close would otherwise mask", async () => {
+    const input = new PassThrough();
+    input.write(`${JSON.stringify({ type: "wait" })}\n`);
+    const reader = new DuplexActionReader(input, "raw", []);
+    // Let readline queue the invalid line before the race starts, so the reader rejects
+    // after an already-resolved close has won: the polarity finding 7 is about.
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const state: WsSessionState = {
+      eventsSent: 0,
+      eventsReceived: 0,
+      closed: true,
+      opened: true,
+      messageChain: Promise.resolve(),
+      binaryPaths: [],
+    };
+    // The invalid line throws before any action is sent, so the socket is never touched.
+    const socket = { readyState: WebSocket.CLOSED } as unknown as WebSocket;
+
+    await expect(runDuplexSession(socket, state, Promise.resolve(), reader)).rejects.toThrow(
+      /unsupported send-script action/u,
+    );
+    input.destroy();
   });
 
   it("closes a duplex socket cleanly on input EOF", async () => {

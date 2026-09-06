@@ -68,7 +68,7 @@ class WsDuplexInputError extends Error {
   }
 }
 
-interface WsSessionState {
+export interface WsSessionState {
   eventsSent: number;
   eventsReceived: number;
   closed: boolean;
@@ -439,7 +439,7 @@ async function playScript(socket: WebSocket, script: SendScriptAction[]): Promis
   return eventsSent;
 }
 
-class DuplexActionReader {
+export class DuplexActionReader {
   private readonly lines: ReadlineInterface;
   private readonly iterator: AsyncIterator<string>;
   private readonly validator: WsProtocolValidator;
@@ -498,17 +498,26 @@ class DuplexActionReader {
   }
 }
 
-async function runDuplexSession(
+export async function runDuplexSession(
   socket: WebSocket,
   state: WsSessionState,
   closedPromise: Promise<void>,
   reader: DuplexActionReader,
 ): Promise<void> {
   const inputTask = playDuplex(socket, state, reader);
+  // A stdin action that fails validation must be reported even when the remote closes
+  // first: otherwise the race is won by the close, the rejection is swallowed by the
+  // finally block, and an invalid input line exits 0 with a success envelope.
+  let inputFailure: unknown;
+  const guardedInput = inputTask.catch((error: unknown) => {
+    inputFailure = error;
+    throw error;
+  });
+  void guardedInput.catch(() => undefined);
   try {
     const outcome = await Promise.race([
       closedPromise.then(() => "closed" as const),
-      inputTask.then(() => "input_complete" as const),
+      guardedInput.then(() => "input_complete" as const),
     ]);
     if (outcome === "input_complete") {
       closeSocketGracefully(socket);
@@ -516,8 +525,9 @@ async function runDuplexSession(
     }
   } finally {
     reader.close();
-    await inputTask.catch(() => undefined);
+    await guardedInput.catch(() => undefined);
   }
+  if (inputFailure !== undefined) throw inputFailure;
 }
 
 async function playDuplex(
