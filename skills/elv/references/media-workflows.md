@@ -110,7 +110,8 @@ quality, language, latency, and availability requirements.
 
 `flows image|video|speech create --json-file request.json --dry-run` previews
 model-specific generation input. Remove `--dry-run` to execute; add `--wait`
-to poll to completion. Discover the body with `ops schema
+to poll to completion (`--timeout-ms`, default 600000, and `--interval-ms` bound
+the poll; a `wait_timeout` exits 7 with a hint naming the `get` re-poll). Discover the body with `ops schema
 create_image_generation --example` (or the video/text-to-speech operation).
 `assets upload --file reference.png` creates reusable input media.
 

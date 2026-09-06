@@ -82,7 +82,7 @@ ElevenLabs marks `eleven_turbo_v2_5`, `eleven_turbo_v2`, and `scribe_v1` depreca
 
 The September 6 snapshot adds 24 operations relative to August 11: nine Flows generation operations, four Assets operations, ten Agents triage-ticket operations, and conversation summaries. No operation was removed. The runner compiles every non-skipped operation, and every request-body schema can be compiled by the local validator. This checks the published contract, not account entitlements or live execution of every operation.
 
-`flows image|video|speech` supports create, list, and get; `create --wait` polls until completion or failure. `assets` supports upload, list, get, and delete. `agents tickets` supports both agent and workspace lists, creation from conversations or manual creation, assignment discovery, updates, deletion, and ticket/turn comments. `agents conversations summary` reads summaries. Model-specific generation options remain available through alias body JSON or generic calls.
+`flows image|video|speech` supports create, list, and get; `create --wait` polls until completion, failure, or the `--timeout-ms` deadline (default 600000 ms; `--interval-ms` sets the poll interval). A timeout exits 7 with hints naming the `get` command for the created id. `assets` supports upload, list, get, and delete. `agents tickets` supports both agent and workspace lists, creation from conversations or manual creation, assignment discovery, updates, deletion, and ticket/turn comments. `agents conversations summary` reads summaries. Model-specific generation options remain available through alias body JSON or generic calls.
 
 Current high-use workflow coverage includes:
 
