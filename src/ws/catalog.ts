@@ -2,6 +2,14 @@ import type { Risk } from "../openapi/types";
 
 export type WsProtocol = "tts" | "tts-multi" | "ttd" | "ttd-multi" | "stt" | "convai" | "monitor";
 
+/**
+ * How a route's cost can be bounded before connecting.
+ *   tts_characters - estimated from the characters in the send script
+ *   unbounded      - the provider decides how much is generated, so no estimate exists
+ *   unknown        - nothing is known about the cost of the traffic on this route
+ */
+export type WsCostModel = "tts_characters" | "unbounded" | "unknown";
+
 interface WsCatalogFields {
   urlTemplate: string;
   pathTemplate: string;
@@ -9,6 +17,11 @@ interface WsCatalogFields {
   auth: string;
   scriptable: boolean;
   protocol: WsProtocol;
+  costModel: WsCostModel;
+  /** Query parameter this route accepts a single-use credential in, for --token-env. */
+  tokenParam?: "token" | "single_use_token";
+  /** ElevenLabs rejects the eleven_v3 model families on this route. */
+  rejectsV3?: boolean;
   outboundRisk?: Extract<Risk, "external_side_effect" | "destructive">;
   notes?: string;
   defaultQuery?: Record<string, string>;
@@ -25,6 +38,9 @@ interface WsCatalogFields {
 const WS_CATALOG = [
   {
     name: "tts-realtime",
+    costModel: "tts_characters",
+    tokenParam: "single_use_token",
+    rejectsV3: true,
     urlTemplate:
       "wss://api.elevenlabs.io/v1/text-to-speech/{voice_id}/stream-input?model_id={model_id}",
     pathTemplate: "/v1/text-to-speech/{voice_id}/stream-input",
@@ -37,6 +53,9 @@ const WS_CATALOG = [
   },
   {
     name: "tts-multi",
+    costModel: "tts_characters",
+    tokenParam: "single_use_token",
+    rejectsV3: true,
     urlTemplate:
       "wss://api.elevenlabs.io/v1/text-to-speech/{voice_id}/multi-stream-input?model_id={model_id}",
     pathTemplate: "/v1/text-to-speech/{voice_id}/multi-stream-input",
@@ -49,6 +68,8 @@ const WS_CATALOG = [
   },
   {
     name: "ttd-realtime",
+    costModel: "tts_characters",
+    tokenParam: "single_use_token",
     urlTemplate: "wss://api.elevenlabs.io/v1/text-to-dialogue/stream-input?model_id={model_id}",
     pathTemplate: "/v1/text-to-dialogue/stream-input",
     requiredParams: [],
@@ -60,6 +81,8 @@ const WS_CATALOG = [
   },
   {
     name: "ttd-multi",
+    costModel: "tts_characters",
+    tokenParam: "single_use_token",
     urlTemplate:
       "wss://api.elevenlabs.io/v1/text-to-dialogue/multi-stream-input?model_id={model_id}",
     pathTemplate: "/v1/text-to-dialogue/multi-stream-input",
@@ -72,6 +95,8 @@ const WS_CATALOG = [
   },
   {
     name: "stt-realtime",
+    costModel: "unbounded",
+    tokenParam: "token",
     urlTemplate: "wss://api.elevenlabs.io/v1/speech-to-text/realtime?model_id={model_id}",
     pathTemplate: "/v1/speech-to-text/realtime",
     requiredParams: [],
@@ -82,6 +107,7 @@ const WS_CATALOG = [
   },
   {
     name: "convai",
+    costModel: "unbounded",
     urlTemplate: "wss://api.elevenlabs.io/v1/convai/conversation?agent_id={agent_id}",
     pathTemplate: "/v1/convai/conversation",
     requiredParams: ["agent_id"],
@@ -92,6 +118,7 @@ const WS_CATALOG = [
   },
   {
     name: "convai-monitor",
+    costModel: "unknown",
     urlTemplate: "wss://api.elevenlabs.io/v1/convai/conversations/{conversation_id}/monitor",
     pathTemplate: "/v1/convai/conversations/{conversation_id}/monitor",
     requiredParams: ["conversation_id"],

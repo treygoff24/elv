@@ -61,11 +61,6 @@ export class AudioWriter {
     return true;
   }
 
-  async close(): Promise<string | null> {
-    const outputs = await this.closeAll();
-    return outputs.find(({ contextId }) => contextId === null)?.path ?? null;
-  }
-
   async closeAll(): Promise<AudioOutput[]> {
     return await Promise.all(
       [...this.writers.values()].map(async ({ writer, contextId }) => {
@@ -150,7 +145,7 @@ function audioContextId(
   return (camelPresent ? camel : snake) as string;
 }
 
-function isContextId(value: JsonValue): value is string {
+function isContextId(value: unknown): value is string {
   return typeof value === "string" && value.length > 0;
 }
 

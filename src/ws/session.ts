@@ -14,6 +14,7 @@ import {
   parseSendScriptLine,
   redactWs,
   redactWsString,
+  SendScriptSyntaxError,
   validateBinaryFiles,
   WsProtocolValidator,
 } from "./events";
@@ -93,7 +94,7 @@ export async function runWsSession(options: WsSessionOptions): Promise<WsSession
     messageChain: Promise.resolve(),
     binaryPaths: [],
   };
-  const inactivity = createInactivityTimer(socket, timeoutMs);
+  const inactivity = new InactivityTimer(socket, timeoutMs);
   let duplexReader: DuplexActionReader | undefined;
 
   try {
@@ -175,7 +176,7 @@ async function openedErrorEvent(socket: WebSocket, state: WsSessionState): Promi
 function trackMessages(
   socket: WebSocket,
   state: WsSessionState,
-  inactivity: ReturnType<typeof createInactivityTimer>,
+  inactivity: InactivityTimer,
   events: NdjsonEventWriter,
   audio: AudioWriter,
   onDuplexEvent?: (line: string) => void,
@@ -209,7 +210,7 @@ async function processSessionMessage(
   isBinary: boolean,
   socket: WebSocket,
   state: WsSessionState,
-  inactivity: ReturnType<typeof createInactivityTimer>,
+  inactivity: InactivityTimer,
   events: NdjsonEventWriter,
   audio: AudioWriter,
   onDuplexEvent?: (line: string) => void,
@@ -259,7 +260,7 @@ async function finishSession(
   state: WsSessionState,
   events: NdjsonEventWriter,
   audio: AudioWriter,
-  inactivity: ReturnType<typeof createInactivityTimer>,
+  inactivity: InactivityTimer,
 ): Promise<WsSessionResult> {
   const files: FileRecord[] = [];
   const eventPath = await events.close();
@@ -285,7 +286,7 @@ async function preserveFailedSession(
   state: WsSessionState,
   events: NdjsonEventWriter,
   audio: AudioWriter,
-  inactivity: ReturnType<typeof createInactivityTimer>,
+  inactivity: InactivityTimer,
 ): Promise<FileRecord[]> {
   const hasOutput = events.hasData || audio.hasData || state.binaryPaths.length > 0;
   if (!hasOutput) {
@@ -330,7 +331,7 @@ async function preserveFailedSession(
 function sessionManifest(
   options: WsSessionOptions,
   state: WsSessionState,
-  inactivity: ReturnType<typeof createInactivityTimer>,
+  inactivity: InactivityTimer,
   audioOutputs: AudioOutput[],
   partial = false,
 ): JsonValue {
@@ -413,10 +414,6 @@ class InactivityTimer {
   }
 }
 
-function createInactivityTimer(socket: WebSocket, timeoutMs: number): InactivityTimer {
-  return new InactivityTimer(socket, timeoutMs);
-}
-
 async function processMessage(
   data: RawData,
   socket: WebSocket,
@@ -477,14 +474,6 @@ export class DuplexActionReader {
         );
       }
       if (item.value.trim().length === 0) continue;
-      try {
-        parseJsonValue(item.value, "duplex input line");
-      } catch {
-        throw new WsDuplexInputError(
-          "ws_duplex_invalid_json",
-          "Duplex input line is not valid JSON",
-        );
-      }
       let action: SendScriptAction;
       try {
         action = parseSendScriptLine(item.value);
@@ -492,7 +481,9 @@ export class DuplexActionReader {
         this.validator.validate(action);
       } catch (error) {
         throw new WsDuplexInputError(
-          "ws_duplex_invalid_action",
+          error instanceof SendScriptSyntaxError
+            ? "ws_duplex_invalid_json"
+            : "ws_duplex_invalid_action",
           error instanceof Error ? error.message : String(error),
         );
       }

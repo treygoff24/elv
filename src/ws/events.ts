@@ -125,12 +125,21 @@ export function duplexEventLine(value: JsonValue): string {
   return JSON.stringify(stripDuplexAudio(redactWs(value)));
 }
 
+export class SendScriptSyntaxError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "SendScriptSyntaxError";
+  }
+}
+
 export function parseSendScriptLine(line: string, index = 1): SendScriptAction {
   let parsed: JsonValue;
   try {
     parsed = parseJson(line, `send-script line ${index}`);
   } catch (error) {
-    throw new Error(`send-script line ${index} is not valid JSON: ${errorMessage(error)}`);
+    throw new SendScriptSyntaxError(
+      `send-script line ${index} is not valid JSON: ${errorMessage(error)}`,
+    );
   }
   if (!isRecord(parsed)) {
     throw new Error(`send-script line ${index} must be a JSON object`);

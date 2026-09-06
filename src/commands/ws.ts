@@ -140,7 +140,7 @@ async function runScriptedWs(
   const query = withTokenEnvironment({
     query: { ...defaultQuery, ...embeddedQuery, ...input.query },
     tokenEnv: input.tokenEnv,
-    protocol,
+    entry,
     urlOverride,
     targetHost,
     baseHost,
@@ -156,7 +156,14 @@ async function runScriptedWs(
       'A --send seed script cannot contain {"type":"close"} under --duplex; send that line on stdin to end the session',
     );
   }
-  const resolved = resolveTargetForInput(target, namedEntry, query, config.baseUrl, urlOverride);
+  let resolved: ResolvedWsTarget;
+  try {
+    resolved = resolveTarget(target, namedEntry, query, config.baseUrl, urlOverride);
+  } catch (error) {
+    // buildCatalogUrl and wsUrlFromPath report missing parameters and off-host paths as
+    // plain errors; every one of them is a bad invocation, not a session failure.
+    throw new ScriptValidationError(errorMessage(error));
+  }
   const validationErrorResult = validateScriptedTarget(entry, resolved.url, script);
   if (validationErrorResult) return validationErrorResult;
   const preflight = wsPreflight(
@@ -177,7 +184,7 @@ async function runScriptedWs(
     return {
       env: confirmationRequired(
         "elv ws",
-        preflight.unboundedBudget
+        preflight.budget.unbounded
           ? "Configured max-credits cannot bound this raw WebSocket session; rerun with --yes to accept that limit"
           : "Outbound agent or monitor actions require --yes",
         { raw: { catalog: catalogName, outbound_actions: preflight.outboundActions } },
@@ -211,9 +218,9 @@ async function runScriptedWs(
       ws: result.ws,
       files: result.files,
       cost: {
-        credits_estimated: preflight.creditsEstimated,
+        credits_estimated: preflight.budget.creditsEstimated,
         credits_charged: null,
-        credits_source: preflight.creditsEstimated === null ? "none" : "estimate",
+        credits_source: preflight.budget.creditsEstimated === null ? "none" : "estimate",
       },
       warnings: sessionWarnings(preflight, result.warnings),
     }),
@@ -225,7 +232,7 @@ function sessionWarnings(
   preflight: WsPreflight,
   sessionWarnings: Warning[],
 ): Warning[] | undefined {
-  const warnings: Warning[] = preflight.unboundedBudget
+  const warnings: Warning[] = preflight.budget.unbounded
     ? [
         {
           code: "budget_unbounded",
@@ -334,26 +341,12 @@ function wsPathMatches(template: string, path: string): boolean {
   );
 }
 
-function resolveTargetForInput(
-  target: string,
-  entry: WsCatalogEntry | undefined,
-  query: Record<string, string>,
-  baseUrl: string,
-  urlOverride?: string,
-): { url: URL; path: string; usesProfileAuth: boolean } {
-  try {
-    return resolveTarget(target, entry, query, baseUrl, urlOverride);
-  } catch (error) {
-    throw new ScriptValidationError(errorMessage(error));
-  }
-}
-
 function rejectsElevenV3(
   entry: WsCatalogEntry,
   url: URL,
   script: ReturnType<typeof parseSendScript>,
 ): boolean {
-  if (!entry.name.startsWith("tts-")) return false;
+  if (entry.rejectsV3 !== true) return false;
   return (
     url.searchParams.get("model_id")?.toLowerCase().startsWith("eleven_v3") === true ||
     scriptUsesModel(script, "eleven_v3") ||
@@ -380,15 +373,22 @@ interface ResolvedWsTarget {
   usesProfileAuth: boolean;
 }
 
+interface WsBudgetOutcome {
+  policy: BudgetDecision["policy"];
+  creditsEstimated: number | null;
+  /** null when nothing can be said either way, which only --yes can accept. */
+  wouldExceed: boolean | null;
+  /** A raw session a configured ceiling cannot bind; --yes accepts it with a warning. */
+  unbounded: boolean;
+  /** A live session whose cost the provider decides as it runs. */
+  dynamicCost: boolean;
+}
+
 interface WsPreflight {
   outboundActions: number;
   requiresYes: boolean;
-  creditsEstimated: number | null;
-  budgetPolicy: BudgetDecision["policy"];
-  wouldExceedBudget: boolean | null;
-  unboundedBudget: boolean;
-  dynamicCostUnbounded: boolean;
   duplex: boolean;
+  budget: WsBudgetOutcome;
 }
 
 function withConfiguredTtsModel(
@@ -408,14 +408,14 @@ function withConfiguredTtsModel(
 interface TokenEnvironmentInput {
   query: Record<string, string>;
   tokenEnv: string | undefined;
-  protocol: WsProtocol | "raw";
+  entry: WsCatalogEntry | undefined;
   urlOverride: string | undefined;
   targetHost: string | undefined;
   baseHost: string;
 }
 
 function withTokenEnvironment(input: TokenEnvironmentInput): Record<string, string> {
-  const { query, tokenEnv, protocol, urlOverride, targetHost, baseHost } = input;
+  const { query, tokenEnv, entry, urlOverride, targetHost, baseHost } = input;
   if (!tokenEnv) return query;
   if (urlOverride) throw new ScriptValidationError("--token-env cannot be combined with --url-env");
   // The token travels in the connection URL, so it is only safe on the host the
@@ -425,15 +425,7 @@ function withTokenEnvironment(input: TokenEnvironmentInput): Record<string, stri
       `--token-env sends the token to the connection host, and ${targetHost} is not the configured API host ${baseHost}`,
     );
   }
-  const parameter =
-    protocol === "stt"
-      ? "token"
-      : protocol === "tts" ||
-          protocol === "tts-multi" ||
-          protocol === "ttd" ||
-          protocol === "ttd-multi"
-        ? "single_use_token"
-        : undefined;
+  const parameter = entry?.tokenParam;
   if (!parameter) {
     throw new ScriptValidationError(
       "--token-env is supported only for named TTS, Text to Dialogue, and realtime STT protocols",
@@ -463,55 +455,60 @@ function wsPreflight(
 ): WsPreflight {
   const outboundActions = outboundActionCount(script);
   const protocol = entry?.protocol ?? "raw";
-  const dynamicCostUnbounded =
-    duplex && ["tts", "tts-multi", "ttd", "ttd-multi", "stt", "convai"].includes(protocol);
-  const creditsEstimated =
-    !dynamicCostUnbounded &&
-    (protocol === "tts" ||
-      protocol === "tts-multi" ||
-      protocol === "ttd" ||
-      protocol === "ttd-multi")
-      ? ttsCharacterEstimate(
-          script,
-          url.searchParams.get("model_id") ?? entry?.defaultQuery?.model_id ?? "",
-        )
-      : null;
-  const estimateUnavailable = dynamicCostUnbounded || protocol === "stt" || protocol === "convai";
-  const budgetPolicy =
-    maxCredits === undefined
-      ? "not_configured"
-      : creditsEstimated !== null
-        ? "bounded"
-        : estimateUnavailable
-          ? "estimate_unavailable"
-          : "unknown_unbounded";
-  const wouldExceedBudget =
-    maxCredits === undefined
-      ? false
-      : creditsEstimated !== null
-        ? creditsEstimated > maxCredits
-        : estimateUnavailable
-          ? true
-          : null;
-  const unboundedBudget =
-    entry === undefined &&
-    protocol === "raw" &&
-    maxCredits !== undefined &&
-    (outboundActions > 0 || duplex);
+  const budget = wsBudget(entry, script, url, maxCredits, duplex, outboundActions);
   const dynamicAgentActions = duplex && (protocol === "convai" || protocol === "monitor");
   return {
     outboundActions,
     requiresYes:
       (outboundActions > 0 && entry?.outboundRisk !== undefined) ||
       dynamicAgentActions ||
-      unboundedBudget,
-    creditsEstimated,
-    budgetPolicy,
-    wouldExceedBudget,
-    unboundedBudget,
-    dynamicCostUnbounded,
+      budget.unbounded,
     duplex,
+    budget,
   };
+}
+
+function wsBudget(
+  entry: WsCatalogEntry | undefined,
+  script: SendScriptAction[],
+  url: URL,
+  maxCredits: number | undefined,
+  duplex: boolean,
+  outboundActions: number,
+): WsBudgetOutcome {
+  const costModel = entry?.costModel ?? "unknown";
+  // A live session on a metered route bills for whatever the provider generates, so a
+  // send-script estimate stops meaning anything the moment stdin can add to it.
+  const dynamicCost = duplex && costModel !== "unknown";
+  const creditsEstimated =
+    !dynamicCost && costModel === "tts_characters"
+      ? ttsCharacterEstimate(
+          script,
+          url.searchParams.get("model_id") ?? entry?.defaultQuery?.model_id ?? "",
+        )
+      : null;
+  const estimateUnavailable = dynamicCost || costModel === "unbounded";
+  const unbounded =
+    entry === undefined && maxCredits !== undefined && (outboundActions > 0 || duplex);
+  return {
+    ...budgetVerdict(maxCredits, creditsEstimated, estimateUnavailable),
+    creditsEstimated,
+    unbounded,
+    dynamicCost,
+  };
+}
+
+function budgetVerdict(
+  maxCredits: number | undefined,
+  creditsEstimated: number | null,
+  estimateUnavailable: boolean,
+): Pick<WsBudgetOutcome, "policy" | "wouldExceed"> {
+  if (maxCredits === undefined) return { policy: "not_configured", wouldExceed: false };
+  if (creditsEstimated !== null) {
+    return { policy: "bounded", wouldExceed: creditsEstimated > maxCredits };
+  }
+  if (estimateUnavailable) return { policy: "estimate_unavailable", wouldExceed: true };
+  return { policy: "unknown_unbounded", wouldExceed: null };
 }
 
 function dryRunResult(
@@ -527,9 +524,9 @@ function dryRunResult(
     env: success({
       cmd: "elv ws",
       cost: {
-        credits_estimated: preflight.creditsEstimated,
+        credits_estimated: preflight.budget.creditsEstimated,
         credits_charged: null,
-        credits_source: preflight.creditsEstimated === null ? "none" : "estimate",
+        credits_source: preflight.budget.creditsEstimated === null ? "none" : "estimate",
       },
       data: redactWs({
         dry_run: true,
@@ -541,14 +538,14 @@ function dryRunResult(
           headers: headers ?? {},
           script,
         },
-        risk: entry?.outboundRisk ?? (preflight.unboundedBudget ? "unknown_unbounded" : "read"),
+        risk: entry?.outboundRisk ?? (preflight.budget.unbounded ? "unknown_unbounded" : "read"),
         outbound_actions: preflight.outboundActions,
-        credits_estimated: preflight.creditsEstimated,
-        budget_policy: preflight.budgetPolicy,
+        credits_estimated: preflight.budget.creditsEstimated,
+        budget_policy: preflight.budget.policy,
         would_require_yes: preflight.requiresYes,
-        would_exceed_budget: preflight.wouldExceedBudget,
-        unbounded_budget: preflight.unboundedBudget,
-        dynamic_cost_unbounded: preflight.dynamicCostUnbounded,
+        would_exceed_budget: preflight.budget.wouldExceed,
+        unbounded_budget: preflight.budget.unbounded,
+        dynamic_cost_unbounded: preflight.budget.dynamicCost,
         duplex: preflight.duplex,
       }),
     }),
@@ -564,7 +561,7 @@ function enforceWsBudget(
   if (!Number.isFinite(maxCredits) || maxCredits < 0) {
     return inputError("--max-credits must be a non-negative number");
   }
-  if (preflight.budgetPolicy === "estimate_unavailable") {
+  if (preflight.budget.policy === "estimate_unavailable") {
     return {
       env: failure({
         cmd: "elv ws",
@@ -590,9 +587,9 @@ function enforceWsBudget(
       exitCode: ExitCode.BudgetCeiling,
     };
   }
-  if (preflight.wouldExceedBudget) {
+  if (preflight.budget.wouldExceed) {
     return {
-      env: budgetExceeded("elv ws", preflight.creditsEstimated, maxCredits),
+      env: budgetExceeded("elv ws", preflight.budget.creditsEstimated, maxCredits),
       exitCode: ExitCode.BudgetCeiling,
     };
   }

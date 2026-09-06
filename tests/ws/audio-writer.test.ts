@@ -29,7 +29,7 @@ describe("AudioWriter", () => {
       }),
     ).resolves.toBe(true);
 
-    await expect(writer.close()).resolves.toBe(writer.path);
+    await expect(writer.closeAll()).resolves.toEqual([{ path: writer.path, contextId: null }]);
     await expect(readFile(writer.path, "utf8")).resolves.toBe("onetwothree");
   });
 
@@ -37,17 +37,17 @@ describe("AudioWriter", () => {
     const dir = await tempDir();
     const first = new AudioWriter(dir, "mp3_44100_128");
     await first.writeFromEvent({ audio: Buffer.from("first").toString("base64") });
-    const firstPath = await first.close();
+    const [firstOutput] = await first.closeAll();
 
     const second = new AudioWriter(dir, "mp3_44100_128");
     await second.writeFromEvent({ audio: Buffer.from("second").toString("base64") });
-    const secondPath = await second.close();
+    const [secondOutput] = await second.closeAll();
 
-    expect(firstPath).not.toBeNull();
-    expect(secondPath).not.toBeNull();
-    expect(secondPath).not.toBe(firstPath);
-    await expect(readFile(firstPath!, "utf8")).resolves.toBe("first");
-    await expect(readFile(secondPath!, "utf8")).resolves.toBe("second");
+    expect(firstOutput).toBeDefined();
+    expect(secondOutput).toBeDefined();
+    expect(secondOutput!.path).not.toBe(firstOutput!.path);
+    await expect(readFile(firstOutput!.path, "utf8")).resolves.toBe("first");
+    await expect(readFile(secondOutput!.path, "utf8")).resolves.toBe("second");
   });
 
   it.each([
@@ -63,10 +63,10 @@ describe("AudioWriter", () => {
     const writer = new AudioWriter(dir, format);
     await writer.writeFromEvent({ audio: bytes.toString("base64") });
 
-    const path = await writer.close();
+    const outputs = await writer.closeAll();
 
-    expect(path).toBe(join(dir, `audio.${extension}`));
-    await expect(readFile(path!)).resolves.toEqual(bytes);
+    expect(outputs.map(({ path }) => path)).toEqual([join(dir, `audio.${extension}`)]);
+    await expect(readFile(outputs[0]!.path)).resolves.toEqual(bytes);
   });
 
   it("ignores non-audio events and closes without a file", async () => {
@@ -75,7 +75,7 @@ describe("AudioWriter", () => {
 
     expect(writer.path).toBe(join(dir, "audio.opus"));
     await expect(writer.writeFromEvent({ text: "no audio" })).resolves.toBe(false);
-    await expect(writer.close()).resolves.toBeNull();
+    await expect(writer.closeAll()).resolves.toEqual([]);
   });
 
   it("ignores malformed near-matches for nested agent audio", async () => {
@@ -88,7 +88,7 @@ describe("AudioWriter", () => {
     await expect(
       writer.writeFromEvent({ type: "audio", audio_event: { audio_base_64: 123 } }),
     ).resolves.toBe(false);
-    await expect(writer.close()).resolves.toBeNull();
+    await expect(writer.closeAll()).resolves.toEqual([]);
   });
 
   it("separates multi-context audio into safe context files", async () => {
