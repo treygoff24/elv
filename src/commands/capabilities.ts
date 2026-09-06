@@ -16,12 +16,10 @@ const COMMAND_FAMILIES = [
   ["call", "Run a known OpenAPI operation by operation ID."],
   ["http", "Call an arbitrary REST method and path with shared safety controls."],
   ["ws", "List or run a scripted WebSocket catalog session."],
-  ["rtc", "Exchange live agent data and PCM audio over WebRTC with LiveKit."],
   ["wait", "Poll an operation or command until a status condition resolves."],
   ["view", "Inspect spilled JSON or NDJSON without loading the full result."],
   ["config", "Inspect configuration and diagnose auth/runtime readiness."],
   ["spec", "Inspect, compare, and refresh the local OpenAPI registry."],
-  ["speech-engine", "Host an authenticated Speech Engine upstream endpoint with a local handler."],
 ] as const;
 
 const ALIAS_FAMILIES = [
@@ -241,7 +239,7 @@ export async function handleCapabilities(options: CapabilitiesOptions): Promise<
         protocol: {
           stdout: "exactly_one_json_envelope",
           envelope_version: ENVELOPE_VERSION,
-          realtime_transports: ["websocket", "webrtc"],
+          realtime_transports: ["websocket"],
           exit_codes: EXIT_CODES.map(([code, meaning]) => ({ code, meaning })),
         },
         configuration: {
