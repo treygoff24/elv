@@ -14,7 +14,14 @@ import {
   buildFlowGetInput,
   buildFlowListInput,
 } from "../../src/commands/aliases/flows";
-import { errorRecord, filesArray, parseEnvelope, recordValue, runCli } from "../helpers/cli-result";
+import {
+  arrayValue,
+  errorRecord,
+  filesArray,
+  parseEnvelope,
+  recordValue,
+  runCli,
+} from "../helpers/cli-result";
 import { rejectPortProbe } from "../helpers/http";
 
 describe("Flows and assets input mapping", () => {
@@ -334,6 +341,62 @@ describe("Flows and assets CLI against offline/mock transport", () => {
     } finally {
       nextGenerationId = "g1";
     }
+  });
+
+  it("names the re-poll command when --wait passes its deadline", async () => {
+    const before = requests.length;
+    const result = await run([
+      "flows",
+      "video",
+      "create",
+      "--model",
+      "veo-3.1-generate-001",
+      "--prompt",
+      "Waves",
+      "--wait",
+      "--interval-ms",
+      "20",
+      "--timeout-ms",
+      "150",
+    ]);
+
+    expect(result.code, result.stdout).toBe(7);
+    const envelope = parseEnvelope(result.stdout);
+    const error = errorRecord(envelope);
+    expect(error.code).toBe("wait_timeout");
+    expect(String(error.message)).toContain("150ms");
+    // The creation receipt must survive the timeout: the id identifies a paid job.
+    const polled = recordValue(recordValue(recordValue(error.raw).envelope).data);
+    expect(polled).toMatchObject({ id: "g1", status: "generating" });
+    const hints = arrayValue(envelope.hints).map((hint) => recordValue(hint));
+    expect(hints[0]?.cmd).toBe("elv flows video get --generation-id g1");
+    expect(String(hints[1]?.cmd)).toContain("--timeout-ms");
+    const calls = requests.slice(before).map(({ method, url }) => `${method} ${url}`);
+    expect(calls[0]).toBe("POST /v1/flows/video");
+    expect(calls.slice(1).every((call) => call === "GET /v1/flows/video/g1")).toBe(true);
+    expect(calls.length).toBeGreaterThan(1);
+  });
+
+  it("rejects a non-positive --timeout-ms before submitting a paid generation", async () => {
+    const before = requests.length;
+    const result = await run([
+      "flows",
+      "video",
+      "create",
+      "--model",
+      "veo-3.1-generate-001",
+      "--prompt",
+      "Waves",
+      "--wait",
+      "--timeout-ms",
+      "0",
+    ]);
+
+    expect(result.code, result.stdout).toBe(2);
+    expect(String(errorRecord(parseEnvelope(result.stdout)).message)).toContain(
+      "--timeout-ms must be positive",
+    );
+    expect(requests).toHaveLength(before);
   });
 
   it("returns a failure envelope when a waited generation fails", async () => {

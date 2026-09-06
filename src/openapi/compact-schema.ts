@@ -51,9 +51,27 @@ export function buildExampleCommand(op: OperationCard, spec: OpenApiDocument): E
   if (op.requestBody?.required) {
     input.body = placeholderFor("body", compactValue(rawInputSchemaForOperation(op, spec), spec));
   }
+  const files = fileArguments(input, op.requestBody?.fileFields ?? []);
   const out = op.returnsBinary || op.streamKind !== "none" ? " --out ./out" : "";
   const operationId = /^[\w.-]+$/u.test(op.operationId) ? op.operationId : shellArg(op.operationId);
-  return { cmd: `elv call ${operationId} --json ${shellArg(JSON.stringify(input))}${out}` };
+  return { cmd: `elv call ${operationId} --json ${shellArg(JSON.stringify(input))}${files}${out}` };
+}
+
+/**
+ * A multipart binary field is uploaded with `--file field=path`; leaving it in the
+ * JSON body would send the placeholder string as a form value and earn a 422.
+ */
+function fileArguments(input: JsonObject, fileFields: string[]): string {
+  const body = input.body;
+  if (fileFields.length === 0 || !isJsonObject(body)) return "";
+  const present = fileFields.filter((name) => name in body);
+  for (const name of present) delete body[name];
+  if (Object.keys(body).length === 0) delete input.body;
+  return present.map((name) => ` --file ${shellArg(`${name}=./path/to/${name}`)}`).join("");
+}
+
+function isJsonObject(value: JsonValue | undefined): value is JsonObject {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function emptyCompactSchema(): CompactSchema {

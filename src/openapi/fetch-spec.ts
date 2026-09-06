@@ -81,7 +81,8 @@ interface ComparableSpec {
   provenance: SpecProvenance | "unknown";
 }
 
-type VendoredMetadata = JsonObject & Pick<SpecProvenance, "source" | "retrieved_at">;
+export type VendoredMetadata = JsonObject &
+  Pick<SpecProvenance, "source" | "retrieved_at" | "sha256">;
 
 export class SpecInputError extends Error {
   constructor(
@@ -402,7 +403,8 @@ function countsForCache(cache: RegistryCache): SpecCounts {
   return { paths, total_operations, callable_operations, skipped_operations, schemas };
 }
 
-function readVendoredMetadata(moduleUrl: string | URL = import.meta.url): VendoredMetadata {
+/** Source URL, retrieval date, digest, and counts pinned alongside the vendored snapshot. */
+export function readVendoredMetadata(moduleUrl: string | URL = import.meta.url): VendoredMetadata {
   const path = vendoredSpecMetaPath(moduleUrl);
   let metadata: JsonObject;
   try {
@@ -422,7 +424,12 @@ function readVendoredMetadata(moduleUrl: string | URL = import.meta.url): Vendor
     isNonNegativeInteger(metadata.skipped_operations) &&
     isNonNegativeInteger(metadata.schemas)
   ) {
-    return { ...metadata, source: metadata.source, retrieved_at: metadata.retrieved_at };
+    return {
+      ...metadata,
+      source: metadata.source,
+      retrieved_at: metadata.retrieved_at,
+      sha256: metadata.sha256,
+    };
   }
   throw new SpecInputError(
     `Invalid vendored OpenAPI metadata ${path}: expected source, retrieved_at, sha256, and non-negative integer counts`,

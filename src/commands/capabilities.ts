@@ -1,6 +1,7 @@
 import { success } from "../core/envelope";
 import { ENVELOPE_VERSION, ExitCode } from "../core/types";
-import { loadRegistry, readRegistryCache } from "../openapi/registry";
+import { readVendoredMetadata } from "../openapi/fetch-spec";
+import { loadRegistry, readRegistryCache, vendoredSpecPath } from "../openapi/registry";
 import { listWsCatalog } from "../ws/catalog";
 import type { CommandResult } from "../core/types";
 import type { RegistryCache } from "../openapi/registry";
@@ -10,12 +11,20 @@ interface CapabilitiesOptions {
   version: string;
 }
 
+interface VendoredOrigin {
+  source: string;
+  retrieved_at: string;
+}
+
 const COMMAND_FAMILIES = [
   ["capabilities", "Describe the bounded machine contract and discovery entry points."],
   ["ops", "List, search, inspect, and generate schemas for OpenAPI operations."],
   ["call", "Run a known OpenAPI operation by operation ID."],
   ["http", "Call an arbitrary REST method and path with shared safety controls."],
-  ["ws", "List or run a scripted WebSocket catalog session."],
+  [
+    "ws",
+    "List or run a scripted WebSocket catalog session; --duplex accepts live NDJSON actions on stdin.",
+  ],
   ["wait", "Poll an operation or command until a status condition resolves."],
   ["view", "Inspect spilled JSON or NDJSON without loading the full result."],
   ["config", "Inspect configuration and diagnose auth/runtime readiness."],
@@ -283,6 +292,23 @@ export async function handleCapabilities(options: CapabilitiesOptions): Promise<
   };
 }
 
+/**
+ * A registry compiled from the vendored snapshot records the local file it read and
+ * the time it compiled, not where the document came from. `elv spec status` reports
+ * the pinned source URL and retrieval date; report the same thing here.
+ */
+function pinnedOrigin(cache: RegistryCache | null): VendoredOrigin | null {
+  if (!cache || cache.sourceSelector !== vendoredSpecPath()) return null;
+  try {
+    const metadata = readVendoredMetadata();
+    return metadata.sha256 === cache.provenance.sha256
+      ? { source: metadata.source, retrieved_at: metadata.retrieved_at }
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 function serviceGroups(
   registry: Map<string, OperationCard>,
 ): { name: string; operations: number }[] {
@@ -298,9 +324,10 @@ function serviceGroups(
 
 function specSummary(cache: RegistryCache | null, operations: number) {
   const provenance = cache?.provenance;
+  const pinned = pinnedOrigin(cache);
   return {
-    source: provenance?.source ?? "registry_cache",
-    retrieved_at: provenance?.retrieved_at ?? null,
+    source: pinned?.source ?? provenance?.source ?? "registry_cache",
+    retrieved_at: pinned?.retrieved_at ?? provenance?.retrieved_at ?? null,
     sha256: provenance?.sha256 ?? null,
     paths: provenance?.paths ?? null,
     total_operations: provenance?.total_operations ?? operations,

@@ -4,6 +4,7 @@ import { runOperation } from "../../core/client";
 import { numberValue } from "../options";
 import {
   addPaginationFlags,
+  addWaitFlags,
   aliasRunOpts,
   compact,
   compactInput,
@@ -14,13 +15,15 @@ import {
   runListAlias,
   validationOrExit,
   waitAfterCreate,
+  waitTiming,
   type BuiltOperation,
   type JsonBodyFlags,
+  type WaitFlags,
 } from "./shared";
 
 type FlowKind = "image" | "video" | "speech";
 
-interface FlowFlags extends JsonBodyFlags {
+interface FlowFlags extends JsonBodyFlags, WaitFlags {
   model?: string;
   prompt?: string;
   text?: string;
@@ -31,7 +34,6 @@ interface FlowFlags extends JsonBodyFlags {
   cursor?: string;
   pageSize?: string | number;
   status?: string;
-  wait?: boolean;
 }
 
 const operationKinds = { image: "image", video: "video", speech: "text_to_speech" } as const;
@@ -93,9 +95,9 @@ export function registerFlowsCommand(
       .command("create")
       .description("Start a generation; use get with the returned id to check its status")
       .option("--model <id>", "generation model id (or model_id in JSON)")
-      .option("--wait", "poll until the generation completes or fails")
       .option("--json <json>", "request body JSON; explicit flags override matching fields")
       .option("--json-file <path>", "request body JSON file");
+    addWaitFlags(create, "poll until the generation completes or fails");
     if (kind === "speech") {
       create
         .option("--text <text>", "text to synthesize")
@@ -106,9 +108,12 @@ export function registerFlowsCommand(
       create.option("--prompt <text>", "generation prompt");
     }
     addCommonFlags(create).action(async (options: FlowFlags, command: Command) => {
-      const { built, opts } = validationOrExit(command, () => ({
+      // Poll bounds are validated before the request: a bad --timeout-ms must not
+      // reject a generation that has already been submitted and charged.
+      const { built, opts, timing } = validationOrExit(command, () => ({
         built: buildFlowCreateInput(kind, options),
         opts: aliasRunOpts(command),
+        timing: waitTiming(options),
       }));
       const env = await runOperation(built.operationId, built.input, opts);
       if (!options.wait || opts.dryRun || !env.ok) emit(env);
@@ -121,6 +126,8 @@ export function registerFlowsCommand(
         statusPath: "$.data.status",
         success: "completed",
         failure: "failed",
+        timing,
+        repollCommand: (id) => `elv flows ${kind} get --generation-id ${id}`,
       });
     });
     addCommonFlags(

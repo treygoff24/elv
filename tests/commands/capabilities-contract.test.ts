@@ -1,9 +1,14 @@
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { handleCapabilities } from "../../src/commands/capabilities";
+import { loadRegistry } from "../../src/openapi/registry";
 import { arrayValue as array, recordValue as record } from "../helpers/cli-result";
+
+function aliasFamilies(data: ReturnType<typeof record>) {
+  return array(data.alias_families).map((entry) => record(entry));
+}
 
 describe("capabilities machine contract", () => {
   const previousCache = process.env.ELV_CACHE_DIR;
@@ -47,9 +52,14 @@ describe("capabilities machine contract", () => {
       schemas: 1507,
     });
 
+    const ws = array(data.command_families)
+      .map((entry) => record(entry))
+      .find((entry) => entry.name === "ws");
+    expect(String(ws?.description)).toContain("--duplex");
+
     const groups = array(data.service_groups).map((entry) => String(record(entry).name));
     expect(groups).toEqual([...groups].sort());
-    const aliasEntries = array(data.alias_families).map((entry) => record(entry));
+    const aliasEntries = aliasFamilies(data);
     const aliases = aliasEntries.map((entry) => String(entry.name));
     expect(aliases).toEqual([...aliases].sort());
     for (const alias of aliasEntries) {
@@ -105,5 +115,37 @@ describe("capabilities machine contract", () => {
       budget_flag: "--max-credits",
     });
     expect(array(data.next)).toHaveLength(4);
+  });
+
+  it("reports the pinned snapshot provenance that spec status reports", async () => {
+    const meta = JSON.parse(readFileSync("spec/openapi.snapshot.meta.json", "utf8")) as {
+      source: string;
+      retrieved_at: string;
+      sha256: string;
+    };
+
+    const result = await handleCapabilities({ version: "9.8.7" });
+
+    const spec = record(record(result.env.ok ? result.env.data : undefined).spec);
+    // The cache records the local file it compiled and the time it compiled it;
+    // neither is where the pinned document came from.
+    expect(spec.source).toBe(meta.source);
+    expect(spec.retrieved_at).toBe(meta.retrieved_at);
+    expect(spec.sha256).toBe(meta.sha256);
+    expect(String(spec.source)).not.toContain("openapi.snapshot.json");
+  });
+
+  it("advertises only operation ids the compiled registry can resolve", async () => {
+    const result = await handleCapabilities({ version: "9.8.7" });
+    const registry = await loadRegistry();
+
+    const advertised = aliasFamilies(record(result.env.ok ? result.env.data : undefined)).flatMap(
+      (family) =>
+        array(family.operation_ids).map((id) => ({ family: String(family.name), id: String(id) })),
+    );
+
+    // Guards against a silent shrink of the hand-maintained inventory.
+    expect(advertised.length).toBeGreaterThan(60);
+    expect(advertised.filter(({ id }) => !registry.has(id))).toEqual([]);
   });
 });

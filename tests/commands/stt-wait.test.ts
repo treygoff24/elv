@@ -3,10 +3,22 @@ import { createServer, type Server } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { errorRecord, filesArray, parseEnvelope, recordValue, runCli } from "../helpers/cli-result";
+import {
+  arrayValue,
+  errorRecord,
+  filesArray,
+  parseEnvelope,
+  recordValue,
+  runCli,
+} from "../helpers/cli-result";
 import { rejectPortProbe } from "../helpers/http";
 
-const transcript = { language_code: "en", language_probability: 0.99, text: "Hello", words: [] };
+const transcript = {
+  language_code: "en",
+  language_probability: 0.99,
+  text: "Hello",
+  words: [],
+};
 let server: Server;
 let baseUrl: string;
 let directory: string;
@@ -90,7 +102,9 @@ describe("STT wait completion and creation receipts", () => {
           text: "transcript ".repeat(5000) + "https://example.invalid/?token=test-token",
         };
       if (shape === "multichannel")
-        postBody = { transcripts: [transcript, { ...transcript, text: "Second channel" }] };
+        postBody = {
+          transcripts: [transcript, { ...transcript, text: "Second channel" }],
+        };
       const baseline = await stt();
       const waited = await stt(["--wait"]);
       expect(baseline.code, baseline.stdout).toBe(0);
@@ -110,10 +124,39 @@ describe("STT wait completion and creation receipts", () => {
     },
   );
 
+  it("hints the exact re-poll call when --wait exceeds --timeout-ms", async () => {
+    postBody = {
+      transcription_id: "transcript_1",
+      request_id: "request_1",
+      message: "Accepted",
+    };
+    postStatus = 202;
+    pollBody = { transcription_id: "transcript_1", status: "processing" };
+
+    // A 1 ms deadline expires during the first poll, so exactly one GET is issued.
+    const result = await stt(["--wait", "--timeout-ms", "1", "--interval-ms", "1"]);
+
+    expect(result.code, result.stdout).toBe(7);
+    const envelope = parseEnvelope(result.stdout);
+    expect(errorRecord(envelope).code).toBe("wait_timeout");
+    const hints = arrayValue(envelope.hints).map((hint) => recordValue(hint));
+    expect(hints[0]?.cmd).toBe(
+      'elv call get_transcript_by_id --json \'{"path":{"transcription_id":"transcript_1"}}\'',
+    );
+    expect(paths).toEqual([
+      "POST /v1/speech-to-text",
+      "GET /v1/speech-to-text/transcripts/transcript_1",
+    ]);
+  });
+
   it.each([false, true])(
     "polls the actual async ID and stops on a transcript with no status field (webhook=%s)",
     async (webhook) => {
-      postBody = { transcription_id: "transcript_1", request_id: "request_1", message: "Accepted" };
+      postBody = {
+        transcription_id: "transcript_1",
+        request_id: "request_1",
+        message: "Accepted",
+      };
       postStatus = 202;
       const result = await stt(["--wait", ...(webhook ? ["--webhook"] : [])]);
       expect(result.code, result.stdout).toBe(0);
