@@ -81,9 +81,7 @@ describe("ws duplex stderr backpressure", () => {
         const lines = stderr.split("\n").filter((line) => line.trim().length > 0);
         expect(lines).toHaveLength(EVENT_COUNT);
         expect(lines.at(-1)).toContain(FINAL_MARKER);
-        const indexes = lines.map(
-          (line) => (JSON.parse(line) as { index?: number }).index ?? null,
-        );
+        const indexes = lines.map((line) => (JSON.parse(line) as { index?: number }).index ?? null);
         expect(indexes).toEqual(Array.from({ length: EVENT_COUNT }, (_, i) => i + 1));
       } finally {
         rmSync(outDir, { recursive: true, force: true });

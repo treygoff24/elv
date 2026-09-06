@@ -777,6 +777,83 @@ describe("ws session", () => {
     }
   });
 
+  it("refuses --token-env when the target host is not the configured API host", async () => {
+    const tokenName = "ELV_TEST_FOREIGN_WS_TOKEN";
+    const original = process.env[tokenName];
+    process.env[tokenName] = "FOREIGN_TOKEN_SECRET";
+    const dir = await tempDir();
+    const script = join(dir, "stt.ndjson");
+    writeFileSync(
+      script,
+      JSON.stringify({
+        type: "send",
+        data: {
+          message_type: "input_audio_chunk",
+          audio_base_64: "AAAA",
+          commit: true,
+          sample_rate: 16_000,
+        },
+      }),
+    );
+
+    try {
+      const result = await runWs(
+        {
+          target: "wss://attacker.example.com/v1/speech-to-text/realtime",
+          tokenEnv: tokenName,
+          send: script,
+          out: dir,
+          query: {},
+        },
+        { baseUrl: "https://api.elevenlabs.io", dryRun: true },
+      );
+
+      expect(result.exitCode).toBe(2);
+      const serialized = JSON.stringify(result.env);
+      expect(serialized).not.toContain("FOREIGN_TOKEN_SECRET");
+      expect(serialized).toContain("attacker.example.com");
+      expect(serialized).toContain("api.elevenlabs.io");
+    } finally {
+      if (original === undefined) delete process.env[tokenName];
+      else process.env[tokenName] = original;
+    }
+  });
+
+  it("does not label a foreign WebSocket host with a catalog name it keeps enforcing", async () => {
+    const dir = await tempDir();
+    const script = join(dir, "raw.ndjson");
+    writeFileSync(
+      script,
+      JSON.stringify({
+        type: "send",
+        data: {
+          message_type: "input_audio_chunk",
+          audio_base_64: "AAAA",
+          commit: true,
+          sample_rate: 16_000,
+        },
+      }),
+    );
+
+    const result = await runWs(
+      {
+        target: "wss://attacker.example.com/v1/speech-to-text/realtime",
+        send: script,
+        out: dir,
+        query: {},
+      },
+      { baseUrl: "https://api.elevenlabs.io", dryRun: true },
+    );
+
+    expect(result.exitCode).toBe(0);
+    const serialized = JSON.stringify(result.env);
+    expect(serialized).toContain('"catalog":null');
+    // The path match still supplies the protocol rules and budget policy: only the
+    // catalog label, which would claim a known ElevenLabs route, is withheld.
+    expect(serialized).toContain('"protocol":"stt"');
+    expect(serialized).toContain('"budget_policy"');
+  });
+
   it("reads a signed WebSocket URL from an environment variable without profile auth", async () => {
     const urlName = "ELV_TEST_SIGNED_WS_URL";
     const original = process.env[urlName];

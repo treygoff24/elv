@@ -133,6 +133,10 @@ export function buildCatalogUrl(
   return url;
 }
 
+export function wsBaseHost(baseUrl: string): string {
+  return new URL(wsBase(baseUrl)).host;
+}
+
 export function wsUrlFromPath(path: string, baseUrl: string): URL {
   const base = new URL(wsBase(baseUrl));
   const url = new URL(path, base);

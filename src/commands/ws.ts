@@ -11,7 +11,13 @@ import {
 } from "../core/errors";
 import { ExitCode } from "../core/types";
 import { resolveOutTarget, OutTargetError } from "../core/files";
-import { buildCatalogUrl, getWsCatalogEntry, listWsCatalog, wsUrlFromPath } from "../ws/catalog";
+import {
+  buildCatalogUrl,
+  getWsCatalogEntry,
+  listWsCatalog,
+  wsBaseHost,
+  wsUrlFromPath,
+} from "../ws/catalog";
 import {
   outboundActionCount,
   parseSendScript,
@@ -111,6 +117,17 @@ async function runScriptedWs(
   }
   const entry = namedEntry ?? actualEntry;
   const protocol = entry?.protocol ?? "raw";
+  const baseHost = wsBaseHost(config.baseUrl);
+  const targetHost = namedEntry
+    ? baseHost
+    : rawTargetUrl(urlOverride ?? target, config.baseUrl)?.host;
+  // Two separate decisions about a raw target whose path matches a known route:
+  //   * safety and budget metadata (protocol rules, outbound risk, cost model) is inherited
+  //     whatever the host, so an agent-shaped route still fails closed behind --yes;
+  //   * the catalog NAME is only reported when the user asked for it by name or the target
+  //     resolves to the configured API host, so the envelope never tells an agent it is on a
+  //     known ElevenLabs route when it is talking to some other host.
+  const catalogName = namedEntry?.name ?? (targetHost === baseHost ? actualEntry?.name : undefined);
   if (!input.send && !input.duplex && protocol !== "monitor") {
     return inputError("Missing --send script.ndjson");
   }
@@ -120,12 +137,14 @@ async function runScriptedWs(
     config.defaultTtsModelId,
   );
   const embeddedQuery = embeddedQueryForRawTarget(urlOverride ?? target, config.baseUrl);
-  const query = withTokenEnvironment(
-    { ...defaultQuery, ...embeddedQuery, ...input.query },
-    input.tokenEnv,
+  const query = withTokenEnvironment({
+    query: { ...defaultQuery, ...embeddedQuery, ...input.query },
+    tokenEnv: input.tokenEnv,
     protocol,
     urlOverride,
-  );
+    targetHost,
+    baseHost,
+  });
   const modelId = query.model_id ?? entry?.defaultQuery?.model_id;
   const script = input.send ? parseScriptFile(input.send, protocol, modelId) : [];
   validateScriptFiles(script);
@@ -142,7 +161,7 @@ async function runScriptedWs(
   const headers = headersForTarget(resolved.usesProfileAuth, options);
 
   if (options.dryRun) {
-    return dryRunResult(entry, protocol, script, resolved, headers, preflight);
+    return dryRunResult(entry, catalogName, protocol, script, resolved, headers, preflight);
   }
   const budgetError = enforceWsBudget(preflight, config.maxCredits);
   if (budgetError) return budgetError;
@@ -153,7 +172,7 @@ async function runScriptedWs(
         preflight.unboundedBudget
           ? "Configured max-credits cannot bound this raw WebSocket session; rerun with --yes to accept that limit"
           : "Outbound agent or monitor actions require --yes",
-        { raw: { catalog: entry?.name, outbound_actions: preflight.outboundActions } },
+        { raw: { catalog: catalogName, outbound_actions: preflight.outboundActions } },
       ),
       exitCode: ExitCode.ConfirmationRequired,
     };
@@ -161,7 +180,7 @@ async function runScriptedWs(
 
   const result = await runWsSession({
     url: resolved.url,
-    catalog: entry?.name ?? null,
+    catalog: catalogName ?? null,
     path: resolved.path,
     outDir: resolveOutTarget(input.out ?? config.outputDir, true).dir,
     script,
@@ -369,14 +388,26 @@ function withConfiguredTtsModel(
   return { ...query, model_id: defaultTtsModelId };
 }
 
-function withTokenEnvironment(
-  query: Record<string, string>,
-  tokenEnv: string | undefined,
-  protocol: WsProtocol | "raw",
-  urlOverride: string | undefined,
-): Record<string, string> {
+interface TokenEnvironmentInput {
+  query: Record<string, string>;
+  tokenEnv: string | undefined;
+  protocol: WsProtocol | "raw";
+  urlOverride: string | undefined;
+  targetHost: string | undefined;
+  baseHost: string;
+}
+
+function withTokenEnvironment(input: TokenEnvironmentInput): Record<string, string> {
+  const { query, tokenEnv, protocol, urlOverride, targetHost, baseHost } = input;
   if (!tokenEnv) return query;
   if (urlOverride) throw new ScriptValidationError("--token-env cannot be combined with --url-env");
+  // The token travels in the connection URL, so it is only safe on the host the
+  // profile is configured for -- the same rule wsUrlFromPath enforces for profile auth.
+  if (targetHost !== undefined && targetHost !== baseHost) {
+    throw new ScriptValidationError(
+      `--token-env sends the token to the connection host, and ${targetHost} is not the configured API host ${baseHost}`,
+    );
+  }
   const parameter =
     protocol === "stt"
       ? "token"
@@ -468,6 +499,7 @@ function wsPreflight(
 
 function dryRunResult(
   entry: WsCatalogEntry | undefined,
+  catalogName: string | undefined,
   protocol: WsProtocol | "raw",
   script: SendScriptAction[],
   resolved: ResolvedWsTarget,
@@ -485,7 +517,7 @@ function dryRunResult(
       data: redactWs({
         dry_run: true,
         request: {
-          catalog: entry?.name ?? null,
+          catalog: catalogName ?? null,
           protocol,
           path: resolved.path,
           connection_url: redactWsString(resolved.url.toString()),
