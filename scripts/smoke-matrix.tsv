@@ -22,11 +22,14 @@
 0	agents tickets
 0	flows
 0	flows image
+0	flows video
+0	flows speech
 0	assets
 0	ops get create_image_generation
 0	ops get get_conversation_summary_route
 0	ops schema create_video_generation --example
 2	assets get
+2	flows image get
 2	agents conversations summary
 2	voices get
 9	call no_such_operation
