@@ -25,7 +25,7 @@ and one skipped deprecated route. Confirm the active contract with
    Completion: the intended binary is active and the envelope reports whether
    an API key is present without exposing it.
 2. **Route.** Prefer a named alias when it matches the job; otherwise use
-   `ops` discovery and `call`. Reach for `http`, `ws`, `rtc`, or `wait` only when their
+   `ops` discovery and `call`. Reach for `http`, `ws`, or `wait` only when their
    distinct capability is required. Completion: one command family clearly
    owns the request.
 3. **Shape.** Read `elv <command> --help`. For a generic operation, run
@@ -53,7 +53,6 @@ and one skipped deprecated route. Confirm the active contract with
 | Published operation without a useful alias | `elv call <operation_id>` |
 | Forward-compatible REST path | `elv http <METHOD> <path>` |
 | Streaming or realtime protocol | `elv ws <catalog-name|url>` |
-| WebRTC agent or Speech Engine client | `elv rtc --agent-id ID` |
 | Long-running operation | `elv wait` |
 
 Bare parent commands are discovery: they return a success envelope containing

@@ -13,8 +13,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Refreshed the public API snapshot: 388 documented operations, 387 callable, 300 paths, and 1,507 schemas. Added Flows image/video/speech and Assets aliases, all ten Agents triage-ticket operations, and conversation summaries. Flows creation supports `--wait`.
 - Added Text-to-Dialogue single/multi-context WebSockets, separate audio files per context, and environment-sourced WebSocket tokens and signed URLs.
 - Added opt-in duplex WebSockets for every catalog protocol and raw targets: live NDJSON actions on stdin, redacted events on stderr, and one final stdout envelope. This supports live synthesis/transcription and responses to server-generated tool-call IDs, with shared incremental protocol validation.
-- Added authenticated Speech Engine upstream hosting with a local subprocess handler, bounded sessions and turns, interruption handling, and private readiness files. Hosting does not create provider resources, deploy, or expose a public tunnel.
-- Added WebRTC agent and Speech Engine client sessions with reliable data events, PCM media tracks, scripted/duplex input, gated token acquisition, regional server selection, and an isolated native SDK worker.
 - Added explicit REST query-array flags such as `--query 'sources[]=qa'`.
 
 ### Fixed
@@ -42,6 +40,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Removed
 
 - Removed the no-op `call --unpack` flag. ZIP responses still download intact; the CLI no longer advertises extraction it never performed.
+- Speech Engine upstream hosting and the WebRTC client transport were built during this cycle and removed before release: hosting is a long-running server whose wire protocol is absent from the published contract and which needs a public TLS endpoint the CLI does not provide, and WebRTC duplicated the `convai` WebSocket while adding a native dependency. The Speech Engine REST lifecycle and `get_livekit_token` remain available through `call`.
 
 ## [0.3.0] - 2026-08-11
 

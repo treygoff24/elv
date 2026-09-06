@@ -92,7 +92,6 @@ When the registry is not enough:
 
 - `elv http <method> <path>`: arbitrary REST; known paths inherit registry safety/cost metadata
 - `elv ws <catalog-name|url>`: protocol-aware scripted WebSocket sessions
-- `elv rtc --agent-id ID`: WebRTC client events and PCM audio through LiveKit
 - `elv wait`: poll an operation until a JSONPath status resolves
 
 The WebSocket catalog includes `tts-realtime`, `tts-multi`, `ttd-realtime`, `ttd-multi`, `stt-realtime`, `convai`, and `convai-monitor`. Realtime STT uses `send_audio_file` actions with `path`, `sample_rate`, and `commit`; raw binary frames are not the STT protocol. Published query fields such as `--query entity_detection=true` pass through. Use `--token-env NAME` or `--url-env NAME` to keep single-use tokens and signed URLs out of argv. Monitoring is receive-only without `--send`; outbound agent or monitor actions require `--yes`. Use `--dry-run` before a session. Multi-context audio is separated by context rather than concatenated.
@@ -112,17 +111,6 @@ elv spec status     # -> cache_path: the exact compiled-registry file
 ```
 
 `config doctor` is offline by default; `--online` explicitly probes connectivity and account credits. Inspect the individual checks: credential presence and successful provider authentication are separate facts.
-
-`speech-engine serve --handler-json '["node","handler.mjs"]' --yes` hosts the inverted Speech Engine protocol on loopback. It verifies incoming signed requests before invoking a handler. Each handler receives one transcript JSON object and emits NDJSON `{text:string}` chunks; exit 0 finalizes the response. Use `--ready-file` for private readiness metadata and `--timeout-ms` for server lifetime. Hosting refuses configured credit ceilings and never deploys or opens a public tunnel automatically.
-
-`rtc` joins either an agent or a Speech Engine conversation. It fetches a token
-only after `--yes` and budget checks, or accepts `--token-env` / a private
-`--token-file`. Scripts use `type:send` client events and `type:send_audio_file`
-for PCM16LE 48 kHz mono tracks. `--duplex` streams live actions and redacted
-events; stdout remains one final envelope. Joining is unbounded-cost and refuses
-configured credit ceilings. Global/US, EU, and India have documented default
-servers; other API hosts require `--server-url`. See README for native-platform
-support and the initialization/close sequence.
 
 Do not guess where the compiled registry lives. `elv spec status` prints the resolved `cache_path` (`$ELV_CACHE_DIR`, else `~/.cache/elv`, then the package version, then `openapi.compact.json`) and whether an active registry is present. A repo-local `.elv/` directory is **not** a registry cache: it holds an optional `config.json` for profiles and, if you point `output_dir` there, response artifacts. When no active registry is compiled, commands fall back to the vendored `spec/openapi.snapshot.json`.
 

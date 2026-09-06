@@ -62,14 +62,6 @@ Malformed or interrupted parts return an error with available partial artifacts,
 without recommending a paid retry. Framing is bounded to 16 parts, 64 KiB headers,
 and 2 MiB per metadata part. Missing boundaries cannot yield reliable split files.
 
-WebRTC agent and Speech Engine clients use `elv rtc`. The CLI exchanges reliable
-JSON client events and PCM audio tracks through the pinned official LiveKit Node
-SDK. Token retrieval supports both resource kinds, as specified by the
-[public token endpoint](https://elevenlabs.io/docs/api-reference/conversations/get-webrtc-token).
-Regional URLs and required initialization follow the
-[ElevenLabs client implementation](https://github.com/elevenlabs/packages/blob/489a95318c699d5be3adc090ff9e969c711dd124/packages/client/src/utils/WebRTCConnection.ts).
-WebRTC support is distinct from the seven WebSocket protocols above.
-
 ## Model examples
 
 | Area | Model IDs |
@@ -108,8 +100,6 @@ Current high-use workflow coverage includes:
 Credential-producing responses, including service-account keys, single-use tokens, and signed URLs, never return the secret inline. `elv` writes the response to a mode `0600` file, marks it `sensitive: true`, and refuses to display it through `elv view`. Flows and Assets also retain redacted metadata inline so status polling, field projection, and pagination work. `--all` retains each private page artifact alongside the combined redacted collection.
 
 ## Coverage boundaries
-
-Speech Engine upstream is a published inverted protocol. `speech-engine serve` hosts an authenticated local endpoint and bridges transcript turns to a subprocess handler. It verifies the provider's HS256 token contract before accepting a WebSocket; this contract is grounded in the [official SDK verifier](https://github.com/elevenlabs/elevenlabs-js/blob/aa6976916c3c4a7dec5db572c03eed0b56d6b8fc/src/wrapper/speech-engine/SpeechEngineResource.ts). The REST lifecycle remains available through `call`. Hosting does not automatically create resources, open tunnels, deploy TLS, or start paid conversations. Mock clients verify authentication and protocol behavior; a live ElevenLabs-hosted conversation has not been exercised by the offline gate.
 
 Duplex stdin/stderr sessions support every catalog protocol and raw WebSockets. A shared incremental validator applies the same message and context rules to finite scripts and live input without retaining unbounded action history. Dynamic speech/dialogue/transcription/conversation costs fail closed under a configured ceiling. EOF closes transport; callers should send protocol flush/end controls and await final events first. Account, region, enterprise, and beta entitlements remain separate from CLI support.
 
