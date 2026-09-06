@@ -1,4 +1,4 @@
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -110,6 +110,24 @@ describe("capabilities machine contract", () => {
       budget_flag: "--max-credits",
     });
     expect(array(data.next)).toHaveLength(4);
+  });
+
+  it("reports the pinned snapshot provenance that spec status reports", async () => {
+    const meta = JSON.parse(readFileSync("spec/openapi.snapshot.meta.json", "utf8")) as {
+      source: string;
+      retrieved_at: string;
+      sha256: string;
+    };
+
+    const result = await handleCapabilities({ version: "9.8.7" });
+
+    const spec = record(record(result.env.ok ? result.env.data : undefined).spec);
+    // The cache records the local file it compiled and the time it compiled it;
+    // neither is where the pinned document came from.
+    expect(spec.source).toBe(meta.source);
+    expect(spec.retrieved_at).toBe(meta.retrieved_at);
+    expect(spec.sha256).toBe(meta.sha256);
+    expect(String(spec.source)).not.toContain("openapi.snapshot.json");
   });
 
   it("advertises only operation ids the compiled registry can resolve", async () => {
