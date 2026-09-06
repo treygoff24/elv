@@ -20,7 +20,7 @@ import { extractMultipartResponse, MultipartResponseError } from "./multipart-re
 import { isRecord, parseJson as parseJsonValue } from "../util/json";
 import { errorMessage } from "../util/error";
 import { shellArg } from "../util/shell";
-import { containsCredential, redact } from "./redaction";
+import { containsCredential, redactMedia } from "./redaction";
 import { retryAfterMs } from "./retries";
 import type { HttpMethod, OperationCard } from "../openapi/types";
 import type { JsonObject, JsonValue } from "../util/json";
@@ -119,7 +119,9 @@ async function normalizeSuccessResponse(
   if (op.secretResult && runtimeType && !isJson(runtimeType)) {
     const target = resolveOutTarget(ctx.saveJson ?? ctx.out, false);
     const name = target.file
-      ? `${target.file}.sensitive.bin`
+      ? isSensitiveSpillFilename(target.file)
+        ? target.file
+        : `${target.file}.sensitive.bin`
       : deriveFilename(op.operationId, "sensitive", "bin");
     const path = await writeBufferToFile(
       new Uint8Array(await res.arrayBuffer()),
@@ -225,7 +227,7 @@ async function jsonSuccess(
     const file = await spillSecretJsonFile(op, text, ctx, media);
     return success({
       ...base,
-      data: media ? redact(data) : undefined,
+      data: media ? redactMedia(data) : undefined,
       data_summary: summarizeSensitiveData(data),
       files: [{ ...file, sensitive: true }],
       truncated: true,

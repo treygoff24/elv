@@ -1,14 +1,17 @@
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   addPaginationToEnvelope,
   applyPaginationDefaults,
   collectAllPages,
   nextCursor,
+  pageSizeClampWarning,
 } from "../../src/core/pagination";
 import { success } from "../../src/core/envelope";
+import { runOperation } from "../../src/core/client";
+import * as registry from "../../src/openapi/registry";
 import type { Envelope } from "../../src/core/types";
 import type { OperationCard } from "../../src/openapi/types";
 import type { JsonValue } from "../../src/util/json";
@@ -55,6 +58,65 @@ describe("pagination cursor derivation", () => {
       });
     }
   });
+  it("reports the clamp it applied, and stays quiet otherwise", () => {
+    const operation = op({
+      queryParams: [
+        {
+          name: "page_size",
+          location: "query",
+          required: false,
+          schema: { type: "integer", maximum: 100 },
+        },
+      ],
+    });
+    const clamped = applyPaginationDefaults(operation, {}, 500);
+
+    expect(pageSizeClampWarning(operation, clamped, 500)).toEqual({
+      code: "page_size_clamped",
+      message:
+        "page_size was clamped from 500 to the provider maximum of 100; --limit still bounds the items inlined in the envelope.",
+    });
+    expect(pageSizeClampWarning(operation, applyPaginationDefaults(operation, {}, 5), 5)).toBe(
+      undefined,
+    );
+    expect(pageSizeClampWarning(operation, { query: { page_size: 500 } }, 500)).toBe(undefined);
+    expect(pageSizeClampWarning(op({}), { query: {} }, 500)).toBe(undefined);
+    expect(pageSizeClampWarning(operation, clamped, undefined)).toBe(undefined);
+  });
+
+  it("carries the clamp warning into the envelope", async () => {
+    const operation = op({
+      queryParams: [
+        {
+          name: "page_size",
+          location: "query",
+          required: false,
+          schema: { type: "integer", maximum: 100 },
+        },
+      ],
+    });
+    const cacheDir = mkdtempSync(join(tmpdir(), "elv-clamp-"));
+    vi.stubEnv("ELV_CACHE_DIR", cacheDir);
+    vi.spyOn(registry, "loadRegistry").mockResolvedValue(
+      new Map([[operation.operationId, operation]]),
+    );
+    try {
+      const env = await runOperation(operation.operationId, {}, { dryRun: true, limit: 500 });
+
+      expect(env.ok).toBe(true);
+      expect(env.warnings).toContainEqual({
+        code: "page_size_clamped",
+        message: expect.stringContaining("clamped from 500 to the provider maximum of 100"),
+      });
+      const quiet = await runOperation(operation.operationId, {}, { dryRun: true, limit: 50 });
+      expect(quiet.warnings).toBe(undefined);
+    } finally {
+      vi.restoreAllMocks();
+      vi.unstubAllEnvs();
+      rmSync(cacheDir, { recursive: true, force: true });
+    }
+  });
+
   it("derives history next cursor and default page_size", () => {
     const operation = op({ operationId: "get_speech_history", pathTemplate: "/v1/history" });
     expect(applyPaginationDefaults(operation, {})).toEqual({ query: { page_size: 20 } });

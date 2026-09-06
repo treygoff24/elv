@@ -4,6 +4,7 @@ import { extension } from "mime-types";
 import {
   deriveFilename,
   fileRecord,
+  OutTargetError,
   resolveOutTarget,
   tempFileWriter,
   writeBufferToFile,
@@ -66,6 +67,8 @@ export async function extractMultipartResponse(
     return parser.files;
   } catch (error) {
     await parser?.preservePartial();
+    // An unresolvable output target is an input error carrying its own hint.
+    if (error instanceof OutTargetError) throw error;
     throw new MultipartResponseError(
       error instanceof MultipartResponseError
         ? error.message
@@ -85,7 +88,7 @@ interface Part {
   mime: string;
   kind: "audio" | "json" | "other";
   bytes: number;
-  metadata?: Buffer;
+  chunks?: Buffer[];
   writer?: TempFileWriter;
 }
 
@@ -245,14 +248,16 @@ class MultipartParser {
     const bytes = this.pending.subarray(0, count);
     if (part.writer) await part.writer.write(bytes);
     else {
-      part.metadata ??= Buffer.alloc(MAX_METADATA_BYTES);
+      // Metadata is normally a few hundred bytes; collect chunks rather than
+      // reserving the 2 MiB cap for every part up front.
+      const chunks = (part.chunks ??= []);
       const available = MAX_METADATA_BYTES - part.bytes;
       if (bytes.length > available) {
-        if (available) bytes.copy(part.metadata, part.bytes, 0, available);
+        if (available) chunks.push(Buffer.from(bytes.subarray(0, available)));
         part.bytes += available;
         throw new MultipartResponseError("Multipart metadata part exceeds 2 MiB");
       }
-      bytes.copy(part.metadata, part.bytes);
+      chunks.push(Buffer.from(bytes));
     }
     part.bytes += bytes.length;
     this.pending = this.pending.subarray(count);
@@ -276,7 +281,7 @@ class MultipartParser {
       }
       return;
     }
-    const bytes = part.metadata?.subarray(0, part.bytes) ?? Buffer.alloc(0);
+    const bytes = part.chunks ? Buffer.concat(part.chunks) : Buffer.alloc(0);
     let invalid = false;
     let sensitive = Boolean(this.options.secretResult || partial || part.kind === "other");
     if (part.kind === "json") {

@@ -6,6 +6,7 @@ import {
   extractMultipartResponse,
   MultipartResponseError,
 } from "../../src/core/multipart-response";
+import { OutTargetError } from "../../src/core/files";
 
 let out: string;
 beforeEach(() => {
@@ -54,6 +55,51 @@ function response(
 }
 
 describe("multipart music response extraction", () => {
+  // Deliberate strictness, pinned so nobody "fixes" it into leniency: the one
+  // provider endpoint returning multipart/mixed always sends CRLF-delimited parts
+  // with a Content-Type header, and a lenient parser would have to guess where a
+  // headerless part's body starts on a stream that may be truncated mid-part.
+  it("rejects a part that carries no headers", async () => {
+    const bytes = Buffer.from("--music-boundary\r\n\r\nnaked-body\r\n--music-boundary--\r\n");
+
+    const error = await extractMultipartResponse(response(bytes), {
+      operationId: "compose_detailed",
+      out,
+    }).catch((failure: unknown) => failure);
+
+    expect(error).toBeInstanceOf(MultipartResponseError);
+    expect((error as MultipartResponseError).code).toBe("invalid_multipart_response");
+  });
+
+  // Deliberate strictness, as above: RFC 2046 delimiters are CRLF, and accepting a
+  // bare LF would let a payload byte sequence end a paid audio part early.
+  it("rejects a bare-LF multipart body", async () => {
+    const bytes = Buffer.from(
+      "--music-boundary\nContent-Type: application/json\n\n{}\n--music-boundary--\n",
+    );
+
+    const error = await extractMultipartResponse(response(bytes), {
+      operationId: "compose_detailed",
+      out,
+    }).catch((failure: unknown) => failure);
+
+    expect(error).toBeInstanceOf(MultipartResponseError);
+    expect((error as MultipartResponseError).code).toBe("invalid_multipart_response");
+  });
+
+  it("surfaces an unusable output target as an out-target error, not a provider error", async () => {
+    const error = await extractMultipartResponse(
+      response(multipart([{ mime: "application/json", bytes: Buffer.from("{}") }])),
+      { operationId: "compose_detailed", out: join(out, "single-file.mp3") },
+    ).catch((failure: unknown) => failure);
+
+    expect(error).toBeInstanceOf(OutTargetError);
+    expect(error).not.toBeInstanceOf(MultipartResponseError);
+    const outTarget = error as InstanceType<typeof OutTargetError>;
+    expect(outTarget.code).toBe("invalid_out_target");
+    expect(outTarget.hint).toContain("directory");
+  });
+
   it("extracts exact metadata and binary audio across one-byte boundary/header splits", async () => {
     const metadata = Buffer.from(
       '{ "composition_plan": {"title":"Trio"}, "song_metadata":{"bpm":92} }\n',

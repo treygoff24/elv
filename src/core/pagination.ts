@@ -59,6 +59,29 @@ export function applyPaginationDefaults(
   return { ...input, query };
 }
 
+/**
+ * `--limit` doubles as the requested page size, so a limit above the provider's
+ * documented maximum is silently clamped. Report the clamp rather than letting the
+ * caller believe a larger page was requested.
+ */
+export function pageSizeClampWarning(
+  op: OperationCard,
+  input: AgentInput,
+  limit: number | undefined,
+): Warning | undefined {
+  const param = pageSizeParam(op);
+  if (!param || limit === undefined) return undefined;
+  const requested = Math.max(1, Math.trunc(limit));
+  const schema = op.queryParams.find((candidate) => candidate.name === param)?.schema;
+  const maximum = pageSizeMaximum(schema);
+  // Only ours to report: an explicit page_size from the caller is never clamped.
+  if (requested <= maximum || input.query?.[param] !== maximum) return undefined;
+  return {
+    code: "page_size_clamped",
+    message: `${param} was clamped from ${requested} to the provider maximum of ${maximum}; --limit still bounds the items inlined in the envelope.`,
+  };
+}
+
 function pageSizeMaximum(schema: JsonValue | undefined): number {
   if (!isRecord(schema)) return Infinity;
   if (typeof schema.maximum === "number" && schema.maximum >= 1) return Math.floor(schema.maximum);
