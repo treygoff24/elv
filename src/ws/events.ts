@@ -125,12 +125,21 @@ export function duplexEventLine(value: JsonValue): string {
   return JSON.stringify(stripDuplexAudio(redactWs(value)));
 }
 
+export class SendScriptSyntaxError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "SendScriptSyntaxError";
+  }
+}
+
 export function parseSendScriptLine(line: string, index = 1): SendScriptAction {
   let parsed: JsonValue;
   try {
     parsed = parseJson(line, `send-script line ${index}`);
   } catch (error) {
-    throw new Error(`send-script line ${index} is not valid JSON: ${errorMessage(error)}`);
+    throw new SendScriptSyntaxError(
+      `send-script line ${index} is not valid JSON: ${errorMessage(error)}`,
+    );
   }
   if (!isRecord(parsed)) {
     throw new Error(`send-script line ${index} must be a JSON object`);
@@ -204,11 +213,14 @@ export class WsProtocolValidator {
   validate(action: SendScriptAction): void {
     this.position += 1;
     const label = `${this.protocol} message ${this.position}`;
-    if (this.closed) throw new Error(`${label} appears after the protocol was closed`);
+    // An explicit close is accepted at any point, including after a terminal protocol
+    // message. Static scripts never validate it (parseSendScript stops at the close), so
+    // rejecting it over duplex stdin would fail a session that already completed.
     if (action.type === "close") {
       this.closed = true;
       return;
     }
+    if (this.closed) throw new Error(`${label} appears after the protocol was closed`);
     if (action.type === "send_binary_file") {
       if (this.protocol !== "raw") {
         throw new Error("send_binary_file is supported only by raw WebSocket sessions");

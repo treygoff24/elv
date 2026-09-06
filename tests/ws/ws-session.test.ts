@@ -9,7 +9,12 @@ import WebSocket, { WebSocketServer } from "ws";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { runWs } from "../../src/commands/ws";
 import { MAX_BINARY_FILE_BYTES, parseSendScript } from "../../src/ws/events";
-import { runWsSession } from "../../src/ws/session";
+import {
+  DuplexActionReader,
+  runDuplexSession,
+  runWsSession,
+  type WsSessionState,
+} from "../../src/ws/session";
 
 const dirs: string[] = [];
 let servers: WebSocketServer[] = [];
@@ -117,6 +122,48 @@ describe("ws session", () => {
     const manifest = readFileSync(join(dir, "manifest.json"), "utf8");
     expect(`${events}\n${manifest}`).not.toContain("sk_test_LEAK_CANARY");
     expect(`${events}\n${manifest}`).not.toContain("tok_secret");
+  });
+
+  it("hints the next command on the common ws input errors", async () => {
+    const dir = await tempDir();
+
+    const missingTarget = await runWs({ query: {} }, {});
+    expect(missingTarget.exitCode).toBe(2);
+    expect(hintCommands(missingTarget)).toContain("elv ws --list");
+
+    const missingSend = await runWs(
+      { target: "tts-realtime", out: dir, query: { voice_id: "voice-a" } },
+      { dryRun: true },
+    );
+    expect(missingSend.exitCode).toBe(2);
+    expect(hintCommands(missingSend)).toEqual([
+      "elv ws <target> --send script.ndjson",
+      "elv ws <target> --duplex",
+    ]);
+
+    const tokenName = "ELV_TEST_HINT_WS_TOKEN";
+    const original = process.env[tokenName];
+    process.env[tokenName] = "HINT_TOKEN_SECRET";
+    const script = join(dir, "hint.ndjson");
+    writeFileSync(script, JSON.stringify({ type: "send", data: { text: " " } }));
+    try {
+      const foreignHost = await runWs(
+        {
+          target: "wss://gateway.example/v1/text-to-speech/voice-a/stream-input",
+          tokenEnv: tokenName,
+          send: script,
+          out: dir,
+          query: {},
+        },
+        { baseUrl: "https://api.elevenlabs.io", dryRun: true },
+      );
+      expect(foreignHost.exitCode).toBe(2);
+      expect(hintCommands(foreignHost)).toContain("elv ws --list");
+      expect(JSON.stringify(foreignHost.env)).not.toContain("HINT_TOKEN_SECRET");
+    } finally {
+      if (original === undefined) delete process.env[tokenName];
+      else process.env[tokenName] = original;
+    }
   });
 
   it("rejects invalid scripts before connecting", async () => {
@@ -775,6 +822,83 @@ describe("ws session", () => {
       if (original === undefined) delete process.env[tokenName];
       else process.env[tokenName] = original;
     }
+  });
+
+  it("refuses --token-env when the target host is not the configured API host", async () => {
+    const tokenName = "ELV_TEST_FOREIGN_WS_TOKEN";
+    const original = process.env[tokenName];
+    process.env[tokenName] = "FOREIGN_TOKEN_SECRET";
+    const dir = await tempDir();
+    const script = join(dir, "stt.ndjson");
+    writeFileSync(
+      script,
+      JSON.stringify({
+        type: "send",
+        data: {
+          message_type: "input_audio_chunk",
+          audio_base_64: "AAAA",
+          commit: true,
+          sample_rate: 16_000,
+        },
+      }),
+    );
+
+    try {
+      const result = await runWs(
+        {
+          target: "wss://attacker.example.com/v1/speech-to-text/realtime",
+          tokenEnv: tokenName,
+          send: script,
+          out: dir,
+          query: {},
+        },
+        { baseUrl: "https://api.elevenlabs.io", dryRun: true },
+      );
+
+      expect(result.exitCode).toBe(2);
+      const serialized = JSON.stringify(result.env);
+      expect(serialized).not.toContain("FOREIGN_TOKEN_SECRET");
+      expect(serialized).toContain("attacker.example.com");
+      expect(serialized).toContain("api.elevenlabs.io");
+    } finally {
+      if (original === undefined) delete process.env[tokenName];
+      else process.env[tokenName] = original;
+    }
+  });
+
+  it("does not label a foreign WebSocket host with a catalog name it keeps enforcing", async () => {
+    const dir = await tempDir();
+    const script = join(dir, "raw.ndjson");
+    writeFileSync(
+      script,
+      JSON.stringify({
+        type: "send",
+        data: {
+          message_type: "input_audio_chunk",
+          audio_base_64: "AAAA",
+          commit: true,
+          sample_rate: 16_000,
+        },
+      }),
+    );
+
+    const result = await runWs(
+      {
+        target: "wss://attacker.example.com/v1/speech-to-text/realtime",
+        send: script,
+        out: dir,
+        query: {},
+      },
+      { baseUrl: "https://api.elevenlabs.io", dryRun: true },
+    );
+
+    expect(result.exitCode).toBe(0);
+    const serialized = JSON.stringify(result.env);
+    expect(serialized).toContain('"catalog":null');
+    // The path match still supplies the protocol rules and budget policy: only the
+    // catalog label, which would claim a known ElevenLabs route, is withheld.
+    expect(serialized).toContain('"protocol":"stt"');
+    expect(serialized).toContain('"budget_policy"');
   });
 
   it("reads a signed WebSocket URL from an environment variable without profile auth", async () => {
@@ -1623,6 +1747,128 @@ describe("ws session", () => {
     expect(result.env.error.code).toBe(code);
   });
 
+  it("accepts an explicit close after a terminal duplex message", async () => {
+    const server = await startServer(() => undefined);
+    const dir = await tempDir();
+    const initial = join(dir, "tts-init.ndjson");
+    writeFileSync(initial, JSON.stringify({ type: "send", data: { text: " " } }));
+    const input = new PassThrough();
+    input.write(`${JSON.stringify({ type: "send", data: { text: "bye" } })}\n`);
+    input.write(`${JSON.stringify({ type: "send", data: { text: "" } })}\n`);
+    input.write(`${JSON.stringify({ type: "close" })}\n`);
+
+    const result = await runWs(
+      {
+        target: "tts-realtime",
+        duplex: true,
+        send: initial,
+        out: dir,
+        query: { voice_id: "voice-a" },
+      },
+      {
+        baseUrl: httpBase(server.url),
+        duplexInput: input,
+        duplexEventSink: () => undefined,
+        timeoutMs: 500,
+      },
+    );
+    input.destroy();
+
+    expect(result.exitCode).toBe(0);
+    expect(server.received.map((raw) => JSON.parse(raw))).toEqual([
+      { text: " " },
+      { text: "bye" },
+      { text: "" },
+    ]);
+  });
+
+  it("rejects a close action in a duplex seed script", async () => {
+    const server = await startServer(() => undefined);
+    const dir = await tempDir();
+    const seed = join(dir, "seed.ndjson");
+    writeFileSync(
+      seed,
+      [{ type: "send", data: { text: " " } }, { type: "close" }]
+        .map((line) => JSON.stringify(line))
+        .join("\n"),
+    );
+    const input = new PassThrough();
+
+    const result = await runWs(
+      {
+        target: "tts-realtime",
+        duplex: true,
+        send: seed,
+        out: dir,
+        query: { voice_id: "voice-a" },
+      },
+      {
+        baseUrl: httpBase(server.url),
+        duplexInput: input,
+        duplexEventSink: () => undefined,
+        timeoutMs: 500,
+      },
+    );
+    input.destroy();
+
+    expect(result.exitCode).toBe(2);
+    expect(result.env.ok ? undefined : result.env.error.message).toContain("--duplex");
+    expect(server.connected).toBe(false);
+  });
+
+  it("reports a duplex input error the remote close would otherwise mask", async () => {
+    const input = new PassThrough();
+    input.write(`${JSON.stringify({ type: "wait" })}\n`);
+    const reader = new DuplexActionReader(input, "raw", []);
+    // Let readline queue the invalid line before the race starts, so the reader rejects
+    // after an already-resolved close has won: the polarity finding 7 is about.
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const state: WsSessionState = {
+      eventsSent: 0,
+      eventsReceived: 0,
+      closed: true,
+      opened: true,
+      messageChain: Promise.resolve(),
+      binaryPaths: [],
+    };
+    // The invalid line throws before any action is sent, so the socket is never touched.
+    const socket = { readyState: WebSocket.CLOSED } as unknown as WebSocket;
+
+    await expect(runDuplexSession(socket, state, Promise.resolve(), reader)).rejects.toThrow(
+      /unsupported send-script action/u,
+    );
+    input.destroy();
+  });
+
+  it("emits a duplex event for a received binary frame", async () => {
+    const server = await startServer((socket) => {
+      socket.send(Buffer.from("binary-payload"), { binary: true }, () =>
+        socket.close(1000, "done"),
+      );
+    });
+    const dir = await tempDir();
+    const input = new PassThrough();
+    const events: string[] = [];
+
+    const result = await runWs(
+      { target: server.url, duplex: true, out: dir, query: {} },
+      {
+        duplexInput: input,
+        duplexEventSink: (line) => events.push(line),
+        timeoutMs: 500,
+      },
+    );
+    input.destroy();
+
+    expect(result.exitCode).toBe(0);
+    const binaryEvents = events
+      .map((line) => JSON.parse(line) as { type?: string; bytes?: number; path?: string })
+      .filter((event) => event.type === "binary");
+    expect(binaryEvents).toHaveLength(1);
+    expect(binaryEvents[0]?.bytes).toBe("binary-payload".length);
+    expect(readFileSync(binaryEvents[0]!.path!, "utf8")).toBe("binary-payload");
+  });
+
   it("closes a duplex socket cleanly on input EOF", async () => {
     let clientClosed = false;
     const server = await startServer((socket) => {
@@ -2129,4 +2375,9 @@ function httpBase(wsUrl: string): string {
   url.pathname = "/";
   url.search = "";
   return url.toString();
+}
+
+function hintCommands(result: Awaited<ReturnType<typeof runWs>>): string[] {
+  if (result.env.ok) throw new Error("expected an error envelope");
+  return (result.env.hints ?? []).map(({ cmd }) => cmd);
 }

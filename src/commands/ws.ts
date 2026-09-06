@@ -11,7 +11,13 @@ import {
 } from "../core/errors";
 import { ExitCode } from "../core/types";
 import { resolveOutTarget, OutTargetError } from "../core/files";
-import { buildCatalogUrl, getWsCatalogEntry, listWsCatalog, wsUrlFromPath } from "../ws/catalog";
+import {
+  buildCatalogUrl,
+  getWsCatalogEntry,
+  listWsCatalog,
+  wsBaseHost,
+  wsUrlFromPath,
+} from "../ws/catalog";
 import {
   outboundActionCount,
   parseSendScript,
@@ -22,11 +28,12 @@ import {
   validateBinaryFiles,
   WsProtocolValidator,
 } from "../ws/events";
+import { writeDuplexEventLine } from "../ws/duplex-sink";
 import { runWsSession, WsSessionError } from "../ws/session";
 import { errorMessage } from "../util/error";
 import { shellArg } from "../util/shell";
 import type { BudgetDecision } from "../core/budget";
-import type { CommandResult, RunOpts } from "../core/types";
+import type { CommandResult, Hint, RunOpts, Warning } from "../core/types";
 import type { WsCatalogEntry, WsProtocol } from "../ws/catalog";
 import type { SendScriptAction } from "../ws/events";
 
@@ -79,7 +86,16 @@ function validateWsInput(
   input: WsCommandInput,
 ): { ok: true; input: ValidatedWsInput } | { ok: false; result: CommandResult } {
   if (!input.target && !input.urlEnv) {
-    return { ok: false, result: inputError("Missing WS target or --url-env") };
+    return {
+      ok: false,
+      result: inputError("Missing WS target or --url-env", [
+        CATALOG_HINT,
+        {
+          cmd: "elv ws --url-env SIGNED_WS_URL",
+          why: "Reads a signed WebSocket URL from an environment variable instead of argv.",
+        },
+      ]),
+    };
   }
   return { ok: true, input };
 }
@@ -106,12 +122,33 @@ async function runScriptedWs(
   if (namedEntry && urlOverride && actualEntry && actualEntry.name !== namedEntry.name) {
     return inputError(
       `Named WebSocket target ${namedEntry.name} does not match the known WebSocket route ${actualEntry.name} from --url-env`,
+      [
+        {
+          cmd: `elv ws ${actualEntry.name} --url-env <name>`,
+          why: "Name the route the signed URL actually points at.",
+        },
+        {
+          cmd: "elv ws --url-env <name>",
+          why: "Or drop the named target and let the signed URL decide the route.",
+        },
+      ],
     );
   }
   const entry = namedEntry ?? actualEntry;
   const protocol = entry?.protocol ?? "raw";
+  const baseHost = wsBaseHost(config.baseUrl);
+  const targetHost = namedEntry
+    ? baseHost
+    : rawTargetUrl(urlOverride ?? target, config.baseUrl)?.host;
+  // Two separate decisions about a raw target whose path matches a known route:
+  //   * safety and budget metadata (protocol rules, outbound risk, cost model) is inherited
+  //     whatever the host, so an agent-shaped route still fails closed behind --yes;
+  //   * the catalog NAME is only reported when the user asked for it by name or the target
+  //     resolves to the configured API host, so the envelope never tells an agent it is on a
+  //     known ElevenLabs route when it is talking to some other host.
+  const catalogName = namedEntry?.name ?? (targetHost === baseHost ? actualEntry?.name : undefined);
   if (!input.send && !input.duplex && protocol !== "monitor") {
-    return inputError("Missing --send script.ndjson");
+    return inputError("Missing --send script.ndjson", [SEND_SCRIPT_HINT, DUPLEX_HINT]);
   }
   const defaultQuery = withConfiguredTtsModel(
     { ...entry?.defaultQuery },
@@ -119,16 +156,34 @@ async function runScriptedWs(
     config.defaultTtsModelId,
   );
   const embeddedQuery = embeddedQueryForRawTarget(urlOverride ?? target, config.baseUrl);
-  const query = withTokenEnvironment(
-    { ...defaultQuery, ...embeddedQuery, ...input.query },
-    input.tokenEnv,
-    protocol,
+  const query = withTokenEnvironment({
+    query: { ...defaultQuery, ...embeddedQuery, ...input.query },
+    tokenEnv: input.tokenEnv,
+    entry,
     urlOverride,
-  );
+    targetHost,
+    baseHost,
+  });
   const modelId = query.model_id ?? entry?.defaultQuery?.model_id;
   const script = input.send ? parseScriptFile(input.send, protocol, modelId) : [];
   validateScriptFiles(script);
-  const resolved = resolveTargetForInput(target, namedEntry, query, config.baseUrl, urlOverride);
+  if (input.duplex && script.some((action) => action.type === "close")) {
+    // playScript stops at the close without closing the socket and the duplex reader stops
+    // seeding the validator, so the session would keep streaming stdin into a socket the
+    // seed asked to close. Reject the combination instead of ignoring the close.
+    return inputError(
+      'A --send seed script cannot contain {"type":"close"} under --duplex; send that line on stdin to end the session',
+      [DUPLEX_HINT],
+    );
+  }
+  let resolved: ResolvedWsTarget;
+  try {
+    resolved = resolveTarget(target, namedEntry, query, config.baseUrl, urlOverride);
+  } catch (error) {
+    // buildCatalogUrl and wsUrlFromPath report missing parameters and off-host paths as
+    // plain errors; every one of them is a bad invocation, not a session failure.
+    throw new ScriptValidationError(errorMessage(error));
+  }
   const validationErrorResult = validateScriptedTarget(entry, resolved.url, script);
   if (validationErrorResult) return validationErrorResult;
   const preflight = wsPreflight(
@@ -141,7 +196,7 @@ async function runScriptedWs(
   const headers = headersForTarget(resolved.usesProfileAuth, options);
 
   if (options.dryRun) {
-    return dryRunResult(entry, protocol, script, resolved, headers, preflight);
+    return dryRunResult(entry, catalogName, protocol, script, resolved, headers, preflight);
   }
   const budgetError = enforceWsBudget(preflight, config.maxCredits);
   if (budgetError) return budgetError;
@@ -149,10 +204,10 @@ async function runScriptedWs(
     return {
       env: confirmationRequired(
         "elv ws",
-        preflight.unboundedBudget
+        preflight.budget.unbounded
           ? "Configured max-credits cannot bound this raw WebSocket session; rerun with --yes to accept that limit"
           : "Outbound agent or monitor actions require --yes",
-        { raw: { catalog: entry?.name, outbound_actions: preflight.outboundActions } },
+        { raw: { catalog: catalogName, outbound_actions: preflight.outboundActions } },
       ),
       exitCode: ExitCode.ConfirmationRequired,
     };
@@ -160,19 +215,19 @@ async function runScriptedWs(
 
   const result = await runWsSession({
     url: resolved.url,
-    catalog: entry?.name ?? null,
+    catalog: catalogName ?? null,
     path: resolved.path,
     outDir: resolveOutTarget(input.out ?? config.outputDir, true).dir,
     script,
     headers,
     timeoutMs: options.timeoutMs,
-    outputFormat: resolved.url.searchParams.get("output_format") ?? input.query.output_format,
+    outputFormat: resolved.url.searchParams.get("output_format") ?? entry?.defaultAudioFormat,
     duplex: input.duplex
       ? {
           input: options.duplexInput ?? process.stdin,
           protocol,
           modelId,
-          onEvent: options.duplexEventSink ?? ((line: string) => process.stderr.write(`${line}\n`)),
+          onEvent: options.duplexEventSink ?? writeDuplexEventLine,
         }
       : undefined,
   });
@@ -183,22 +238,31 @@ async function runScriptedWs(
       ws: result.ws,
       files: result.files,
       cost: {
-        credits_estimated: preflight.creditsEstimated,
+        credits_estimated: preflight.budget.creditsEstimated,
         credits_charged: null,
-        credits_source: preflight.creditsEstimated === null ? "none" : "estimate",
+        credits_source: preflight.budget.creditsEstimated === null ? "none" : "estimate",
       },
-      warnings: preflight.unboundedBudget
-        ? [
-            {
-              code: "budget_unbounded",
-              message:
-                "Configured max-credits could not bound this raw WebSocket session; --yes accepted the unbounded request.",
-            },
-          ]
-        : undefined,
+      warnings: sessionWarnings(preflight, result.warnings),
     }),
     exitCode: ExitCode.Success,
   };
+}
+
+function sessionWarnings(
+  preflight: WsPreflight,
+  sessionWarnings: Warning[],
+): Warning[] | undefined {
+  const warnings: Warning[] = preflight.budget.unbounded
+    ? [
+        {
+          code: "budget_unbounded",
+          message:
+            "Configured max-credits could not bound this raw WebSocket session; --yes accepted the unbounded request.",
+        },
+      ]
+    : [];
+  warnings.push(...sessionWarnings);
+  return warnings.length > 0 ? warnings : undefined;
 }
 
 function validateScriptedTarget(
@@ -214,6 +278,12 @@ function validateScriptedTarget(
   if (entry && rejectsElevenV3(entry, url, script)) {
     return inputError(
       "eleven_v3 is not supported over ElevenLabs WebSocket TTS; use eleven_flash_v2_5",
+      [
+        {
+          cmd: `elv ws ${entry.name} --query model_id=eleven_flash_v2_5`,
+          why: "Realtime TTS runs on the flash models.",
+        },
+      ],
     );
   }
   if (entry?.protocol === "ttd" || entry?.protocol === "ttd-multi") {
@@ -222,7 +292,12 @@ function validateScriptedTarget(
         modelId: url.searchParams.get("model_id") ?? entry.defaultQuery?.model_id ?? "",
       });
     } catch (error) {
-      return inputError(errorMessage(error));
+      return inputError(errorMessage(error), [
+        {
+          cmd: `elv ws ${entry.name} --query model_id=eleven_v3_conversational`,
+          why: "Text to Dialogue WebSockets require an eleven_v3 model.",
+        },
+      ]);
     }
   }
   return undefined;
@@ -297,26 +372,12 @@ function wsPathMatches(template: string, path: string): boolean {
   );
 }
 
-function resolveTargetForInput(
-  target: string,
-  entry: WsCatalogEntry | undefined,
-  query: Record<string, string>,
-  baseUrl: string,
-  urlOverride?: string,
-): { url: URL; path: string; usesProfileAuth: boolean } {
-  try {
-    return resolveTarget(target, entry, query, baseUrl, urlOverride);
-  } catch (error) {
-    throw new ScriptValidationError(errorMessage(error));
-  }
-}
-
 function rejectsElevenV3(
   entry: WsCatalogEntry,
   url: URL,
   script: ReturnType<typeof parseSendScript>,
 ): boolean {
-  if (!entry.name.startsWith("tts-")) return false;
+  if (entry.rejectsV3 !== true) return false;
   return (
     url.searchParams.get("model_id")?.toLowerCase().startsWith("eleven_v3") === true ||
     scriptUsesModel(script, "eleven_v3") ||
@@ -343,15 +404,22 @@ interface ResolvedWsTarget {
   usesProfileAuth: boolean;
 }
 
+interface WsBudgetOutcome {
+  policy: BudgetDecision["policy"];
+  creditsEstimated: number | null;
+  /** null when nothing can be said either way, which only --yes can accept. */
+  wouldExceed: boolean | null;
+  /** A raw session a configured ceiling cannot bind; --yes accepts it with a warning. */
+  unbounded: boolean;
+  /** A live session whose cost the provider decides as it runs. */
+  dynamicCost: boolean;
+}
+
 interface WsPreflight {
   outboundActions: number;
   requiresYes: boolean;
-  creditsEstimated: number | null;
-  budgetPolicy: BudgetDecision["policy"];
-  wouldExceedBudget: boolean | null;
-  unboundedBudget: boolean;
-  dynamicCostUnbounded: boolean;
   duplex: boolean;
+  budget: WsBudgetOutcome;
 }
 
 function withConfiguredTtsModel(
@@ -368,31 +436,55 @@ function withConfiguredTtsModel(
   return { ...query, model_id: defaultTtsModelId };
 }
 
-function withTokenEnvironment(
-  query: Record<string, string>,
-  tokenEnv: string | undefined,
-  protocol: WsProtocol | "raw",
-  urlOverride: string | undefined,
-): Record<string, string> {
+interface TokenEnvironmentInput {
+  query: Record<string, string>;
+  tokenEnv: string | undefined;
+  entry: WsCatalogEntry | undefined;
+  urlOverride: string | undefined;
+  targetHost: string | undefined;
+  baseHost: string;
+}
+
+function withTokenEnvironment(input: TokenEnvironmentInput): Record<string, string> {
+  const { query, tokenEnv, entry, urlOverride, targetHost, baseHost } = input;
   if (!tokenEnv) return query;
-  if (urlOverride) throw new ScriptValidationError("--token-env cannot be combined with --url-env");
-  const parameter =
-    protocol === "stt"
-      ? "token"
-      : protocol === "tts" ||
-          protocol === "tts-multi" ||
-          protocol === "ttd" ||
-          protocol === "ttd-multi"
-        ? "single_use_token"
-        : undefined;
+  if (urlOverride) {
+    throw new ScriptValidationError("--token-env cannot be combined with --url-env", [
+      {
+        cmd: "elv ws --url-env SIGNED_WS_URL",
+        why: "A signed URL already carries its credential; drop --token-env.",
+      },
+      {
+        cmd: "elv ws <catalog-name> --token-env WS_TOKEN",
+        why: "Or name a catalog route and let --token-env add the token parameter.",
+      },
+    ]);
+  }
+  // The token travels in the connection URL, so it is only safe on the host the
+  // profile is configured for -- the same rule wsUrlFromPath enforces for profile auth.
+  if (targetHost !== undefined && targetHost !== baseHost) {
+    throw new ScriptValidationError(
+      `--token-env sends the token to the connection host, and ${targetHost} is not the configured API host ${baseHost}`,
+      [
+        {
+          cmd: "elv ws --url-env SIGNED_WS_URL",
+          why: "Reach another host through a signed URL, which carries its own credential.",
+        },
+        CATALOG_HINT,
+      ],
+    );
+  }
+  const parameter = entry?.tokenParam;
   if (!parameter) {
     throw new ScriptValidationError(
       "--token-env is supported only for named TTS, Text to Dialogue, and realtime STT protocols",
+      [CATALOG_HINT],
     );
   }
   if (query.token !== undefined || query.single_use_token !== undefined) {
     throw new ScriptValidationError(
       "Use --token-env or an explicit token query parameter, not both",
+      [{ cmd: "elv ws <target> --token-env WS_TOKEN", why: "Keep the token out of argv." }],
     );
   }
   return { ...query, [parameter]: environmentValue(tokenEnv, "--token-env") };
@@ -414,59 +506,65 @@ function wsPreflight(
 ): WsPreflight {
   const outboundActions = outboundActionCount(script);
   const protocol = entry?.protocol ?? "raw";
-  const dynamicCostUnbounded =
-    duplex && ["tts", "tts-multi", "ttd", "ttd-multi", "stt", "convai"].includes(protocol);
-  const creditsEstimated =
-    !dynamicCostUnbounded &&
-    (protocol === "tts" ||
-      protocol === "tts-multi" ||
-      protocol === "ttd" ||
-      protocol === "ttd-multi")
-      ? ttsCharacterEstimate(
-          script,
-          url.searchParams.get("model_id") ?? entry?.defaultQuery?.model_id ?? "",
-        )
-      : null;
-  const estimateUnavailable = dynamicCostUnbounded || protocol === "stt" || protocol === "convai";
-  const budgetPolicy =
-    maxCredits === undefined
-      ? "not_configured"
-      : creditsEstimated !== null
-        ? "bounded"
-        : estimateUnavailable
-          ? "estimate_unavailable"
-          : "unknown_unbounded";
-  const wouldExceedBudget =
-    maxCredits === undefined
-      ? false
-      : creditsEstimated !== null
-        ? creditsEstimated > maxCredits
-        : estimateUnavailable
-          ? true
-          : null;
-  const unboundedBudget =
-    entry === undefined &&
-    protocol === "raw" &&
-    maxCredits !== undefined &&
-    (outboundActions > 0 || duplex);
+  const budget = wsBudget(entry, script, url, maxCredits, duplex, outboundActions);
   const dynamicAgentActions = duplex && (protocol === "convai" || protocol === "monitor");
   return {
     outboundActions,
     requiresYes:
       (outboundActions > 0 && entry?.outboundRisk !== undefined) ||
       dynamicAgentActions ||
-      unboundedBudget,
-    creditsEstimated,
-    budgetPolicy,
-    wouldExceedBudget,
-    unboundedBudget,
-    dynamicCostUnbounded,
+      budget.unbounded,
     duplex,
+    budget,
   };
+}
+
+function wsBudget(
+  entry: WsCatalogEntry | undefined,
+  script: SendScriptAction[],
+  url: URL,
+  maxCredits: number | undefined,
+  duplex: boolean,
+  outboundActions: number,
+): WsBudgetOutcome {
+  const costModel = entry?.costModel ?? "unknown";
+  // A live session on a metered route bills for whatever the provider generates, so a
+  // send-script estimate stops meaning anything the moment stdin can add to it.
+  const dynamicCost = duplex && costModel !== "unknown";
+  const creditsEstimated =
+    !dynamicCost && costModel === "tts_characters"
+      ? ttsCharacterEstimate(
+          script,
+          url.searchParams.get("model_id") ?? entry?.defaultQuery?.model_id ?? "",
+        )
+      : null;
+  const estimateUnavailable = dynamicCost || costModel === "unbounded";
+  const unbounded =
+    entry === undefined && maxCredits !== undefined && (outboundActions > 0 || duplex);
+  return {
+    ...budgetVerdict(maxCredits, creditsEstimated, estimateUnavailable),
+    creditsEstimated,
+    unbounded,
+    dynamicCost,
+  };
+}
+
+function budgetVerdict(
+  maxCredits: number | undefined,
+  creditsEstimated: number | null,
+  estimateUnavailable: boolean,
+): Pick<WsBudgetOutcome, "policy" | "wouldExceed"> {
+  if (maxCredits === undefined) return { policy: "not_configured", wouldExceed: false };
+  if (creditsEstimated !== null) {
+    return { policy: "bounded", wouldExceed: creditsEstimated > maxCredits };
+  }
+  if (estimateUnavailable) return { policy: "estimate_unavailable", wouldExceed: true };
+  return { policy: "unknown_unbounded", wouldExceed: null };
 }
 
 function dryRunResult(
   entry: WsCatalogEntry | undefined,
+  catalogName: string | undefined,
   protocol: WsProtocol | "raw",
   script: SendScriptAction[],
   resolved: ResolvedWsTarget,
@@ -477,28 +575,28 @@ function dryRunResult(
     env: success({
       cmd: "elv ws",
       cost: {
-        credits_estimated: preflight.creditsEstimated,
+        credits_estimated: preflight.budget.creditsEstimated,
         credits_charged: null,
-        credits_source: preflight.creditsEstimated === null ? "none" : "estimate",
+        credits_source: preflight.budget.creditsEstimated === null ? "none" : "estimate",
       },
       data: redactWs({
         dry_run: true,
         request: {
-          catalog: entry?.name ?? null,
+          catalog: catalogName ?? null,
           protocol,
           path: resolved.path,
           connection_url: redactWsString(resolved.url.toString()),
           headers: headers ?? {},
           script,
         },
-        risk: entry?.outboundRisk ?? (preflight.unboundedBudget ? "unknown_unbounded" : "read"),
+        risk: entry?.outboundRisk ?? (preflight.budget.unbounded ? "unknown_unbounded" : "read"),
         outbound_actions: preflight.outboundActions,
-        credits_estimated: preflight.creditsEstimated,
-        budget_policy: preflight.budgetPolicy,
+        credits_estimated: preflight.budget.creditsEstimated,
+        budget_policy: preflight.budget.policy,
         would_require_yes: preflight.requiresYes,
-        would_exceed_budget: preflight.wouldExceedBudget,
-        unbounded_budget: preflight.unboundedBudget,
-        dynamic_cost_unbounded: preflight.dynamicCostUnbounded,
+        would_exceed_budget: preflight.budget.wouldExceed,
+        unbounded_budget: preflight.budget.unbounded,
+        dynamic_cost_unbounded: preflight.budget.dynamicCost,
         duplex: preflight.duplex,
       }),
     }),
@@ -514,7 +612,7 @@ function enforceWsBudget(
   if (!Number.isFinite(maxCredits) || maxCredits < 0) {
     return inputError("--max-credits must be a non-negative number");
   }
-  if (preflight.budgetPolicy === "estimate_unavailable") {
+  if (preflight.budget.policy === "estimate_unavailable") {
     return {
       env: failure({
         cmd: "elv ws",
@@ -540,18 +638,33 @@ function enforceWsBudget(
       exitCode: ExitCode.BudgetCeiling,
     };
   }
-  if (preflight.wouldExceedBudget) {
+  if (preflight.budget.wouldExceed) {
     return {
-      env: budgetExceeded("elv ws", preflight.creditsEstimated, maxCredits),
+      env: budgetExceeded("elv ws", preflight.budget.creditsEstimated, maxCredits),
       exitCode: ExitCode.BudgetCeiling,
     };
   }
   return undefined;
 }
 
-function inputError(message: string): CommandResult {
-  return { env: validationError("elv ws", message), exitCode: ExitCode.InputValidation };
+function inputError(message: string, hints?: Hint[]): CommandResult {
+  return { env: validationError("elv ws", message, { hints }), exitCode: ExitCode.InputValidation };
 }
+
+const SEND_SCRIPT_HINT: Hint = {
+  cmd: "elv ws <target> --send script.ndjson",
+  why: 'One NDJSON action per line, for example {"type":"send","data":{"text":" "}}.',
+};
+
+const DUPLEX_HINT: Hint = {
+  cmd: "elv ws <target> --duplex",
+  why: "Stream actions on stdin and read received events on stderr instead of scripting a file.",
+};
+
+const CATALOG_HINT: Hint = {
+  cmd: "elv ws --list",
+  why: "Lists every route with its protocol, first message, terminal rule, and duplex support.",
+};
 
 function parseScriptFile(
   path: string,
@@ -566,7 +679,7 @@ function parseScriptFile(
         : action,
     );
   } catch (error) {
-    throw new ScriptValidationError(errorMessage(error));
+    throw new ScriptValidationError(errorMessage(error), [SEND_SCRIPT_HINT, CATALOG_HINT]);
   }
 }
 
@@ -579,7 +692,7 @@ function validateScriptFiles(script: SendScriptAction[]): void {
 }
 
 function errorEnvelope(error: unknown): CommandResult {
-  if (error instanceof ScriptValidationError) return inputError(error.message);
+  if (error instanceof ScriptValidationError) return inputError(error.message, error.hints);
   if (error instanceof ConfigFileError) {
     return {
       env: configFileError("elv ws", error.message, { raw: { path: error.path } }),
@@ -634,7 +747,10 @@ function errorEnvelope(error: unknown): CommandResult {
 }
 
 class ScriptValidationError extends Error {
-  constructor(message: string) {
+  constructor(
+    message: string,
+    readonly hints: Hint[] = [],
+  ) {
     super(message);
     this.name = "ScriptValidationError";
   }

@@ -258,7 +258,10 @@ describe("ws mock server (black-box, integration gate)", () => {
         expect(result.stderr).toContain("tool completed");
         expect(result.stderr).not.toContain("SERVER_TOKEN_SECRET");
         expect(result.stderr).not.toContain(AUDIO_B64);
-        expect(readFileSync(join(outDir, "audio.mp3"), "utf8")).toBe(AUDIO_PLAIN);
+        // Agent audio encoding is configured server-side, so the bytes are written
+        // without a format label instead of being named .mp3 on a guess.
+        expect(readFileSync(join(outDir, "audio.bin"), "utf8")).toBe(AUDIO_PLAIN);
+        expect(JSON.stringify(envelope.warnings)).toContain("ws_audio_format_unknown");
       } finally {
         rmSync(outDir, { recursive: true, force: true });
       }

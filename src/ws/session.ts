@@ -14,11 +14,12 @@ import {
   parseSendScriptLine,
   redactWs,
   redactWsString,
+  SendScriptSyntaxError,
   validateBinaryFiles,
   WsProtocolValidator,
 } from "./events";
 import { isRecord, parseJson as parseJsonValue } from "../util/json";
-import type { FileRecord, SuccessEnvelope, WsInfo } from "../core/types";
+import type { FileRecord, SuccessEnvelope, Warning, WsInfo } from "../core/types";
 import type { JsonObject, JsonValue } from "../util/json";
 import type { SendScriptAction } from "./events";
 import type { WsProtocol } from "./catalog";
@@ -42,7 +43,9 @@ interface WsSessionOptions {
   duplex?: DuplexSessionOptions;
 }
 
-type WsSessionResult = Required<Pick<SuccessEnvelope, "ws" | "files">>;
+type WsSessionResult = Required<Pick<SuccessEnvelope, "ws" | "files">> & {
+  warnings: Warning[];
+};
 
 export class WsSessionError extends Error {
   constructor(
@@ -68,7 +71,7 @@ class WsDuplexInputError extends Error {
   }
 }
 
-interface WsSessionState {
+export interface WsSessionState {
   eventsSent: number;
   eventsReceived: number;
   closed: boolean;
@@ -91,7 +94,7 @@ export async function runWsSession(options: WsSessionOptions): Promise<WsSession
     messageChain: Promise.resolve(),
     binaryPaths: [],
   };
-  const inactivity = createInactivityTimer(socket, timeoutMs);
+  const inactivity = new InactivityTimer(socket, timeoutMs);
   let duplexReader: DuplexActionReader | undefined;
 
   try {
@@ -173,7 +176,7 @@ async function openedErrorEvent(socket: WebSocket, state: WsSessionState): Promi
 function trackMessages(
   socket: WebSocket,
   state: WsSessionState,
-  inactivity: ReturnType<typeof createInactivityTimer>,
+  inactivity: InactivityTimer,
   events: NdjsonEventWriter,
   audio: AudioWriter,
   onDuplexEvent?: (line: string) => void,
@@ -207,7 +210,7 @@ async function processSessionMessage(
   isBinary: boolean,
   socket: WebSocket,
   state: WsSessionState,
-  inactivity: ReturnType<typeof createInactivityTimer>,
+  inactivity: InactivityTimer,
   events: NdjsonEventWriter,
   audio: AudioWriter,
   onDuplexEvent?: (line: string) => void,
@@ -215,8 +218,11 @@ async function processSessionMessage(
   inactivity.reset();
   state.eventsReceived += 1;
   if (isBinary) {
-    const path = await writeBinaryFrame(data, events.path, state.binaryPaths.length + 1);
-    state.binaryPaths.push(path);
+    const frame = await writeBinaryFrame(data, events.path, state.binaryPaths.length + 1);
+    state.binaryPaths.push(frame.path);
+    // A binary frame carries no JSON event, so without this a duplex agent sees nothing
+    // on stderr and cannot know a file arrived until the final envelope.
+    onDuplexEvent?.(JSON.stringify({ type: "binary", bytes: frame.bytes, path: frame.path }));
     return;
   }
   await processMessage(data, socket, events, audio, onDuplexEvent);
@@ -254,7 +260,7 @@ async function finishSession(
   state: WsSessionState,
   events: NdjsonEventWriter,
   audio: AudioWriter,
-  inactivity: ReturnType<typeof createInactivityTimer>,
+  inactivity: InactivityTimer,
 ): Promise<WsSessionResult> {
   const files: FileRecord[] = [];
   const eventPath = await events.close();
@@ -271,6 +277,7 @@ async function finishSession(
   return {
     ws: wsInfo(options, state, inactivity.timedOut(), false),
     files,
+    warnings: audio.warnings,
   };
 }
 
@@ -279,7 +286,7 @@ async function preserveFailedSession(
   state: WsSessionState,
   events: NdjsonEventWriter,
   audio: AudioWriter,
-  inactivity: ReturnType<typeof createInactivityTimer>,
+  inactivity: InactivityTimer,
 ): Promise<FileRecord[]> {
   const hasOutput = events.hasData || audio.hasData || state.binaryPaths.length > 0;
   if (!hasOutput) {
@@ -324,7 +331,7 @@ async function preserveFailedSession(
 function sessionManifest(
   options: WsSessionOptions,
   state: WsSessionState,
-  inactivity: ReturnType<typeof createInactivityTimer>,
+  inactivity: InactivityTimer,
   audioOutputs: AudioOutput[],
   partial = false,
 ): JsonValue {
@@ -338,6 +345,7 @@ function sessionManifest(
     binary_frames_received: state.binaryPaths.length,
     ...(audioOutputs.length > 0
       ? {
+          audio_format: options.outputFormat ?? null,
           audio_files: audioOutputs.map(({ path, contextId }) => ({
             file: basename(path),
             context_id: contextId,
@@ -406,10 +414,6 @@ class InactivityTimer {
   }
 }
 
-function createInactivityTimer(socket: WebSocket, timeoutMs: number): InactivityTimer {
-  return new InactivityTimer(socket, timeoutMs);
-}
-
 async function processMessage(
   data: RawData,
   socket: WebSocket,
@@ -439,7 +443,7 @@ async function playScript(socket: WebSocket, script: SendScriptAction[]): Promis
   return eventsSent;
 }
 
-class DuplexActionReader {
+export class DuplexActionReader {
   private readonly lines: ReadlineInterface;
   private readonly iterator: AsyncIterator<string>;
   private readonly validator: WsProtocolValidator;
@@ -470,14 +474,6 @@ class DuplexActionReader {
         );
       }
       if (item.value.trim().length === 0) continue;
-      try {
-        parseJsonValue(item.value, "duplex input line");
-      } catch {
-        throw new WsDuplexInputError(
-          "ws_duplex_invalid_json",
-          "Duplex input line is not valid JSON",
-        );
-      }
       let action: SendScriptAction;
       try {
         action = parseSendScriptLine(item.value);
@@ -485,7 +481,9 @@ class DuplexActionReader {
         this.validator.validate(action);
       } catch (error) {
         throw new WsDuplexInputError(
-          "ws_duplex_invalid_action",
+          error instanceof SendScriptSyntaxError
+            ? "ws_duplex_invalid_json"
+            : "ws_duplex_invalid_action",
           error instanceof Error ? error.message : String(error),
         );
       }
@@ -498,17 +496,26 @@ class DuplexActionReader {
   }
 }
 
-async function runDuplexSession(
+export async function runDuplexSession(
   socket: WebSocket,
   state: WsSessionState,
   closedPromise: Promise<void>,
   reader: DuplexActionReader,
 ): Promise<void> {
   const inputTask = playDuplex(socket, state, reader);
+  // A stdin action that fails validation must be reported even when the remote closes
+  // first: otherwise the race is won by the close, the rejection is swallowed by the
+  // finally block, and an invalid input line exits 0 with a success envelope.
+  let inputFailure: unknown;
+  const guardedInput = inputTask.catch((error: unknown) => {
+    inputFailure = error;
+    throw error;
+  });
+  void guardedInput.catch(() => undefined);
   try {
     const outcome = await Promise.race([
       closedPromise.then(() => "closed" as const),
-      inputTask.then(() => "input_complete" as const),
+      guardedInput.then(() => "input_complete" as const),
     ]);
     if (outcome === "input_complete") {
       closeSocketGracefully(socket);
@@ -516,8 +523,9 @@ async function runDuplexSession(
     }
   } finally {
     reader.close();
-    await inputTask.catch(() => undefined);
+    await guardedInput.catch(() => undefined);
   }
+  if (inputFailure !== undefined) throw inputFailure;
 }
 
 async function playDuplex(
@@ -593,9 +601,15 @@ function rawDataToString(data: RawData): string {
   return Buffer.from(data).toString("utf8");
 }
 
-async function writeBinaryFrame(data: RawData, eventPath: string, index: number): Promise<string> {
+async function writeBinaryFrame(
+  data: RawData,
+  eventPath: string,
+  index: number,
+): Promise<{ path: string; bytes: number }> {
   const name = `binary.received-${String(index).padStart(6, "0")}.bin`;
-  return await writeBufferToFile(rawDataToBuffer(data), join(dirname(eventPath), name));
+  const buffer = rawDataToBuffer(data);
+  const path = await writeBufferToFile(buffer, join(dirname(eventPath), name));
+  return { path, bytes: buffer.length };
 }
 
 function rawDataToBuffer(data: RawData): Buffer {
