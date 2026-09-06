@@ -24,6 +24,7 @@ import {
   allOutputTarget,
   applyPaginationDefaults,
   collectAllPages,
+  pageSizeClampWarning,
   supportsPagination,
   type PaginationCommand,
   type PaginatedRunOptions,
@@ -156,6 +157,7 @@ export function runPreparedOperation({
         ]
       : []),
     ...budgetPolicyWarnings(budget.policy, op, effectiveOpts),
+    ...optionalWarning(pageSizeClampWarning(op, input, effectiveOpts.limit)),
   ];
   const preflightEnvelope = preparedOperationPreflight({
     cmd,
@@ -354,6 +356,10 @@ async function runSinglePage(
   return withWarnings(finalEnv, warnings);
 }
 
+function optionalWarning(warning: Warning | undefined): Warning[] {
+  return warning ? [warning] : [];
+}
+
 function withWarnings(env: Envelope, warnings: Warning[]): Envelope {
   if (warnings.length === 0) return env;
   return { ...env, warnings: [...(env.warnings ?? []), ...warnings] };
@@ -474,13 +480,16 @@ async function validateInput(
   bundledSpec: OpenApiDocument | undefined,
 ): Promise<NormalizedError | null> {
   const engine = await import("../openapi/ajv");
-  const ajv = engine.buildAjv(bundledSpec ?? minimalSpec());
+  // Building AJV over the bundled spec costs ~20 ms, and most invocations
+  // validate neither a parameter nor a body. Share one instance, on first use.
+  let built: Ajv2020 | undefined;
+  const ajv = (): Ajv2020 => (built ??= engine.buildAjv(bundledSpec ?? minimalSpec()));
   const invalidParam = await validateParameters(op, input, bundledSpec, ajv);
   if (invalidParam) return invalidParam;
   if (skipRequestBodyValidation(op, bundledSpec)) return null;
   const missingBody = missingRequiredBodyError(op, input);
   if (missingBody) return missingBody;
-  const validator = engine.getInputValidator(ajv, op);
+  const validator = engine.getInputValidator(ajv(), op);
   if (!validator) return null;
   return validationFailure(op, input, validator);
 }
@@ -488,7 +497,7 @@ export async function validateParameters(
   op: OperationCard,
   input: AgentInput,
   bundledSpec: OpenApiDocument | undefined,
-  ajv?: Ajv2020,
+  ajv?: () => Ajv2020,
 ): Promise<NormalizedError | null> {
   const missingParam = missingRequiredParamError(op, input);
   if (missingParam) return missingParam;
@@ -500,7 +509,10 @@ export async function validateParameters(
     if (!headerKeys.has(lower)) headerKeys.set(lower, key);
   }
   const engine = await import("../openapi/ajv");
-  const instance = ajv ?? engine.buildAjv(bundledSpec ?? minimalSpec());
+  let built: Ajv2020 | undefined;
+  // Every parameter may be absent or schema-free, so build nothing until one isn't.
+  const instance = (): Ajv2020 =>
+    (built ??= ajv?.() ?? engine.buildAjv(bundledSpec ?? minimalSpec()));
   let coercingInstance: Ajv2020 | undefined;
   for (const param of params) {
     const raw =
@@ -509,7 +521,7 @@ export async function validateParameters(
         : input[param.location]?.[param.name];
     if (raw === undefined || isEmptyParamSchema(param.schema)) continue;
     if (!bundledSpec && engine.paramSchemaHasRef(param.schema)) continue;
-    const validator = engine.compileParamSchema(instance, op.operationId, param.schema);
+    const validator = engine.compileParamSchema(instance(), op.operationId, param.schema);
     if (validator({ value: raw })) continue;
     const originalErrors = validator.errors ?? [];
     // Preserve valid string/union values. Coerce a copy only as a fallback, using
