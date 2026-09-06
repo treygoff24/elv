@@ -12,7 +12,17 @@ export function addPairs(
   const current = bucketObject(input, bucket);
   for (const pair of pairs) {
     const { key, value } = parsePair(pair);
-    current[key] = value;
+    if (bucket === "query" && key.endsWith("[]")) {
+      const field = key.slice(0, -2);
+      if (!field) throw new Error("Query array key must have a non-empty name before []");
+      const previous = current[field];
+      if (previous !== undefined && !Array.isArray(previous)) {
+        throw new Error(`Query parameter "${field}" must be an array to append with ${key}`);
+      }
+      current[field] = [...(previous ?? []), value];
+    } else {
+      current[key] = value;
+    }
   }
 }
 

@@ -6,6 +6,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-09-06
+
+### Added
+
+- Refreshed the public API snapshot: 388 documented operations, 387 callable, 300 paths, and 1,507 schemas. Added Flows image/video/speech and Assets aliases, all ten Agents triage-ticket operations, and conversation summaries. Flows creation supports `--wait`.
+- Added Text-to-Dialogue single/multi-context WebSockets, separate audio files per context, and environment-sourced WebSocket tokens and signed URLs.
+- Added opt-in duplex Agents/monitor/raw WebSockets: live NDJSON actions on stdin, redacted events on stderr, and one final stdout envelope. This supports responses to server-generated tool-call IDs.
+- Added authenticated Speech Engine upstream hosting with a local subprocess handler, bounded sessions and turns, interruption handling, and private readiness files. Hosting does not create provider resources, deploy, or expose a public tunnel.
+- Added explicit REST query-array flags such as `--query 'sources[]=qa'`.
+
+### Fixed
+
+- Validates known path/query/header schemas before network access while preserving valid union values and leaving request-body JSON uncoerced. Raw HTTP uses one canonical query representation; duplicate scalar parameters fail instead of being silently discarded.
+- Generated examples preserve union/array request bodies, discriminator constants, referenced parameter enums, and shell quoting.
+- Agents WebSockets now preserve `agent_id`, acknowledge nested pings correctly, and decode nested audio events. Known absolute WebSocket paths inherit safety and budget metadata without forwarding profile credentials to arbitrary hosts.
+- Signed media URLs stay in private artifacts while redacted metadata supports polling, pagination, projection, and `view`. Failed later pages retain earlier private artifact paths.
+- Automatic pagination sizes respect published provider maxima.
+
+### Changed
+
+- Realtime STT file scripts use `send_audio_file` to emit the published JSON audio-chunk protocol; `send_binary_file` is reserved for unknown raw protocols.
+- `config doctor` is offline by default. `--online` opts into provider checks, which refuse redirects.
+- Updated the transitive `fast-uri` dependency to resolve its published security advisories.
+
 ## [0.3.0] - 2026-08-11
 
 ### Added

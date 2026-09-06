@@ -39,11 +39,11 @@ describe("capabilities machine contract", () => {
     expect(record(data.spec)).toMatchObject({
       source: expect.any(String),
       sha256: expect.any(String),
-      paths: 285,
-      total_operations: 364,
-      callable_operations: 363,
+      paths: 300,
+      total_operations: 388,
+      callable_operations: 387,
       skipped_operations: 1,
-      schemas: 1402,
+      schemas: 1507,
     });
 
     const groups = array(data.service_groups).map((entry) => String(record(entry).name));

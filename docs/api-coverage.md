@@ -4,16 +4,16 @@
 
 ## Pinned REST contract
 
-The vendored OpenAPI document was retrieved from `https://api.elevenlabs.io/openapi.json` on August 11, 2026 at `2026-08-11T14:43:48Z`:
+The vendored OpenAPI document was retrieved from `https://api.elevenlabs.io/openapi.json` on September 6, 2026 at `2026-09-06T04:06:22Z`:
 
 | Measure | Value |
 | --- | ---: |
-| SHA-256 | `d1a4847203cef628b0c43760b0c74ecd88fa280034bb47c973874ae911f6153a` |
-| Paths | 285 |
-| Documented operations | 364 |
-| Callable operations | 363 |
+| SHA-256 | `587ca2ac585d793cbf210512806bfcdf78e6c4ee187fcd756bb25f764b8cfd39` |
+| Paths | 300 |
+| Documented operations | 388 |
+| Callable operations | 387 |
 | Skipped operations | 1 |
-| Schemas | 1,402 |
+| Schemas | 1,507 |
 
 The skipped operation is `get_signed_url_deprecated`, an obsolete route marked `x-skip-spec` by the source document. Its replacement, `get_conversation_signed_link`, is callable.
 
@@ -39,19 +39,24 @@ The named WebSocket catalog covers the public client-side protocols:
 | --- | --- |
 | `tts-realtime` | Streaming text to speech |
 | `tts-multi` | Multi-context streaming text to speech |
-| `stt-realtime` | Realtime speech to text, including binary file sends and `entity_detection` |
+| `ttd-realtime` | Streaming text to dialogue with per-input voices |
+| `ttd-multi` | Multi-context streaming text to dialogue |
+| `stt-realtime` | Realtime speech to text, JSON audio-file chunks, and `entity_detection` |
 | `convai` | ElevenAgents conversations |
 | `convai-monitor` | Conversation text and metadata monitoring, with optional controls |
 
-Validation follows the selected protocol. The TTS keep-alive is not imposed on STT or agent traffic, binary file actions are limited to STT and raw sessions, and WebSocket TTS rejects `eleven_v3`. Named sessions forward arbitrary repeated `--query key=value` fields, so realtime STT `entity_detection` is available as `--query entity_detection=true` without a protocol-specific flag. Receive-only monitoring needs no send script, while outbound agent and monitor actions require `--yes`. WebSocket `--max-credits` can bound scripted TTS from its text but fails closed for STT and agent sessions whose cost is not knowable before connection. `--dry-run` shows the resolved, redacted request and applicable gates without connecting.
+Validation follows the selected protocol. Dialogue initialization declares voices; subsequent `inputs` carry text and voice IDs. Its v3 model rules differ from older TTS WebSockets. STT `send_audio_file` actions emit the documented JSON `input_audio_chunk` frame; `send_binary_file` remains for raw sessions only. TTS and TTD multi-context audio goes to separate files, and per-context final messages do not end the whole connection. Agents ping/pong and audio use the provider's nested event shapes.
+
+`--token-env` uses STT's `token` query parameter or TTS/TTD's `single_use_token`; `--url-env` accepts signed URLs without putting credentials in argv. Known absolute URL paths inherit protocol metadata but not profile authentication. Receive-only monitoring needs no send script; outbound agent and monitor actions require `--yes`. Credit ceilings bound scripted TTS/TTD text estimates and fail closed for STT/agent sessions. Unknown raw outbound costs require explicit consent with `--yes` when a ceiling is configured. `--dry-run` makes no connection.
 
 Music detailed streaming begins as a REST request but returns Server-Sent Events. `elv music detailed-stream` decodes its audio chunks to an audio file and writes the remaining event data to NDJSON. Both appear in `files[]`.
 
-## Models documented July 16, 2026
+## Model examples
 
 | Area | Model IDs |
 | --- | --- |
 | Text to Speech | `eleven_v3`, `eleven_multilingual_v2`, `eleven_flash_v2_5`, `eleven_flash_v2` |
+| Realtime dialogue | `eleven_v3_conversational`, `eleven_v3` |
 | Text to Voice | `eleven_ttv_v3`, `eleven_multilingual_ttv_v2` |
 | Speech to Speech | `eleven_multilingual_sts_v2`, `eleven_english_sts_v2` |
 | Speech to Text | `scribe_v2`, `scribe_v2_realtime` |
@@ -64,7 +69,9 @@ ElevenLabs marks `eleven_turbo_v2_5`, `eleven_turbo_v2`, and `scribe_v1` depreca
 
 ## Recent workflow coverage
 
-The generic runner covers every operation in the pinned document. August 11 adds all eight Agents Procedures operations, Dubbing v2 bulk source/target transcript PATCH operations, `get_voice_accents`, and `replicate_voice_to_isolated_environment`. Voice replication is centrally classified as an external side effect, so `call`, matching `http`, and aliases require `--yes`; `remove_procedure_route` and `delete_procedure_draft_route` inherit the destructive gate directly from DELETE. Dubbing regeneration returns `DubbingRegenerateResponse`, and `video_to_music` now declares both audio and ZIP binary responses.
+The September 6 snapshot adds 24 operations relative to August 11: nine Flows generation operations, four Assets operations, ten Agents triage-ticket operations, and conversation summaries. No operation was removed. The runner compiles every non-skipped operation, and every request-body schema can be compiled by the local validator. This checks the published contract, not account entitlements or live execution of every operation.
+
+`flows image|video|speech` supports create, list, and get; `create --wait` polls until completion or failure. `assets` supports upload, list, get, and delete. `agents tickets` supports both agent and workspace lists, creation from conversations or manual creation, assignment discovery, updates, deletion, and ticket/turn comments. `agents conversations summary` reads summaries. Model-specific generation options remain available through alias body JSON or generic calls.
 
 Current high-use workflow coverage includes:
 
@@ -79,12 +86,14 @@ Current high-use workflow coverage includes:
 
 `agents simulate` remains for compatibility but invokes an operation ElevenLabs marks deprecated. Use `agents tests create` and `agents tests run` for new work.
 
-Credential-producing responses, including service-account keys, single-use tokens, and signed URLs, never return the secret inline. `elv` writes the response to a mode `0600` file, marks it `sensitive: true`, and refuses to display it through `elv view`.
+Credential-producing responses, including service-account keys, single-use tokens, and signed URLs, never return the secret inline. `elv` writes the response to a mode `0600` file, marks it `sensitive: true`, and refuses to display it through `elv view`. Flows and Assets also retain redacted metadata inline so status polling, field projection, and pagination work. `--all` retains each private page artifact alongside the combined redacted collection.
 
-## Deliberate exclusions
+## Coverage boundaries
 
-Speech Engine upstream is an inverted protocol: ElevenLabs opens a WebSocket connection to a server the customer hosts. An outbound scripted CLI is the wrong runtime shape, so it is not a named `elv ws` target. The REST operations that configure Speech Engine resources remain available through `call`.
+Speech Engine upstream is a published inverted protocol. `speech-engine serve` hosts an authenticated local endpoint and bridges transcript turns to a subprocess handler. It verifies the provider's HS256 token contract before accepting a WebSocket; this contract is grounded in the [official SDK verifier](https://github.com/elevenlabs/elevenlabs-js/blob/aa6976916c3c4a7dec5db572c03eed0b56d6b8fc/src/wrapper/speech-engine/SpeechEngineResource.ts). The REST lifecycle remains available through `call`. Hosting does not automatically create resources, open tunnels, deploy TLS, or start paid conversations. Mock clients verify authentication and protocol behavior; a live ElevenLabs-hosted conversation has not been exercised by the offline gate.
 
-ElevenCreative product areas such as Image & Video, Avatars, Ads, Assets, Flows, and Templates remain outside the published OpenAPI document. `elv` does not reverse-engineer private endpoints. Published Dubbing transcript editing and Music Finetunes are compiled; provider entitlement can still limit access.
+Duplex stdin/stderr sessions support reactive Agents, monitoring, and raw WebSockets. TTS/TTD/STT currently use finite send scripts rather than live stdin; live producer support for those protocols remains unfinished. Account, region, enterprise, and beta entitlements are separate from CLI support.
+
+Flows Image & Video, speech generation, and Assets are now public and included. Other editor screens are not evidence of a public API contract; `elv` does not reverse-engineer private endpoints. Provider entitlement can still limit access to published operations.
 
 Public docs, beta and enterprise entitlements, server behavior, and the live OpenAPI document can change independently. `elv spec diff` is the check for current REST drift; the pinned counts above are a reproducible baseline, not a claim about unpublished backend capabilities.

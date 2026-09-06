@@ -93,5 +93,19 @@ responses over a memorized model list. For new examples, start with `scribe_v2`
 for STT and a current Flash model for low-latency TTS, then honor the user's
 quality, language, latency, and availability requirements.
 
-The public API contract does not include ElevenCreative's UI-only editors,
-Image & Video, Avatars, Ads, or Flows. Keep private endpoints out of the plan.
+## Flows and Assets
+
+`flows image|video|speech create --json-file request.json --dry-run` previews
+model-specific generation input. Remove `--dry-run` to execute; add `--wait`
+to poll to completion. Discover the body with `ops schema
+create_image_generation --example` (or the video/text-to-speech operation).
+`assets upload --file reference.png` creates reusable input media.
+
+Generation costs are model-specific and cannot currently be bounded; a
+configured credit ceiling blocks Flows creation even with `--yes`.
+Signed `content_url` values are written to private sensitive response files.
+IDs, status, and cursors remain inline with URLs redacted. Read the private
+artifact only when a downstream download needs the URL; do not echo it.
+
+Image & Video, speech generation, and Assets have public APIs. Other private
+editor endpoints are not part of the contract.

@@ -342,8 +342,10 @@ describe("curated aliases", () => {
 
     expect(program.commands.map((command) => command.name()).sort()).toEqual([
       "agents",
+      "assets",
       "dubbing",
       "dubbing-project",
+      "flows",
       "history",
       "models",
       "music",

@@ -32,6 +32,7 @@ export interface CliOptionValues
   allowUnknown?: boolean;
   bodyJson?: string;
   debug?: boolean;
+  duplex?: boolean;
   enableLogging?: boolean;
   example?: boolean;
   fields?: string;
@@ -45,6 +46,7 @@ export interface CliOptionValues
   method?: string;
   model?: string;
   offline?: boolean;
+  online?: boolean;
   optimizeStreamingLatency?: string | number;
   path?: string[];
   query?: string[];
@@ -59,6 +61,8 @@ export interface CliOptionValues
   text?: string;
   textFile?: string;
   timestamps?: boolean;
+  tokenEnv?: string;
+  urlEnv?: string;
   unpack?: boolean;
   uploads?: boolean;
   deprecated?: boolean;

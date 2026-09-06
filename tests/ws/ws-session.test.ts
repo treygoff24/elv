@@ -4,6 +4,7 @@ import type { IncomingHttpHeaders } from "node:http";
 import { createServer as createTcpServer, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { PassThrough } from "node:stream";
 import WebSocket, { WebSocketServer } from "ws";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { runWs } from "../../src/commands/ws";
@@ -30,19 +31,37 @@ describe("ws session", () => {
         if (sawPong && finalAudioSent) socket.close(1000, "done");
       };
       socket.send(
-        JSON.stringify({ type: "ping", event_id: "evt-secret", single_use_token: "tok_secret" }),
+        JSON.stringify({
+          type: "ping",
+          event_id: "decoy-event",
+          ping_event: { event_id: "not-an-integer" },
+        }),
+      );
+      socket.send(
+        JSON.stringify({
+          type: "ping",
+          ping_event: { event_id: 123456, ping_ms: 50 },
+          single_use_token: "tok_secret",
+        }),
       );
       socket.send(JSON.stringify({ audio: Buffer.from("one").toString("base64") }));
       socket.on("message", () => {
-        const payload = JSON.parse(received.at(-1)!) as { type?: string; text?: string };
-        if (payload.type === "pong") {
+        const payload = JSON.parse(received.at(-1)!) as {
+          type?: string;
+          text?: string;
+          event_id?: unknown;
+        };
+        if (payload.type === "pong" && payload.event_id === 123456) {
           sawPong = true;
           socket.send(JSON.stringify({ type: "pong_ack" }));
           closeWhenReady();
         }
         if (payload.text === "") {
           socket.send(
-            JSON.stringify({ audio_base64: Buffer.from("two").toString("base64") }),
+            JSON.stringify({
+              type: "audio",
+              audio_event: { audio_base_64: Buffer.from("two").toString("base64") },
+            }),
             () => {
               finalAudioSent = true;
               closeWhenReady();
@@ -87,9 +106,10 @@ describe("ws session", () => {
     expect(result.env.ws).toMatchObject({ catalog: null, events_sent: 3, closed: true });
     expect(
       server.received.some(
-        (line) => line.includes('"type":"pong"') && line.includes('"event_id":"evt-secret"'),
+        (line) => line.includes('"type":"pong"') && line.includes('"event_id":123456'),
       ),
     ).toBe(true);
+    expect(server.received.some((line) => line.includes('"event_id":"decoy-event"'))).toBe(false);
 
     const audioPath = join(dir, "audio.mp3");
     expect(readFileSync(audioPath, "utf8")).toBe("onetwo");
@@ -193,14 +213,187 @@ describe("ws session", () => {
     expect(server.connected).toBe(false);
   });
 
-  it("sends exact realtime STT binary bytes and stores inbound binary frames", async () => {
+  it("runs the published single-context Text to Dialogue protocol", async () => {
+    const server = await startServer((socket, received) => {
+      socket.on("message", () => {
+        const message = JSON.parse(received.at(-1)!) as Record<string, unknown>;
+        if (message.close_socket === true) {
+          socket.send(JSON.stringify({ audio: Buffer.from("dialogue").toString("base64") }));
+          socket.send(JSON.stringify({ is_final: true }), () => socket.close(1000, "done"));
+        }
+      });
+    });
+    const dir = await tempDir();
+    const script = join(dir, "dialogue.ndjson");
+    writeFileSync(
+      script,
+      [
+        { type: "send", data: { voices: ["voice-a"] } },
+        {
+          type: "send",
+          data: { inputs: [{ text: "Hello there", voice_id: "voice-a", new_turn: true }] },
+        },
+        { type: "send", data: { flush: true } },
+        { type: "send", data: { close_socket: true } },
+        { type: "close" },
+      ]
+        .map((line) => JSON.stringify(line))
+        .join("\n"),
+    );
+
+    const result = await runWs(
+      { target: "ttd-realtime", send: script, out: dir, query: {} },
+      { baseUrl: httpBase(server.url), apiKey: "sk_test", timeoutMs: 500 },
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(server.received.map((raw) => JSON.parse(raw))).toEqual([
+      { voices: ["voice-a"] },
+      { inputs: [{ text: "Hello there", voice_id: "voice-a", new_turn: true }] },
+      { flush: true },
+      { close_socket: true },
+    ]);
+    expect(readFileSync(join(dir, "audio.mp3"), "utf8")).toBe("dialogue");
+    if (!result.env.ok) throw new Error("expected success");
+    expect(result.env.cost?.credits_estimated).toBe(11);
+  });
+
+  it("separates and safely names multi-context Text to Dialogue audio", async () => {
+    const server = await startServer((socket, received) => {
+      socket.on("message", () => {
+        const message = JSON.parse(received.at(-1)!) as Record<string, unknown>;
+        if (message.close_socket === true) {
+          socket.send(
+            JSON.stringify({
+              audio: Buffer.from("a1").toString("base64"),
+              context_id: "../../alpha",
+            }),
+          );
+          socket.send(JSON.stringify({ is_final: true, context_id: "../../alpha" }));
+          socket.send(
+            JSON.stringify({ audio: Buffer.from("b1").toString("base64"), contextId: "beta" }),
+          );
+          socket.send(JSON.stringify({ is_final: true, context_id: "beta" }), () =>
+            socket.close(1000, "done"),
+          );
+        }
+      });
+    });
+    const dir = await tempDir();
+    const script = join(dir, "dialogue-multi.ndjson");
+    writeFileSync(
+      script,
+      [
+        { type: "send", data: { context_id: "../../alpha", voices: ["voice-a"] } },
+        { type: "send", data: { context_id: "beta", voices: ["voice-b"] } },
+        {
+          type: "send",
+          data: {
+            context_id: "../../alpha",
+            inputs: [{ text: "Alpha", voice_id: "voice-a" }],
+          },
+        },
+        {
+          type: "send",
+          data: { context_id: "beta", inputs: [{ text: "Beta", voice_id: "voice-b" }] },
+        },
+        { type: "send", data: { context_id: "../../alpha", close_context: true } },
+        { type: "send", data: { close_socket: true } },
+        { type: "close" },
+      ]
+        .map((line) => JSON.stringify(line))
+        .join("\n"),
+    );
+
+    const result = await runWs(
+      { target: "ttd-multi", send: script, out: dir, query: { model_id: "eleven_v3" } },
+      { baseUrl: httpBase(server.url), timeoutMs: 500 },
+    );
+
+    expect(result.exitCode).toBe(0);
+    if (!result.env.ok) throw new Error("expected success");
+    const audioFiles = result.env.files?.filter((file) => file.path.includes("/audio.")) ?? [];
+    expect(audioFiles).toHaveLength(2);
+    expect(audioFiles.every((file) => file.path.startsWith(`${dir}/`))).toBe(true);
+    expect(audioFiles.every((file) => !file.path.slice(dir.length + 1).includes(".."))).toBe(true);
+    expect(audioFiles.map((file) => readFileSync(file.path, "utf8")).sort()).toEqual(["a1", "b1"]);
+    expect(server.received.map((raw) => JSON.parse(raw)).slice(-2)).toEqual([
+      { context_id: "../../alpha", close_context: true },
+      { close_socket: true },
+    ]);
+    const manifest = JSON.parse(readFileSync(join(dir, "manifest.json"), "utf8")) as {
+      audio_files?: { context_id: string | null; file: string }[];
+    };
+    expect(manifest.audio_files?.map(({ context_id }) => context_id).sort()).toEqual([
+      "../../alpha",
+      "beta",
+    ]);
+  });
+
+  it("rejects invalid TTD model and voice cardinality before connecting", async () => {
+    const server = await startServer(() => undefined);
+    const dir = await tempDir();
+    const script = join(dir, "dialogue.ndjson");
+    writeFileSync(
+      script,
+      JSON.stringify({ type: "send", data: { voices: ["voice-a", "voice-b"] } }),
+    );
+
+    const voicesResult = await runWs(
+      { target: "ttd-realtime", send: script, out: dir, query: {} },
+      { baseUrl: httpBase(server.url), timeoutMs: 100 },
+    );
+    expect(voicesResult.exitCode).toBe(2);
+    expect(server.connected).toBe(false);
+
+    writeFileSync(script, JSON.stringify({ type: "send", data: { voices: ["voice-a"] } }));
+    const modelResult = await runWs(
+      {
+        target: "ttd-realtime",
+        send: script,
+        out: dir,
+        query: { model_id: "eleven_flash_v2_5" },
+      },
+      { baseUrl: httpBase(server.url), timeoutMs: 100 },
+    );
+    expect(modelResult.exitCode).toBe(2);
+    expect(server.connected).toBe(false);
+  });
+
+  it("bounds TTD nested input text before connecting", async () => {
+    const server = await startServer(() => undefined);
+    const dir = await tempDir();
+    const script = join(dir, "dialogue.ndjson");
+    writeFileSync(
+      script,
+      [
+        { type: "send", data: { voices: ["voice-a"] } },
+        {
+          type: "send",
+          data: { inputs: [{ text: "This is chargeable.", voice_id: "voice-a" }] },
+        },
+      ]
+        .map((line) => JSON.stringify(line))
+        .join("\n"),
+    );
+
+    const result = await runWs(
+      { target: "ttd-realtime", send: script, out: dir, query: {} },
+      { baseUrl: httpBase(server.url), maxCredits: 1, timeoutMs: 100 },
+    );
+
+    expect(result.exitCode).toBe(5);
+    expect(server.connected).toBe(false);
+  });
+
+  it("wraps an STT audio file in the published input_audio_chunk message", async () => {
     const outbound = Buffer.from([0, 1, 2, 127, 128, 254, 255]);
     const inbound = Buffer.from([255, 4, 3, 2, 1, 0]);
-    let received: Buffer | undefined;
+    let received: Record<string, unknown> | undefined;
     const server = await startServer((socket) => {
       socket.on("message", (data, isBinary) => {
-        if (!isBinary) return;
-        received = Buffer.from(data as Buffer);
+        if (isBinary) return;
+        received = JSON.parse(data.toString()) as Record<string, unknown>;
         socket.send(inbound, { binary: true }, () => socket.close(1000, "done"));
       });
     });
@@ -208,7 +401,16 @@ describe("ws session", () => {
     const audio = join(dir, "audio.raw");
     const script = join(dir, "script.ndjson");
     writeFileSync(audio, outbound);
-    writeFileSync(script, JSON.stringify({ type: "send_binary_file", path: "audio.raw" }));
+    writeFileSync(
+      script,
+      JSON.stringify({
+        type: "send_audio_file",
+        path: "audio.raw",
+        sample_rate: 16_000,
+        commit: true,
+        previous_text: "Earlier context",
+      }),
+    );
 
     const result = await runWs(
       {
@@ -221,11 +423,69 @@ describe("ws session", () => {
     );
 
     expect(result.exitCode).toBe(0);
-    expect(received?.equals(outbound)).toBe(true);
+    expect(received).toEqual({
+      message_type: "input_audio_chunk",
+      audio_base_64: outbound.toString("base64"),
+      commit: true,
+      sample_rate: 16_000,
+      previous_text: "Earlier context",
+    });
     if (!result.env.ok) throw new Error("expected success");
     const binaryFile = result.env.files?.find((file) => file.path.includes("binary.received"));
     expect(binaryFile).toBeDefined();
     expect(readFileSync(binaryFile!.path).equals(inbound)).toBe(true);
+  });
+
+  it("keeps exact binary sends available only for raw WebSocket sessions", async () => {
+    const outbound = Buffer.from([0, 1, 2, 255]);
+    let received: Buffer | undefined;
+    const server = await startServer((socket) => {
+      socket.on("message", (data, isBinary) => {
+        if (!isBinary) return;
+        received = Buffer.from(data as Buffer);
+        socket.close(1000, "done");
+      });
+    });
+    const dir = await tempDir();
+    const audio = join(dir, "audio.raw");
+    const script = join(dir, "script.ndjson");
+    writeFileSync(audio, outbound);
+    writeFileSync(script, JSON.stringify({ type: "send_binary_file", path: "audio.raw" }));
+
+    const result = await runWs(
+      { target: server.url, send: script, out: dir, query: {} },
+      { timeoutMs: 500 },
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(received?.equals(outbound)).toBe(true);
+  });
+
+  it("rejects raw binary and malformed audio-file actions for named STT before connecting", async () => {
+    const server = await startServer(() => undefined);
+    const dir = await tempDir();
+    const audio = join(dir, "audio.raw");
+    const script = join(dir, "script.ndjson");
+    writeFileSync(audio, "audio");
+    writeFileSync(script, JSON.stringify({ type: "send_binary_file", path: "audio.raw" }));
+
+    const binaryResult = await runWs(
+      { target: "stt-realtime", send: script, out: dir, query: {} },
+      { baseUrl: httpBase(server.url), timeoutMs: 100 },
+    );
+    expect(binaryResult.exitCode).toBe(2);
+    expect(server.connected).toBe(false);
+
+    writeFileSync(
+      script,
+      JSON.stringify({ type: "send_audio_file", path: "audio.raw", commit: true }),
+    );
+    const malformedResult = await runWs(
+      { target: "stt-realtime", send: script, out: dir, query: {} },
+      { baseUrl: httpBase(server.url), timeoutMs: 100 },
+    );
+    expect(malformedResult.exitCode).toBe(2);
+    expect(server.connected).toBe(false);
   });
 
   it("runs the monitor receive-only and authenticates only its configured host", async () => {
@@ -295,6 +555,72 @@ describe("ws session", () => {
     );
     expect(allowed.exitCode).toBe(0);
     expect(server.received).toContain('{"type":"end_call"}');
+  });
+
+  it("retains agent_id when connecting through the named public-agent target", async () => {
+    const server = await startServer((socket) => {
+      socket.on("message", () => socket.close(1000, "done"));
+    });
+    const dir = await tempDir();
+    const script = join(dir, "agent.ndjson");
+    writeFileSync(script, JSON.stringify({ type: "send", data: { type: "user_message" } }));
+
+    const result = await runWs(
+      {
+        target: "convai",
+        send: script,
+        out: dir,
+        query: { agent_id: "agent-public" },
+      },
+      { baseUrl: httpBase(server.url), apiKey: "sk_agent", yes: true, timeoutMs: 500 },
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(new URL(server.requestUrl!, server.url).searchParams.get("agent_id")).toBe(
+      "agent-public",
+    );
+  });
+
+  it("inherits agent preflight metadata for named, relative, and absolute known targets", async () => {
+    const dir = await tempDir();
+    const script = join(dir, "agent.ndjson");
+    writeFileSync(script, JSON.stringify({ type: "send", data: { type: "user_message" } }));
+
+    const named = await startServer(() => undefined);
+    const namedResult = await runWs(
+      {
+        target: "convai",
+        send: script,
+        out: dir,
+        query: { agent_id: "agent-1" },
+      },
+      { baseUrl: httpBase(named.url), timeoutMs: 100 },
+    );
+    expect(namedResult.exitCode).toBe(4);
+    expect(named.connected).toBe(false);
+
+    const relative = await startServer(() => undefined);
+    const relativeResult = await runWs(
+      {
+        target: "/v1/convai/conversation",
+        send: script,
+        out: dir,
+        query: { agent_id: "agent-1" },
+      },
+      { baseUrl: httpBase(relative.url), timeoutMs: 100 },
+    );
+    expect(relativeResult.exitCode).toBe(4);
+    expect(relative.connected).toBe(false);
+
+    const absolute = await startServer(() => undefined);
+    const absoluteUrl = new URL(absolute.url);
+    absoluteUrl.pathname = "/v1/convai/conversation";
+    const absoluteResult = await runWs(
+      { target: absoluteUrl.toString(), send: script, out: dir, query: { agent_id: "agent-1" } },
+      { apiKey: "MUST_NOT_LEAK", timeoutMs: 100 },
+    );
+    expect(absoluteResult.exitCode).toBe(4);
+    expect(absolute.connected).toBe(false);
   });
 
   it("inherits monitor confirmation gates for configured-host raw paths", async () => {
@@ -371,6 +697,485 @@ describe("ws session", () => {
     expect(serialized).not.toContain("URL_SECRET");
     expect(serialized).not.toContain("HEADER_SECRET");
     expect(serialized).toContain("would_require_yes");
+  });
+
+  it("reads protocol-specific WebSocket tokens from an environment variable", async () => {
+    const tokenName = "ELV_TEST_WS_TOKEN";
+    const original = process.env[tokenName];
+    process.env[tokenName] = "TOKEN_SECRET";
+    const server = await startServer((socket) => {
+      socket.on("message", () => socket.close(1000, "done"));
+    });
+    const dir = await tempDir();
+    const script = join(dir, "script.ndjson");
+    writeFileSync(
+      script,
+      JSON.stringify({
+        type: "send",
+        data: {
+          message_type: "input_audio_chunk",
+          audio_base_64: Buffer.from("audio").toString("base64"),
+          commit: true,
+          sample_rate: 16_000,
+        },
+      }),
+    );
+
+    try {
+      const result = await runWs(
+        { target: "stt-realtime", tokenEnv: tokenName, send: script, out: dir, query: {} },
+        { baseUrl: httpBase(server.url), timeoutMs: 500 },
+      );
+
+      expect(result.exitCode).toBe(0);
+      expect(new URL(server.requestUrl!, server.url).searchParams.get("token")).toBe(
+        "TOKEN_SECRET",
+      );
+      expect(readFileSync(join(dir, "manifest.json"), "utf8")).not.toContain("TOKEN_SECRET");
+    } finally {
+      if (original === undefined) delete process.env[tokenName];
+      else process.env[tokenName] = original;
+    }
+  });
+
+  it("maps token-env to single_use_token for Text to Dialogue", async () => {
+    const tokenName = "ELV_TEST_TTD_TOKEN";
+    const original = process.env[tokenName];
+    process.env[tokenName] = "TTD_TOKEN_SECRET";
+    const server = await startServer((socket) => {
+      socket.on("message", (data) => {
+        const message = JSON.parse(data.toString()) as Record<string, unknown>;
+        if (message.close_socket === true) socket.close(1000, "done");
+      });
+    });
+    const dir = await tempDir();
+    const script = join(dir, "script.ndjson");
+    writeFileSync(
+      script,
+      [
+        { type: "send", data: { voices: ["voice-a"] } },
+        { type: "send", data: { close_socket: true } },
+      ]
+        .map((line) => JSON.stringify(line))
+        .join("\n"),
+    );
+
+    try {
+      const result = await runWs(
+        { target: "ttd-realtime", tokenEnv: tokenName, send: script, out: dir, query: {} },
+        { baseUrl: httpBase(server.url), timeoutMs: 500 },
+      );
+
+      expect(result.exitCode).toBe(0);
+      expect(new URL(server.requestUrl!, server.url).searchParams.get("single_use_token")).toBe(
+        "TTD_TOKEN_SECRET",
+      );
+      expect(readFileSync(join(dir, "manifest.json"), "utf8")).not.toContain("TTD_TOKEN_SECRET");
+    } finally {
+      if (original === undefined) delete process.env[tokenName];
+      else process.env[tokenName] = original;
+    }
+  });
+
+  it("reads a signed WebSocket URL from an environment variable without profile auth", async () => {
+    const urlName = "ELV_TEST_SIGNED_WS_URL";
+    const original = process.env[urlName];
+    const server = await startServer((socket) => {
+      socket.on("message", () => socket.close(1000, "done"));
+    });
+    const signedUrl = new URL(server.url);
+    signedUrl.pathname = "/v1/convai/conversation";
+    signedUrl.searchParams.set("conversation_signature", "SIGNED_SECRET");
+    process.env[urlName] = signedUrl.toString();
+    const dir = await tempDir();
+    const script = join(dir, "script.ndjson");
+    writeFileSync(script, JSON.stringify({ type: "send", data: { type: "user_message" } }));
+
+    try {
+      const gated = await runWs(
+        { urlEnv: urlName, send: script, out: dir, query: {} },
+        { apiKey: "PROFILE_SECRET", timeoutMs: 500 },
+      );
+      expect(gated.exitCode).toBe(4);
+      expect(server.connected).toBe(false);
+
+      const result = await runWs(
+        { urlEnv: urlName, send: script, out: dir, query: {} },
+        { apiKey: "PROFILE_SECRET", yes: true, timeoutMs: 500 },
+      );
+
+      expect(result.exitCode).toBe(0);
+      expect(server.headers["xi-api-key"]).toBeUndefined();
+      expect(server.requestUrl).toContain("conversation_signature=SIGNED_SECRET");
+      const manifest = readFileSync(join(dir, "manifest.json"), "utf8");
+      expect(manifest).not.toContain("SIGNED_SECRET");
+      expect(manifest).not.toContain("PROFILE_SECRET");
+    } finally {
+      if (original === undefined) delete process.env[urlName];
+      else process.env[urlName] = original;
+    }
+  });
+
+  it("rejects a named protocol that contradicts a known url-env route", async () => {
+    const urlName = "ELV_TEST_MISMATCHED_WS_URL";
+    const original = process.env[urlName];
+    process.env[urlName] = "wss://api.elevenlabs.io/v1/convai/conversation?agent_id=agent-1";
+    const dir = await tempDir();
+    const script = join(dir, "script.ndjson");
+    writeFileSync(
+      script,
+      [
+        { type: "send", data: { text: " " } },
+        { type: "send", data: { type: "user_message", text: "bypass" } },
+      ]
+        .map((line) => JSON.stringify(line))
+        .join("\n"),
+    );
+
+    try {
+      const result = await runWs(
+        {
+          target: "tts-realtime",
+          urlEnv: urlName,
+          send: script,
+          out: dir,
+          query: {},
+        },
+        { dryRun: true },
+      );
+
+      expect(result.exitCode).toBe(2);
+      expect(result.env.ok ? undefined : result.env.error.message).toContain(
+        "does not match the known WebSocket route",
+      );
+    } finally {
+      if (original === undefined) delete process.env[urlName];
+      else process.env[urlName] = original;
+    }
+  });
+
+  it("allows same-protocol and unknown-gateway url-env overrides without profile auth", async () => {
+    const urlName = "ELV_TEST_DECLARED_WS_URL";
+    const original = process.env[urlName];
+    const dir = await tempDir();
+    const script = join(dir, "script.ndjson");
+    writeFileSync(script, JSON.stringify({ type: "send", data: { text: " " } }));
+
+    try {
+      for (const url of [
+        "wss://gateway.example/v1/text-to-speech/voice-a/stream-input",
+        "wss://gateway.example/custom/tts-gateway",
+      ]) {
+        process.env[urlName] = url;
+        const result = await runWs(
+          {
+            target: "tts-realtime",
+            urlEnv: urlName,
+            send: script,
+            out: dir,
+            query: {},
+          },
+          { apiKey: "PROFILE_SECRET", dryRun: true },
+        );
+        expect(result.exitCode).toBe(0);
+        const serialized = JSON.stringify(result.env);
+        expect(serialized).toContain('"catalog":"tts-realtime"');
+        expect(serialized).not.toContain("PROFILE_SECRET");
+      }
+    } finally {
+      if (original === undefined) delete process.env[urlName];
+      else process.env[urlName] = original;
+    }
+  });
+
+  it("canonicalizes relative paths before applying known-route safety metadata", async () => {
+    const dir = await tempDir();
+    const script = join(dir, "agent.ndjson");
+    writeFileSync(script, JSON.stringify({ type: "send", data: { type: "user_message" } }));
+
+    const result = await runWs(
+      {
+        target: "/v1/foo/../convai/conversation",
+        send: script,
+        out: dir,
+        query: { agent_id: "agent-1" },
+      },
+      { baseUrl: "https://api.elevenlabs.io", dryRun: true },
+    );
+
+    expect(result.exitCode).toBe(0);
+    const serialized = JSON.stringify(result.env);
+    expect(serialized).toContain('"catalog":"convai"');
+    expect(serialized).toContain('"would_require_yes":true');
+  });
+
+  it("applies WebSocket query precedence as defaults, embedded URL, then explicit query", async () => {
+    const dir = await tempDir();
+    const script = join(dir, "dialogue.ndjson");
+    writeFileSync(
+      script,
+      JSON.stringify({ type: "send", data: { voices: ["voice-a", "voice-b"] } }),
+    );
+
+    const embedded = await runWs(
+      {
+        target: "/v1/text-to-dialogue/stream-input?model_id=eleven_v3&signature=SIGNED_VALUE",
+        send: script,
+        out: dir,
+        query: {},
+      },
+      { baseUrl: "https://api.elevenlabs.io", dryRun: true },
+    );
+    expect(embedded.exitCode).toBe(0);
+    const embeddedText = JSON.stringify(embedded.env);
+    expect(embeddedText).toContain("model_id=eleven_v3");
+    expect(embeddedText).not.toContain("SIGNED_VALUE");
+
+    const explicit = await runWs(
+      {
+        target: "/v1/text-to-dialogue/stream-input?model_id=eleven_v3_conversational",
+        send: script,
+        out: dir,
+        query: { model_id: "eleven_v3" },
+      },
+      { baseUrl: "https://api.elevenlabs.io", dryRun: true },
+    );
+    expect(explicit.exitCode).toBe(0);
+    expect(JSON.stringify(explicit.env)).toContain("model_id=eleven_v3");
+  });
+
+  it("requires explicit acceptance when max-credits cannot bound a raw outbound session", async () => {
+    const server = await startServer((socket) => {
+      socket.on("message", () => socket.close(1000, "done"));
+    });
+    const dir = await tempDir();
+    const script = join(dir, "raw.ndjson");
+    writeFileSync(script, JSON.stringify({ type: "send", data: { hello: "world" } }));
+
+    const gated = await runWs(
+      { target: server.url, send: script, out: dir, query: {} },
+      { maxCredits: 10, timeoutMs: 100 },
+    );
+    expect(gated.exitCode).toBe(4);
+    expect(server.connected).toBe(false);
+
+    const accepted = await runWs(
+      { target: server.url, send: script, out: dir, query: {} },
+      { maxCredits: 10, yes: true, timeoutMs: 500 },
+    );
+    expect(accepted.exitCode).toBe(0);
+    expect(accepted.env.warnings).toContainEqual(
+      expect.objectContaining({ code: "budget_unbounded" }),
+    );
+
+    const duplexServer = await startServer(() => undefined);
+    const gatedInput = new PassThrough();
+    const gatedDuplex = await runWs(
+      { target: duplexServer.url, duplex: true, out: dir, query: {} },
+      { duplexInput: gatedInput, maxCredits: 10, timeoutMs: 100 },
+    );
+    gatedInput.destroy();
+    expect(gatedDuplex.exitCode).toBe(4);
+    expect(duplexServer.connected).toBe(false);
+
+    const acceptedInput = new PassThrough();
+    acceptedInput.end();
+    const acceptedDuplex = await runWs(
+      { target: duplexServer.url, duplex: true, out: dir, query: {} },
+      { duplexInput: acceptedInput, maxCredits: 10, yes: true, timeoutMs: 500 },
+    );
+    expect(acceptedDuplex.exitCode).toBe(0);
+    expect(acceptedDuplex.env.warnings).toContainEqual(
+      expect.objectContaining({ code: "budget_unbounded" }),
+    );
+  });
+
+  it("requires --yes before opening dynamic agent or monitor sessions", async () => {
+    const server = await startServer(() => undefined);
+    const dir = await tempDir();
+
+    for (const target of ["convai", "convai-monitor"]) {
+      const input = new PassThrough();
+      const result = await runWs(
+        {
+          target,
+          duplex: true,
+          out: dir,
+          query: target === "convai" ? { agent_id: "agent-1" } : { conversation_id: "conv-1" },
+        },
+        { baseUrl: httpBase(server.url), duplexInput: input, timeoutMs: 100 },
+      );
+      input.destroy();
+      expect(result.exitCode).toBe(4);
+      expect(server.connected).toBe(false);
+    }
+  });
+
+  it("rejects duplex generation and transcription protocols before connecting", async () => {
+    const server = await startServer(() => undefined);
+    const dir = await tempDir();
+    for (const [target, query] of [
+      ["tts-realtime", { voice_id: "voice-a" }],
+      ["ttd-realtime", {}],
+      ["ttd-multi", {}],
+      ["stt-realtime", {}],
+    ] as const) {
+      const input = new PassThrough();
+      const result = await runWs(
+        { target, duplex: true, out: dir, query },
+        { baseUrl: httpBase(server.url), duplexInput: input, timeoutMs: 100 },
+      );
+      input.destroy();
+      expect(result.exitCode).toBe(2);
+      expect(result.env.ok ? undefined : result.env.error.message).toContain("--duplex");
+      expect(server.connected).toBe(false);
+    }
+  });
+
+  it("fails closed when a ceiling is configured for a duplex agent session", async () => {
+    const server = await startServer(() => undefined);
+    const dir = await tempDir();
+    const input = new PassThrough();
+    const result = await runWs(
+      { target: "convai", duplex: true, out: dir, query: { agent_id: "agent-1" } },
+      {
+        baseUrl: httpBase(server.url),
+        duplexInput: input,
+        maxCredits: 10,
+        yes: true,
+        timeoutMs: 100,
+      },
+    );
+    input.destroy();
+
+    expect(result.exitCode).toBe(5);
+    expect(result.env.ok ? undefined : result.env.error.code).toBe("budget_estimate_unavailable");
+    expect(server.connected).toBe(false);
+  });
+
+  it.each([
+    ["invalid JSON", "{broken", "ws_duplex_invalid_json"],
+    ["unsupported action", JSON.stringify({ type: "wait" }), "ws_duplex_invalid_action"],
+    ["oversized line", "x".repeat(1024 * 1024 + 1), "ws_duplex_line_too_large"],
+  ])("returns a typed duplex input error for %s", async (_label, line, code) => {
+    const server = await startServer(() => undefined);
+    const dir = await tempDir();
+    const input = new PassThrough();
+    input.end(`${line}\n`);
+
+    const result = await runWs(
+      { target: server.url, duplex: true, out: dir, query: {} },
+      { duplexInput: input, duplexEventSink: () => undefined, timeoutMs: 500 },
+    );
+
+    expect(result.exitCode).toBe(2);
+    expect(result.env.ok).toBe(false);
+    if (result.env.ok) throw new Error("expected duplex failure");
+    expect(result.env.error.type).toBe("validation_error");
+    expect(result.env.error.code).toBe(code);
+  });
+
+  it("closes a duplex socket cleanly on input EOF", async () => {
+    let clientClosed = false;
+    const server = await startServer((socket) => {
+      socket.on("close", () => {
+        clientClosed = true;
+      });
+    });
+    const dir = await tempDir();
+    const input = new PassThrough();
+    input.end();
+
+    const result = await runWs(
+      { target: server.url, duplex: true, out: dir, query: {} },
+      { duplexInput: input, duplexEventSink: () => undefined, timeoutMs: 500 },
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(clientClosed).toBe(true);
+  });
+
+  it("stops its duplex reader after remote close and timeout", async () => {
+    const closingServer = await startServer((socket) => {
+      socket.send(JSON.stringify({ type: "notice", text: "done" }), () =>
+        socket.close(1000, "done"),
+      );
+    });
+    const dir = await tempDir();
+    const remoteInput = new PassThrough();
+    const remoteResult = await runWs(
+      { target: closingServer.url, duplex: true, out: dir, query: {} },
+      { duplexInput: remoteInput, duplexEventSink: () => undefined, timeoutMs: 500 },
+    );
+    expect(remoteResult.exitCode).toBe(0);
+    expect(remoteInput.listenerCount("data")).toBe(0);
+    expect(remoteInput.listenerCount("readable")).toBe(0);
+    remoteInput.destroy();
+
+    const idleServer = await startServer(() => undefined);
+    const timeoutInput = new PassThrough();
+    const timeoutResult = await runWs(
+      { target: idleServer.url, duplex: true, out: dir, query: {} },
+      { duplexInput: timeoutInput, duplexEventSink: () => undefined, timeoutMs: 25 },
+    );
+    expect(timeoutResult.exitCode).toBe(8);
+    expect(timeoutResult.env.ok ? undefined : timeoutResult.env.error.code).toBe(
+      "ws_inactivity_timeout",
+    );
+    expect(timeoutInput.listenerCount("data")).toBe(0);
+    expect(timeoutInput.listenerCount("readable")).toBe(0);
+    timeoutInput.destroy();
+  });
+
+  it("preserves received files when a duplex provider message fails", async () => {
+    const server = await startServer((socket) => {
+      socket.send(JSON.stringify({ type: "notice", text: "keep me" }));
+      socket.send("{broken");
+    });
+    const dir = await tempDir();
+    const input = new PassThrough();
+
+    const result = await runWs(
+      { target: server.url, duplex: true, out: dir, query: {} },
+      { duplexInput: input, duplexEventSink: () => undefined, timeoutMs: 500 },
+    );
+    input.destroy();
+
+    expect(result.exitCode).toBe(8);
+    expect(result.env.ok).toBe(false);
+    if (result.env.ok) throw new Error("expected provider failure");
+    expect(result.env.error.code).toBe("ws_session_failed");
+    expect(result.env.files?.every((file) => file.partial)).toBe(true);
+    const events = result.env.files?.find((file) => file.path.includes("events.received"));
+    expect(events && readFileSync(events.path, "utf8")).toContain("keep me");
+  });
+
+  it("rejects missing auth environment values before connecting", async () => {
+    const server = await startServer(() => undefined);
+    const dir = await tempDir();
+    const script = join(dir, "script.ndjson");
+    writeFileSync(script, JSON.stringify({ type: "send", data: { text: " " } }));
+    delete process.env.ELV_TEST_MISSING_WS_AUTH;
+
+    const tokenResult = await runWs(
+      {
+        target: "tts-realtime",
+        tokenEnv: "ELV_TEST_MISSING_WS_AUTH",
+        send: script,
+        out: dir,
+        query: { voice_id: "voice-a" },
+      },
+      { baseUrl: httpBase(server.url), timeoutMs: 100 },
+    );
+    expect(tokenResult.exitCode).toBe(2);
+    expect(server.connected).toBe(false);
+
+    const urlResult = await runWs(
+      { urlEnv: "ELV_TEST_MISSING_WS_AUTH", send: script, out: dir, query: {} },
+      { timeoutMs: 100 },
+    );
+    expect(urlResult.exitCode).toBe(2);
+    expect(server.connected).toBe(false);
   });
 
   it("fails closed before realtime STT or agent sessions when a ceiling cannot be bounded", async () => {
@@ -711,15 +1516,18 @@ async function startServer(onConnection: (socket: WebSocket, received: string[])
   received: string[];
   connected: boolean;
   headers: IncomingHttpHeaders;
+  requestUrl: string | undefined;
 }> {
   const server = new WebSocketServer({ port: 0 });
   servers.push(server);
   const received: string[] = [];
   let connected = false;
   let headers: IncomingHttpHeaders = {};
+  let requestUrl: string | undefined;
   server.on("connection", (socket, request) => {
     connected = true;
     headers = request.headers;
+    requestUrl = request.url;
     socket.on("message", (data) => received.push(data.toString()));
     onConnection(socket, received);
   });
@@ -732,6 +1540,9 @@ async function startServer(onConnection: (socket: WebSocket, received: string[])
     },
     get headers() {
       return headers;
+    },
+    get requestUrl() {
+      return requestUrl;
     },
     received,
     url: `ws://127.0.0.1:${address.port}/session?single_use_token=tok_secret`,

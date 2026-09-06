@@ -1,12 +1,187 @@
+import { spawnSync } from "node:child_process";
+import Ajv from "ajv";
 import { describe, expect, it } from "vitest";
 import { compileSpec } from "../../src/openapi/compile-spec";
+import { buildAjv, getInputValidator } from "../../src/openapi/ajv";
+import type { JsonObject, JsonValue } from "../../src/util/json";
 import {
   buildExampleCommand,
   compactSchemaForOperation,
   rawInputSchemaForOperation,
 } from "../../src/openapi/compact-schema";
 
+function exampleArgs(cmd: string): string[] {
+  const result = spawnSync("sh", ["-c", `elv() { printf '%s\\0' "$@"; }; ${cmd}`], {
+    encoding: "utf8",
+  });
+  expect(result.status, result.stderr).toBe(0);
+  return result.stdout.split("\0").slice(0, -1);
+}
+
+function exampleInput(cmd: string): JsonObject {
+  const args = exampleArgs(cmd);
+  const index = args.indexOf("--json");
+  expect(index).toBeGreaterThan(-1);
+  return JSON.parse(args[index + 1]!);
+}
+
+async function bodyFixture(schema: JsonValue) {
+  const compiled = await compileSpec({
+    document: {
+      openapi: "3.1.0",
+      info: { title: "Example test", version: "1" },
+      paths: {
+        "/example": {
+          post: {
+            operationId: "example_operation",
+            requestBody: { required: true, content: { "application/json": { schema } } },
+            responses: { "200": { description: "OK" } },
+          },
+        },
+      },
+      components: { schemas: {} },
+    },
+  });
+  return { op: compiled.operations[0]!, spec: compiled.bundledSpec };
+}
+
 describe("compact schema", () => {
+  it("shell-quotes generated JSON without altering apostrophes or executing substitutions", async () => {
+    const value = "O'Reilly $(printf injected) `printf backticks`";
+    const { op, spec } = await bodyFixture({
+      type: "object",
+      required: ["label"],
+      properties: { label: { type: "string", enum: [value] } },
+    });
+    const example = buildExampleCommand(op, spec);
+    expect(exampleArgs(example.cmd)).toEqual([
+      "call",
+      "example_operation",
+      "--json",
+      JSON.stringify({ body: { label: value } }),
+    ]);
+  });
+
+  it("shell-quotes non-word operation IDs as one literal argument", async () => {
+    const { op, spec } = await bodyFixture({ type: "object" });
+    op.operationId = "example $(printf injected)";
+    expect(exampleArgs(buildExampleCommand(op, spec).cmd)).toEqual([
+      "call",
+      op.operationId,
+      "--json",
+      '{"body":{}}',
+    ]);
+  });
+
+  it.each<{ name: string; schema: JsonObject; body: JsonValue }>([
+    {
+      name: "anyOf",
+      schema: {
+        anyOf: [
+          {
+            type: "object",
+            properties: { name: { type: "string" } },
+            required: ["name"],
+            additionalProperties: false,
+          },
+          { type: "null" },
+        ],
+      },
+      body: { name: "<name>" },
+    },
+    {
+      name: "oneOf discriminator",
+      schema: {
+        oneOf: [
+          {
+            type: "object",
+            properties: { kind: { const: "first" } },
+            required: ["kind"],
+            additionalProperties: false,
+          },
+          {
+            type: "object",
+            properties: { kind: { const: "second" } },
+            required: ["kind"],
+            additionalProperties: false,
+          },
+        ],
+      },
+      body: { kind: "first" },
+    },
+    {
+      name: "array",
+      schema: { type: "array", items: { type: "string" }, minItems: 1 },
+      body: ["<body>"],
+    },
+    { name: "empty object", schema: { type: "object", additionalProperties: false }, body: {} },
+    {
+      name: "real value property",
+      schema: { type: "object", required: ["value"], properties: { value: { type: "string" } } },
+      body: { value: "<value>" },
+    },
+  ])("generates a valid $name body without inventing a value wrapper", async ({ schema, body }) => {
+    const { op, spec } = await bodyFixture(schema);
+    const input = exampleInput(buildExampleCommand(op, spec).cmd);
+    expect(input.body).toEqual(body);
+    const validate = new Ajv({ strict: false }).compile(schema);
+    expect(validate(input.body), JSON.stringify(validate.errors)).toBe(true);
+  });
+
+  it("resolves referenced parameter enum choices for discovery and example values", async () => {
+    const { op, spec } = await bodyFixture({ type: "object" });
+    spec.components.schemas.Source = { type: "string", enum: ["qa", "manual"] };
+    op.queryParams = [
+      {
+        name: "source",
+        location: "query",
+        required: true,
+        schema: { $ref: "#/components/schemas/Source" },
+      },
+    ];
+    expect(compactSchemaForOperation(op, spec).required.query.source).toEqual({
+      type: "string",
+      enum: ["qa", "manual"],
+    });
+    expect(exampleInput(buildExampleCommand(op, spec).cmd).query).toEqual({ source: "qa" });
+  });
+
+  it("uses top-level required union properties in current public API examples", async () => {
+    const compiled = await compileSpec({ sourcePath: "spec/openapi.snapshot.json" });
+    const ajv = buildAjv(compiled.bundledSpec);
+    for (const [id, body] of [
+      ["create_agent_response_test_route", { name: "<name>" }],
+      ["create_image_generation", { prompt: "<prompt>", model_id: "gpt-image-1" }],
+      [
+        "create_text_to_speech_generation",
+        { text: "<text>", voice: "<voice>", model_id: "eleven_flash_v2_5" },
+      ],
+      ["create_environment_variable", { type: "string", label: "<label>", values: {} }],
+    ] as const) {
+      const op = compiled.operations.find((candidate) => candidate.operationId === id)!;
+      expect(op, id).toBeDefined();
+      expect(exampleInput(buildExampleCommand(op, compiled.bundledSpec).cmd).body).toEqual(body);
+    }
+    const checked: string[] = [];
+    for (const op of compiled.operations) {
+      const schema = rawInputSchemaForOperation(op, compiled.bundledSpec);
+      if (
+        !op.requestBody?.required ||
+        !schema ||
+        typeof schema !== "object" ||
+        Array.isArray(schema)
+      )
+        continue;
+      if (!("anyOf" in schema || "oneOf" in schema)) continue;
+      const body = exampleInput(buildExampleCommand(op, compiled.bundledSpec).cmd).body;
+      const validate = getInputValidator(ajv, op);
+      expect(validate, op.operationId).not.toBeNull();
+      expect(validate!(body), `${op.operationId}: ${JSON.stringify(validate!.errors)}`).toBe(true);
+      checked.push(op.operationId);
+    }
+    expect(checked).toContain("create_image_generation");
+  });
+
   it("returns required and optional buckets from path/query/body input schemas", async () => {
     const compiled = await compileSpec({ sourcePath: "spec/openapi.snapshot.json" });
     const op = compiled.operations.find(

@@ -54,7 +54,7 @@ elv ops schema text_to_speech_full --example   # runnable skeleton
 elv spec status
 ```
 
-The pinned August 11, 2026 spec contains 364 documented operations (source URL, retrieval date, and SHA-256 in `spec/openapi.snapshot.meta.json`); 363 are callable and one deprecated signed-URL route is skipped. Use `elv call <operation_id> --json …` for that compiled REST surface. Use aliases (`tts`, `stt`, `music`, `sfx`, `voice-isolate`, `dubbing-project`, `voices`, `models`, `agents`, `workspace`, …) for common workflows. `elv http` is the forward-compatible REST escape hatch.
+The pinned September 6, 2026 spec contains 388 documented operations (source URL, retrieval date, and SHA-256 in `spec/openapi.snapshot.meta.json`); 387 are callable and one deprecated signed-URL route is skipped. Use `elv call <operation_id> --json …` for that compiled REST surface. Use aliases (`tts`, `stt`, `music`, `sfx`, `voice-isolate`, `dubbing-project`, `voices`, `models`, `agents`, `workspace`, …) for common workflows. `elv http` is the forward-compatible REST escape hatch.
 
 `elv models list` reports account-visible `/v1/models` results, not every model across every product. Current examples should prefer `scribe_v2` over deprecated `scribe_v1`, Flash over deprecated Turbo, and `agents tests create` plus `agents tests run` over deprecated `agents simulate`.
 
@@ -94,11 +94,11 @@ When the registry is not enough:
 - `elv ws <catalog-name|url>`: protocol-aware scripted WebSocket sessions
 - `elv wait`: poll an operation until a JSONPath status resolves
 
-The WebSocket catalog includes `tts-realtime`, `tts-multi`, `stt-realtime`, `convai`, and `convai-monitor`. Realtime STT scripts may use binary file actions and arbitrary published query fields such as `--query entity_detection=true`. Monitoring is receive-only without `--send`; outbound agent or monitor actions require `--yes`. Use `--dry-run` before a session. Speech Engine upstream is excluded because ElevenLabs connects to a server you host rather than accepting an outbound client connection.
+The WebSocket catalog includes `tts-realtime`, `tts-multi`, `ttd-realtime`, `ttd-multi`, `stt-realtime`, `convai`, and `convai-monitor`. Realtime STT uses `send_audio_file` actions with `path`, `sample_rate`, and `commit`; raw binary frames are not the STT protocol. Published query fields such as `--query entity_detection=true` pass through. Use `--token-env NAME` or `--url-env NAME` to keep single-use tokens and signed URLs out of argv. Monitoring is receive-only without `--send`; outbound agent or monitor actions require `--yes`. Use `--dry-run` before a session. Multi-context audio is separated by context rather than concatenated.
 
 `elv music detailed-stream` parses the Music SSE response into audio plus metadata NDJSON files. `music finetunes` manages Finetune training and metadata; generation accepts `--finetune-id`. STT webhook delivery uses bare `--webhook` with an optional configured `--webhook-id`; single-use tokens use `--token-env ENV_NAME` so the token value never appears in argv. `dubbing-project` covers Dubbing v2 source/target transcript editing, `agents procedures` covers the branch-scoped Procedure lifecycle, and `voices accents|replicate` covers the new voice surfaces. `workspace` lists members and manages service accounts.
 
-The public API contract does not include ElevenCreative's UI-only Image & Video, Avatars, Ads, Flows, or other private editor workflows. `elv` does not reverse-engineer private endpoints.
+The public contract now includes Flows image/video/speech generation and Assets. Use `flows image|video|speech create|list|get` (`create --wait` polls to completion), `assets upload|list|get|delete`, and `agents tickets` for triage. Model-specific bodies pass through `--json` or `--json-file`. Flows generation fails closed under a configured credit ceiling because its cost cannot be bounded. Signed `content_url` values stay in private response files; redacted IDs, status, and cursors remain inline. Private editor endpoints are not reverse-engineered.
 
 ## Auth and config
 
@@ -109,6 +109,10 @@ elv config get      # -> cacheDir, outputDir, baseUrl, profile, apiKeyPresent
 elv config doctor
 elv spec status     # -> cache_path: the exact compiled-registry file
 ```
+
+`config doctor` is offline by default; `--online` explicitly probes connectivity and account credits. Inspect the individual checks: credential presence and successful provider authentication are separate facts.
+
+`speech-engine serve --handler-json '["node","handler.mjs"]' --yes` hosts the inverted Speech Engine protocol on loopback. It verifies incoming signed requests before invoking a handler. Each handler receives one transcript JSON object and emits NDJSON `{text:string}` chunks; exit 0 finalizes the response. Use `--ready-file` for private readiness metadata and `--timeout-ms` for server lifetime. Hosting refuses configured credit ceilings and never deploys or opens a public tunnel automatically.
 
 Do not guess where the compiled registry lives. `elv spec status` prints the resolved `cache_path` (`$ELV_CACHE_DIR`, else `~/.cache/elv`, then the package version, then `openapi.compact.json`) and whether an active registry is present. A repo-local `.elv/` directory is **not** a registry cache: it holds an optional `config.json` for profiles and, if you point `output_dir` there, response artifacts. When no active registry is compiled, commands fall back to the vendored `spec/openapi.snapshot.json`.
 

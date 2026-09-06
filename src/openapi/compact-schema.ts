@@ -1,6 +1,7 @@
 import { resolveMaybeRef, resolveRef, schemaNameFromRef } from "./compile-spec";
 import type { OpenApiDocument } from "./compile-spec";
 import type { JsonObject, JsonValue } from "../util/json";
+import { shellArg } from "../util/shell";
 import type { OperationCard, ParamCard } from "./types";
 
 type CompactValue = Exclude<JsonValue, readonly JsonValue[]>;
@@ -21,9 +22,9 @@ interface ExampleCommand {
 
 export function compactSchemaForOperation(op: OperationCard, spec: OpenApiDocument): CompactSchema {
   const compact = emptyCompactSchema();
-  addParams(compact, op.pathParams);
-  addParams(compact, op.queryParams);
-  addParams(compact, op.headerParams);
+  addParams(compact, op.pathParams, spec);
+  addParams(compact, op.queryParams, spec);
+  addParams(compact, op.headerParams, spec);
   addBody(compact, op, spec);
   return compact;
 }
@@ -39,14 +40,20 @@ export function rawInputSchemaForOperation(
 
 export function buildExampleCommand(op: OperationCard, spec: OpenApiDocument): ExampleCommand {
   const schema = compactSchemaForOperation(op, spec);
-  const input = cleanEmptyBuckets({
+  const input: JsonObject = cleanEmptyBuckets({
     path: skeleton(schema.required.path),
     query: skeleton(schema.required.query),
     body: skeleton(schema.required.body),
     headers: skeleton(schema.required.header),
   });
+  // The compact display uses body.value for a whole-body schema, not an API field.
+  // Build required bodies from that schema so unions and arrays retain their shape.
+  if (op.requestBody?.required) {
+    input.body = placeholderFor("body", compactValue(rawInputSchemaForOperation(op, spec), spec));
+  }
   const out = op.returnsBinary || op.streamKind !== "none" ? " --out ./out" : "";
-  return { cmd: `elv call ${op.operationId} --json '${JSON.stringify(input)}'${out}` };
+  const operationId = /^[\w.-]+$/u.test(op.operationId) ? op.operationId : shellArg(op.operationId);
+  return { cmd: `elv call ${operationId} --json ${shellArg(JSON.stringify(input))}${out}` };
 }
 
 function emptyCompactSchema(): CompactSchema {
@@ -56,12 +63,12 @@ function emptyCompactSchema(): CompactSchema {
   };
 }
 
-function addParams(compact: CompactSchema, params: ParamCard[]): void {
+function addParams(compact: CompactSchema, params: ParamCard[], spec: OpenApiDocument): void {
   for (const param of params) {
     const bucket = param.required
       ? compact.required[param.location]
       : compact.optional[param.location];
-    bucket[param.name] = compactValue(param.schema);
+    bucket[param.name] = compactValue(param.schema, spec);
   }
 }
 
@@ -180,6 +187,7 @@ function placeholderFor(name: string, shape: CompactValue): JsonValue {
     return `<${name}>`;
   }
   const object = asObject(shape);
+  if (object.const !== undefined) return object.const;
   if (Array.isArray(object.enum)) return object.enum[0] ?? `<${name}>`;
   if (object.type === "integer" || object.type === "number") return 0;
   if (object.type === "boolean") return false;

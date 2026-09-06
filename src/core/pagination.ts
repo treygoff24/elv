@@ -52,8 +52,22 @@ export function applyPaginationDefaults(
   const param = pageSizeParam(op);
   if (!param) return input;
   const query = { ...input.query };
-  if (query[param] === undefined) query[param] = Math.max(1, Math.trunc(limit));
+  if (query[param] === undefined) {
+    const schema = op.queryParams.find((candidate) => candidate.name === param)?.schema;
+    query[param] = Math.min(Math.max(1, Math.trunc(limit)), pageSizeMaximum(schema));
+  }
   return { ...input, query };
+}
+
+function pageSizeMaximum(schema: JsonValue | undefined): number {
+  if (!isRecord(schema)) return Infinity;
+  if (typeof schema.maximum === "number" && schema.maximum >= 1) return Math.floor(schema.maximum);
+  // The published nullable page-size schemas use anyOf(integer, null).
+  if (Array.isArray(schema.anyOf)) {
+    const numeric = schema.anyOf.find((branch) => isRecord(branch) && branch.type === "integer");
+    return pageSizeMaximum(numeric);
+  }
+  return Infinity;
 }
 
 export function addPaginationToEnvelope(
@@ -124,17 +138,19 @@ export async function collectAllPages(options: CollectAllPagesOptions): Promise<
   let lastEnv: SuccessEnvelope | undefined;
   const warnings: Warning[] = [];
   const items: JsonValue[] = [];
+  const files: FileRecord[] = [];
 
   for (let page = 0; page < cap; page += 1) {
     const env = await options.fetchPage(input);
-    if (!env.ok) return env;
+    if (!env.ok) return files.length ? { ...env, files: [...files, ...(env.files ?? [])] } : env;
     lastEnv = env;
+    files.push(...(env.files ?? []));
     items.push(...itemsFromData(options.op, env.data));
 
     const cursor = nextCursor(options.op, env.data);
     warnings.push(...cursor.warnings);
     if (!cursor.hasMore || !cursor.cursor) {
-      return allPagesEnvelope(options, env, items, warnings);
+      return allPagesEnvelope(options, env, items, warnings, files);
     }
 
     const nextInput = inputWithCursor(input, cursor);
@@ -143,7 +159,7 @@ export async function collectAllPages(options: CollectAllPagesOptions): Promise<
         code: "pagination_cursor_repeated",
         message: "Stopping pagination because the next cursor did not change the request.",
       });
-      return allPagesEnvelope(options, env, items, warnings);
+      return allPagesEnvelope(options, env, items, warnings, files);
     }
     input = nextInput;
   }
@@ -152,7 +168,7 @@ export async function collectAllPages(options: CollectAllPagesOptions): Promise<
     code: "pagination_page_cap_hit",
     message: `Stopped after ${cap} pages to avoid an unbounded pagination loop.`,
   });
-  return allPagesEnvelope(options, lastEnv, items, warnings);
+  return allPagesEnvelope(options, lastEnv, items, warnings, files);
 }
 
 export function allOutputTarget(options: PaginationOptions): string | undefined {
@@ -233,6 +249,7 @@ async function allPagesEnvelope(
   env: SuccessEnvelope | undefined,
   items: JsonValue[],
   warnings: Warning[],
+  files: FileRecord[],
 ): Promise<Envelope> {
   const file = await writeAllItems(options, items);
   const base = env ?? success({ cmd: nextCommand(options.op, options.input, options.command) });
@@ -244,7 +261,7 @@ async function allPagesEnvelope(
     concurrency: base.concurrency,
     cost: base.cost,
     data_summary: { type: "array", count: items.length },
-    files: [file],
+    files: [file, ...files],
     truncated: true,
     warnings: warnings.length > 0 ? warnings : undefined,
     hints: [],

@@ -71,14 +71,37 @@ elv ws stt-realtime --query entity_detection=true \
 elv ws convai-monitor --query conversation_id=ID --out ./monitor --dry-run
 ```
 
-Named protocols validate their script actions and query rules. Realtime STT can
-use `send_binary_file` actions. A raw URL is forward-compatible but does not gain
-catalog metadata, so inspect it as an unknown-cost external session.
+Named protocols validate their scripts. For STT, use
+`{"type":"send_audio_file","path":"audio.pcm","sample_rate":16000,"commit":true}`;
+the CLI encodes the published JSON chunk frame. Raw binary actions are for
+unknown protocols only. `--token-env NAME` and `--url-env NAME` keep tokens and
+signed URLs out of argv. Known URL paths inherit protocol safety metadata,
+but arbitrary hosts never receive your profile key.
+
+For dialogue, use `ttd-realtime` or `ttd-multi`: initialize with
+`{"voices":["VOICE_ID"]}`, then send
+`{"inputs":[{"text":"Hello","voice_id":"VOICE_ID"}]}` and `{"flush":true}`.
+These objects belong in `{"type":"send","data":...}` script actions.
+Multi-context messages add `context_id`; end a context with `close_context`
+or the socket with `close_socket`. Separate audio files preserve each context.
 
 Receive-only monitoring does not require confirmation. Any outbound agent or
 monitor action requires `--yes`; preview the session first. With a configured
 credit ceiling, supported TTS, STT, and agent sessions fail closed when cost
 cannot be bounded.
 
-Speech Engine is not an outbound client target: ElevenLabs connects to the
-server you host.
+For live Agents tool calls, add `--duplex`: read redacted received events from
+stderr and send wrapped NDJSON actions on stdin. EOF closes the session;
+stdout returns one final envelope. This mode supports Agents, monitoring,
+and raw protocols. TTS/TTD/STT still require finite scripts.
+
+Speech Engine is an inbound server, not an outbound `ws` target.
+`speech-engine serve --handler-json '["node","handler.mjs"]' --yes` listens
+on loopback, verifies signed requests, and invokes one handler per transcript.
+The handler reads one JSON object with conversation ID, event ID, and full
+transcript, emits `{text:string}` NDJSON chunks, and exits 0 to finish.
+Incoming newer transcripts interrupt obsolete handlers. Readiness is written
+to stderr or a private `--ready-file`; stdout has one final shutdown envelope.
+Provider resource creation and public TLS deployment are separate steps.
+Use the engine's creation API key for verification; no key is passed to the
+handler by default. A configured credit ceiling blocks serving.

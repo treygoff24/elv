@@ -95,7 +95,7 @@ Run the doctor. It checks the things that commonly break a setup:
 elv config doctor
 ```
 
-The envelope contains a `checks` array covering, in order, the API key being present, the base URL being set, the spec registry cache, the output directory being writable, the Node version, base-URL reachability, and the credit balance. The command exits 0 when all required checks pass and nonzero (exit 8) if any check fails. A `warn` on the registry cache is not a failure; Step 6 explains it.
+The envelope checks key presence, base URL, registry cache, output-directory access, and Node version. It skips network probes by default. Use `elv config doctor --online` when you need provider reachability and credit-balance checks; those probes refuse redirects. Key presence is not proof of key validity. The command exits 0 when required checks pass and exit 8 on a hard check failure. A cache warning is not a failure; Step 6 explains it.
 
 Also confirm config resolution looks right:
 
@@ -124,7 +124,7 @@ elv usage
 
 ## Step 6: Discover capabilities and operations
 
-The pinned August 11, 2026 ElevenLabs OpenAPI document contains 364 operations. `elv` compiles 363 and skips one deprecated signed-URL operation whose current replacement is available. Start with the service map, then search the registry, inspect an operation, and copy a runnable skeleton:
+The pinned September 6, 2026 ElevenLabs OpenAPI document contains 388 operations. `elv` compiles 387 and skips one deprecated signed-URL operation whose current replacement is available. Start with the service map, then search the registry, inspect an operation, and copy a runnable skeleton:
 
 ```bash
 elv capabilities

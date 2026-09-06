@@ -1,7 +1,15 @@
 import { describe, expect, it } from "vitest";
 import { buildCatalogUrl, getWsCatalogEntry, listWsCatalog } from "../../src/ws/catalog";
 
-const names = ["tts-realtime", "tts-multi", "stt-realtime", "convai", "convai-monitor"];
+const names = [
+  "tts-realtime",
+  "tts-multi",
+  "ttd-realtime",
+  "ttd-multi",
+  "stt-realtime",
+  "convai",
+  "convai-monitor",
+];
 
 describe("ws catalog", () => {
   it("lists protocol-specific scripted catalog entries", () => {
@@ -16,6 +24,15 @@ describe("ws catalog", () => {
       outboundRisk: "external_side_effect",
     });
     expect(getWsCatalogEntry("tts-realtime")?.requiredParams).toContain("voice_id");
+    expect(getWsCatalogEntry("ttd-realtime")).toMatchObject({
+      protocol: "ttd",
+      pathTemplate: "/v1/text-to-dialogue/stream-input",
+      defaultQuery: { model_id: "eleven_v3_conversational" },
+    });
+    expect(getWsCatalogEntry("ttd-multi")).toMatchObject({
+      protocol: "ttd-multi",
+      pathTemplate: "/v1/text-to-dialogue/multi-stream-input",
+    });
     expect(getWsCatalogEntry("stt-realtime")?.auth).toContain("xi-api-key");
   });
 
@@ -27,6 +44,24 @@ describe("ws catalog", () => {
 
     expect(url.toString()).toBe(
       "wss://api.eu.residency.elevenlabs.io/v1/text-to-speech/voice-1/stream-input?model_id=eleven_flash_v2_5",
+    );
+
+    const convai = buildCatalogUrl(getWsCatalogEntry("convai")!, {
+      baseUrl: "https://api.elevenlabs.io",
+      query: { agent_id: "agent-1" },
+    });
+    expect(convai.toString()).toBe(
+      "wss://api.elevenlabs.io/v1/convai/conversation?agent_id=agent-1",
+    );
+  });
+
+  it("builds text-to-dialogue urls with the documented default model", () => {
+    const url = buildCatalogUrl(getWsCatalogEntry("ttd-realtime")!, {
+      baseUrl: "https://api.elevenlabs.io",
+    });
+
+    expect(url.toString()).toBe(
+      "wss://api.elevenlabs.io/v1/text-to-dialogue/stream-input?model_id=eleven_v3_conversational",
     );
   });
 });

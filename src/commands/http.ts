@@ -1,13 +1,19 @@
 import { exitCodeForError, validationError } from "../core/errors";
-import { envelopeForThrown, runPreparedOperation } from "../core/client";
+import {
+  envelopeForThrown,
+  paramValidationEnvelope,
+  runPreparedOperation,
+  validateParameters,
+} from "../core/client";
 import { InputNormalizationError } from "../core/request-builder";
 import { applyPaginationDefaults, type PaginatedRunOptions } from "../core/pagination";
 import { estimateCredits } from "../core/budget";
-import { loadRegistry } from "../openapi/registry";
+import { loadRegistry, readRegistryCache } from "../openapi/registry";
 import { classifyRisk } from "../openapi/risk";
 import { HTTP_METHODS } from "../openapi/types";
 import { errorMessage } from "../util/error";
 import { parseJson } from "../util/json";
+import type { JsonObjectInput } from "../util/json";
 import type { AgentInput, CommandResult, Envelope, RunOpts, Warning } from "../core/types";
 import type { HttpMethod, OperationCard } from "../openapi/types";
 import { ExitCode as Codes } from "../core/types";
@@ -55,24 +61,34 @@ export async function runHttp(
   }
 
   try {
-    const { op, metadataWarning } = await httpOperation(parsed.method, path, parsed.input);
+    const { op, metadataWarning, matchTemplate } = await httpOperation(
+      parsed.method,
+      parsed.path,
+      parsed.input,
+    );
     if (opts.limit !== undefined && (!Number.isInteger(opts.limit) || opts.limit <= 0)) {
       return validationError(cmd, "--limit must be a positive integer", {
         operationId: op.operationId,
       });
     }
     const input = applyPaginationDefaults(op, parsed.input, opts.limit ?? 20);
+    if (matchTemplate !== undefined) {
+      const pathValues = matchPathValues(matchTemplate, parsed.path);
+      if (Object.keys(pathValues).length) input.path = pathValues;
+      const paramError = await validateParameters(op, input, readRegistryCache()?.bundledSpec);
+      if (paramError) return paramValidationEnvelope(cmd, op.operationId, paramError);
+    }
 
     return await runPreparedOperation({
       cmd,
       op,
       input,
       opts,
-      command: { kind: "http", method: op.method, path },
-      dryRunRequest: { method: op.method, path, input },
+      command: { kind: "http", method: op.method, path: parsed.path },
+      dryRunRequest: { method: op.method, path: parsed.path, input },
       creditsEstimated: await estimateCredits(op, input, opts),
       warnings: [metadataWarning],
-      requestPath: path,
+      requestPath: parsed.path,
       method: op.method,
     });
   } catch (error) {
@@ -85,7 +101,7 @@ function parseHttpInput(
   path: string,
   options: HttpOptions,
 ):
-  | { ok: true; method: HttpMethod; input: AgentInput }
+  | { ok: true; method: HttpMethod; path: string; input: AgentInput }
   | { ok: false; env: ReturnType<typeof validationError> } {
   const cmd = `elv http ${methodRaw} ${path}`;
   const method = methodRaw.toUpperCase();
@@ -101,11 +117,16 @@ function parseHttpInput(
     };
 
   try {
+    const url = new URL(path, "http://elv.invalid");
+    if (url.origin !== "http://elv.invalid") throw new Error("HTTP path cannot change hosts");
     const input: AgentInput = {};
     addPairs(input, "query", options.query);
+    // One canonical query bucket is used for validation, pagination, and transport.
+    // Preserve URL/flag collisions as repeated values, never silently overwrite.
+    input.query = mergeUrlQuery(url.search, input.query);
     if (options.bodyJson !== undefined) input.body = parseJson(options.bodyJson, "--body-json");
     addFiles(input, options.file);
-    return { ok: true, method, input };
+    return { ok: true, method, path: url.pathname, input };
   } catch (error) {
     return {
       ok: false,
@@ -118,7 +139,7 @@ async function httpOperation(
   method: HttpMethod,
   path: string,
   input: AgentInput,
-): Promise<{ op: OperationCard; metadataWarning: Warning }> {
+): Promise<{ op: OperationCard; metadataWarning: Warning; matchTemplate: string | undefined }> {
   const fileFields = Object.keys(input.files ?? {});
   const registryOp = await matchingRegistryOperation(method, path);
   if (registryOp) {
@@ -132,6 +153,7 @@ async function httpOperation(
         code: "http_metadata_matched",
         message: `HTTP metadata matched registry operation ${registryOp.operationId}.`,
       },
+      matchTemplate: registryOp.pathTemplate,
     };
   }
   return {
@@ -165,7 +187,46 @@ async function httpOperation(
       code: "http_metadata_inferred",
       message: "HTTP metadata was inferred because no registry operation matched the request path.",
     },
+    matchTemplate: undefined,
   };
+}
+function matchPathValues(template: string, requestPath: string): JsonObjectInput {
+  const templateParts = pathParts(template);
+  const requestParts = pathParts(requestPath);
+  const values: JsonObjectInput = {};
+  if (templateParts.length !== requestParts.length) return values;
+  templateParts.forEach((part, index) => {
+    if (!isTemplateParameter(part)) return;
+    values[part.slice(1, -1)] = safeDecodeSegment(requestParts[index] ?? "");
+  });
+  return values;
+}
+function safeDecodeSegment(segment: string): string {
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    return segment;
+  }
+}
+function mergeUrlQuery(search: string, explicit: AgentInput["query"]): JsonObjectInput | undefined {
+  const params = new URLSearchParams(search);
+  const query: JsonObjectInput = Object.fromEntries(
+    [...new Set(params.keys())].map((key) => {
+      const values = params.getAll(key);
+      return [key, values.length > 1 ? values : values[0]];
+    }),
+  );
+  for (const [key, value] of Object.entries(explicit ?? {})) {
+    const previous = Object.hasOwn(query, key) ? query[key] : undefined;
+    query[key] =
+      previous === undefined
+        ? value
+        : [
+            ...(Array.isArray(previous) ? previous : [previous]),
+            ...(Array.isArray(value) ? value : [value]),
+          ];
+  }
+  return Object.keys(query).length ? query : undefined;
 }
 
 async function matchingRegistryOperation(

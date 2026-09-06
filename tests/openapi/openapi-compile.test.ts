@@ -35,9 +35,9 @@ describe("OpenAPI compiler", () => {
     const compiled = await compileSpec({ sourcePath: snapshotPath });
     const ids = compiled.operations.map((op) => op.operationId);
 
-    expect(compiled.totalOperations).toBe(364);
+    expect(compiled.totalOperations).toBe(388);
     expect(compiled.skippedOperations).toBe(1);
-    expect(compiled.operations).toHaveLength(363);
+    expect(compiled.operations).toHaveLength(387);
     expect(new Set(ids).size).toBe(ids.length);
     expect(() => JSON.stringify(compiled.operations)).not.toThrow();
 

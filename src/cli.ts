@@ -25,6 +25,7 @@ import { handleWait } from "./commands/wait";
 import { runWs } from "./commands/ws";
 import { handleOpsGet, handleOpsList, handleOpsSchema, handleOpsSearch } from "./commands/ops";
 import { handleCapabilities } from "./commands/capabilities";
+import { registerSpeechEngineCommand } from "./commands/speech-engine";
 import { buildViewResult } from "./commands/view";
 import { registerAliases } from "./commands/aliases/index";
 import { handleSpecDiff, handleSpecStatus, handleSpecUpdate } from "./commands/spec";
@@ -121,6 +122,15 @@ function buildProgram(version: string): Command {
       .option("--list", "list the WebSocket catalog")
       .option("--query <key=value>", "add query parameter", collect, [])
       .option("--send <path>", "NDJSON send-script")
+      .option("--duplex", "read live NDJSON actions from stdin and emit received events on stderr")
+      .option(
+        "--token-env <name>",
+        "read a single-use WebSocket token from an environment variable",
+      )
+      .option(
+        "--url-env <name>",
+        "read a signed WebSocket URL from an environment variable instead of argv",
+      )
       .option("--timeout-ms <ms>", "inactivity timeout in milliseconds")
       .action(async (target: string | undefined, _options: CliOptionValues, command: Command) => {
         const input = wsInput(target, command);
@@ -166,6 +176,7 @@ function buildProgram(version: string): Command {
   registerSpecCommands(program);
 
   registerAliases(program, addCommonFlags);
+  registerSpeechEngineCommand(program, addCommonFlags);
 
   return program;
 }
@@ -247,9 +258,23 @@ function registerConfigCommands(program: Command): void {
   addCommonFlags(
     config
       .command("doctor")
-      .description("Check auth, connectivity, and credits")
+      .description(
+        "Check local configuration; opt in to connectivity and credit checks with --online",
+      )
+      .option("--online", "also verify provider connectivity and account credits")
+      .option("--offline", "check local configuration only (the default)")
       .action(async (_options: CliOptionValues, command: Command) => {
-        const result = await configDoctor(configOverrides(command));
+        const opts = mergedOptions(command);
+        if (opts.online && opts.offline) {
+          emitAndExit(
+            validationError("elv config doctor", "Use --online or --offline, not both"),
+            ExitCode.InputValidation,
+          );
+        }
+        const result = await configDoctor({
+          ...configOverrides(command),
+          network: Boolean(opts.online),
+        });
         emitAndExit(result.env, result.exitCode);
       }),
   );
@@ -358,6 +383,9 @@ function wsInput(
       list: Boolean(opts.list),
       query: query.value,
       send: send === undefined ? undefined : resolve(send),
+      duplex: Boolean(opts.duplex),
+      tokenEnv: optionString(opts.tokenEnv),
+      urlEnv: optionString(opts.urlEnv),
       out: optionString(opts.out),
     },
   };

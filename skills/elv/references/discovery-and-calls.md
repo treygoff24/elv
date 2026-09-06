@@ -4,6 +4,11 @@ Read this reference when an alias does not clearly own the request, when the
 input schema is uncertain, or when the task needs raw REST, pagination, polling,
 profiles, or spec provenance.
 
+For array-valued REST query parameters, use
+`--query 'sources[]=qa' --query 'sources[]=manual'` or bucketed JSON arrays.
+Plain repeated `key=value` flags retain last-value-wins behavior; `--path`
+treats parameter names literally.
+
 ## Discover before composing
 
 Use the narrowest lookup that resolves the uncertainty:

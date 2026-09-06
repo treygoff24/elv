@@ -18,7 +18,7 @@ import {
 import { isRecord, parseJson as parseJsonValue } from "../util/json";
 import { errorMessage } from "../util/error";
 import { shellArg } from "../util/shell";
-import { containsCredential } from "./redaction";
+import { containsCredential, redact } from "./redaction";
 import { retryAfterMs } from "./retries";
 import type { HttpMethod, OperationCard } from "../openapi/types";
 import type { JsonObject, JsonValue } from "../util/json";
@@ -38,6 +38,7 @@ export interface ResponseContext extends Pick<RunOpts, "out" | "hash"> {
   cmd: string;
   creditsEstimated?: number | null;
   requestPath?: string;
+  outputFormat?: string;
   method?: HttpMethod;
   inline?: boolean;
   saveJson?: string;
@@ -178,9 +179,16 @@ async function jsonSuccess(
     return invalidJsonSuccess(op, ctx, base, warnings, text, error);
   }
   if (op.secretResult || containsCredential(data)) {
-    const file = await spillSecretJsonFile(op, text, ctx);
+    // Media status, IDs and cursors must remain usable for polling/pagination.
+    // The complete response (including signed URLs) stays in the private file.
+    const media =
+      !op.secretResult &&
+      (/^\/v1\/(?:flows|assets)(?:\/|$)/u.test(op.pathTemplate) ||
+        op.operationId === "get_project_by_id");
+    const file = await spillSecretJsonFile(op, text, ctx, media);
     return success({
       ...base,
+      data: media ? redact(data) : undefined,
       data_summary: summarizeSensitiveData(data),
       files: [{ ...file, sensitive: true }],
       truncated: true,
@@ -271,9 +279,15 @@ async function spillSecretJsonFile(
   op: OperationCard,
   text: string,
   ctx: ResponseContext,
+  sidecar = false,
 ): Promise<FileRecord> {
   const target = resolveOutTarget(ctx.saveJson ?? ctx.out, false);
-  const filename = target.file ?? deriveFilename(op.operationId, "sensitive", "json");
+  // Reserve --save-json for the redacted collection, not its first secret page.
+  const filename = target.file
+    ? sidecar
+      ? `${target.file}.sensitive.json`
+      : target.file
+    : deriveFilename(op.operationId, "sensitive", "json");
   const path = await writeBufferToFile(`${text}\n`, join(target.dir, filename), { mode: 0o600 });
   return {
     ...(await fileRecord(path, { hash: ctx.hash })),
@@ -385,9 +399,7 @@ async function writeFullTimestampFiles(
   ctx: ResponseContext,
 ): Promise<FileRecord[]> {
   const target = resolveOutTarget(ctx.out, false);
-  const audioName =
-    target.file ??
-    deriveFilename(op.operationId, "audio", audioExtensionFromRequestPath(ctx.requestPath));
+  const audioName = target.file ?? deriveFilename(op.operationId, "audio", audioExtension(ctx));
   const audioPath = await writeBufferToFile(
     Buffer.from(String(data.audio_base64), "base64"),
     join(target.dir, audioName),
@@ -793,7 +805,7 @@ function jsonEventsAudioWriter(
   ctx: ResponseContext,
   dir: string,
 ): TempFileWriter {
-  const ext = audioExtensionFromRequestPath(ctx.requestPath);
+  const ext = audioExtension(ctx);
   return tempFileWriter(join(dir, deriveFilename(op.operationId, "audio", ext)));
 }
 
@@ -880,9 +892,9 @@ function chunkBuffer(chunk: Buffer | Uint8Array | string): Buffer {
   return Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
 }
 
-function audioExtensionFromRequestPath(path: string | undefined): string {
-  if (!path) return "mp3";
-  const outputFormat = requestPathSearchParams(path).get("output_format") ?? "";
+function audioExtension(ctx: ResponseContext): string {
+  const outputFormat =
+    ctx.outputFormat ?? requestPathSearchParams(ctx.requestPath ?? "").get("output_format") ?? "";
   const codec = outputFormat.split("_")[0];
   if (codec === "pcm" || codec === "ulaw" || codec === "alaw" || codec === "opus") return codec;
   return "mp3";

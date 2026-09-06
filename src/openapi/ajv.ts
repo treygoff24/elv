@@ -7,8 +7,11 @@ import { SchemaResolutionError, type OperationCard } from "./types";
 
 const OPENAPI_SCHEMA_BASE = "elv://openapi";
 
-export function buildAjv(bundledSpec: OpenApiDocument): Ajv2020 {
-  const ajv = new Ajv2020({ strict: false, allErrors: true, validateSchema: false });
+export function buildAjv(
+  bundledSpec: OpenApiDocument,
+  coerceTypes: boolean | "array" = false,
+): Ajv2020 {
+  const ajv = new Ajv2020({ strict: false, allErrors: true, validateSchema: false, coerceTypes });
   addFormats(ajv);
   ajv.addSchema(bundledSpec as AnySchema, OPENAPI_SCHEMA_BASE);
   return ajv;
@@ -41,5 +44,28 @@ function absoluteDocumentRefs(value: JsonValue): JsonValue {
         ? `${OPENAPI_SCHEMA_BASE}${entry}`
         : absoluteDocumentRefs(entry),
     ]),
+  );
+}
+export function compileParamSchema(
+  ajv: Ajv2020,
+  operationId: string,
+  schema: JsonValue,
+): ValidateFunction {
+  try {
+    // AJV cannot replace a root scalar; wrapping it makes any coercion observable.
+    return ajv.compile({
+      type: "object",
+      properties: { value: absoluteDocumentRefs(schema) },
+      required: ["value"],
+    } as AnySchema);
+  } catch (error) {
+    throw new SchemaResolutionError(operationId, error);
+  }
+}
+export function paramSchemaHasRef(schema: JsonValue): boolean {
+  if (Array.isArray(schema)) return schema.some(paramSchemaHasRef);
+  if (!schema || typeof schema !== "object") return false;
+  return Object.entries(schema).some(
+    ([key, entry]) => (key === "$ref" && typeof entry === "string") || paramSchemaHasRef(entry),
   );
 }

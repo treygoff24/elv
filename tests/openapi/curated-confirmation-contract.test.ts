@@ -45,7 +45,10 @@ describe("curated confirmation contract", () => {
       });
       expect(call.ok ? undefined : call.error.code, `${operationId} call`).toBe("confirmation");
 
-      const raw = await runHttp(op!.method, concretePath(op!.pathTemplate));
+      // Validation precedes confirmation; disable explicitly requires its target query.
+      const raw = await runHttp(op!.method, concretePath(op!.pathTemplate), {
+        query: operationId === "disable" ? ["api_key_name=self"] : undefined,
+      });
       expect(raw.ok ? undefined : raw.error.code, `${operationId} http`).toBe("confirmation");
     }
     expect(fetch).not.toHaveBeenCalled();

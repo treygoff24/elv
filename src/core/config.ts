@@ -164,7 +164,7 @@ export async function configDoctor(options: DoctorOptions = {}): Promise<DoctorR
   checks.push(outputDirCheck(config.outputDir));
   checks.push(nodeVersionCheck());
 
-  if (options.network === false) {
+  if (options.network !== true) {
     checks.push({ name: "base_url_reachable", status: "skip", detail: "Network checks disabled" });
     checks.push({ name: "credit_balance", status: "skip", detail: "Network checks disabled" });
   } else {
@@ -283,7 +283,11 @@ function nodeVersionCheck(): DoctorCheck {
 
 async function baseUrlReachableCheck(baseUrl: string): Promise<DoctorCheck> {
   try {
-    const response = await fetch(baseUrl, { method: "GET", signal: AbortSignal.timeout(2_000) });
+    const response = await fetch(baseUrl, {
+      method: "GET",
+      redirect: "error",
+      signal: AbortSignal.timeout(2_000),
+    });
     return response.status < 500
       ? {
           name: "base_url_reachable",
@@ -307,6 +311,7 @@ async function creditBalanceCheck(config: ResolvedConfig): Promise<DoctorCheck> 
   try {
     const response = await fetch(new URL("/v1/user/subscription", config.baseUrl), {
       headers: { "xi-api-key": apiKey },
+      redirect: "error",
       signal: AbortSignal.timeout(2_000),
     });
     if (!response.ok)

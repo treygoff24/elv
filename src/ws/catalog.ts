@@ -1,6 +1,6 @@
 import type { Risk } from "../openapi/types";
 
-export type WsProtocol = "tts" | "stt" | "convai" | "monitor";
+export type WsProtocol = "tts" | "ttd" | "ttd-multi" | "stt" | "convai" | "monitor";
 
 interface WsCatalogFields {
   urlTemplate: string;
@@ -38,11 +38,32 @@ const WS_CATALOG = [
     defaultQuery: { model_id: "eleven_flash_v2_5" },
   },
   {
+    name: "ttd-realtime",
+    urlTemplate: "wss://api.elevenlabs.io/v1/text-to-dialogue/stream-input?model_id={model_id}",
+    pathTemplate: "/v1/text-to-dialogue/stream-input",
+    requiredParams: [],
+    auth: "xi-api-key or Authorization header, single_use_token query, or credential in first message",
+    scriptable: true,
+    protocol: "ttd",
+    defaultQuery: { model_id: "eleven_v3_conversational" },
+  },
+  {
+    name: "ttd-multi",
+    urlTemplate:
+      "wss://api.elevenlabs.io/v1/text-to-dialogue/multi-stream-input?model_id={model_id}",
+    pathTemplate: "/v1/text-to-dialogue/multi-stream-input",
+    requiredParams: [],
+    auth: "xi-api-key or Authorization header, single_use_token query, or credential in first message",
+    scriptable: true,
+    protocol: "ttd-multi",
+    defaultQuery: { model_id: "eleven_v3_conversational" },
+  },
+  {
     name: "stt-realtime",
     urlTemplate: "wss://api.elevenlabs.io/v1/speech-to-text/realtime?model_id={model_id}",
     pathTemplate: "/v1/speech-to-text/realtime",
     requiredParams: [],
-    auth: "xi-api-key header or single_use_token query",
+    auth: "xi-api-key header or token query",
     scriptable: true,
     protocol: "stt",
     defaultQuery: { model_id: "scribe_v2_realtime" },
@@ -106,7 +127,9 @@ export function buildCatalogUrl(
   for (const [key, value] of Object.entries(query)) {
     if (!entry.urlTemplate.includes(`{${key}}`)) url.searchParams.set(key, value);
   }
-  for (const param of entry.requiredParams) url.searchParams.delete(param);
+  for (const param of entry.requiredParams) {
+    if (entry.pathTemplate.includes(`{${param}}`)) url.searchParams.delete(param);
+  }
   return url;
 }
 

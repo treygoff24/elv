@@ -20,6 +20,7 @@ import {
   scriptUsesModel,
   ttsCharacterEstimate,
   validateBinaryFiles,
+  validateTtdModel,
 } from "../ws/events";
 import { runWsSession, WsSessionError } from "../ws/session";
 import { errorMessage } from "../util/error";
@@ -35,6 +36,8 @@ export interface RunWsOptions extends Pick<
 > {
   timeoutMs?: number;
   debug?: boolean;
+  duplexInput?: NodeJS.ReadableStream;
+  duplexEventSink?: (line: string) => void;
 }
 
 export interface WsCommandInput {
@@ -43,6 +46,9 @@ export interface WsCommandInput {
   query: Record<string, string>;
   send?: string;
   out?: string;
+  tokenEnv?: string;
+  urlEnv?: string;
+  duplex?: boolean;
 }
 
 export async function runWs(
@@ -60,7 +66,7 @@ export async function runWs(
   }
 }
 
-type ValidatedWsInput = WsCommandInput & Required<Pick<WsCommandInput, "target">>;
+type ValidatedWsInput = WsCommandInput;
 
 function listCatalogResult(): CommandResult {
   return {
@@ -72,8 +78,10 @@ function listCatalogResult(): CommandResult {
 function validateWsInput(
   input: WsCommandInput,
 ): { ok: true; input: ValidatedWsInput } | { ok: false; result: CommandResult } {
-  if (!input.target) return { ok: false, result: inputError("Missing WS target") };
-  return { ok: true, input: { ...input, target: input.target } };
+  if (!input.target && !input.urlEnv) {
+    return { ok: false, result: inputError("Missing WS target or --url-env") };
+  }
+  return { ok: true, input };
 }
 
 async function runScriptedWs(
@@ -91,20 +99,49 @@ async function runScriptedWs(
   ) {
     return inputError("--max-credits must be a non-negative number");
   }
-  const namedEntry = getWsCatalogEntry(input.target);
-  const entry = namedEntry ?? catalogEntryForRawPath(input.target);
+  const urlOverride = input.urlEnv ? environmentValue(input.urlEnv, "--url-env") : undefined;
+  const target = input.target ?? urlOverride!;
+  const namedEntry = input.target ? getWsCatalogEntry(input.target) : undefined;
+  const actualEntry = catalogEntryForRawTarget(urlOverride ?? target, config.baseUrl);
+  if (namedEntry && urlOverride && actualEntry && actualEntry.name !== namedEntry.name) {
+    return inputError(
+      `Named WebSocket target ${namedEntry.name} does not match the known WebSocket route ${actualEntry.name} from --url-env`,
+    );
+  }
+  const entry = namedEntry ?? actualEntry;
   const protocol = entry?.protocol ?? "raw";
-  if (!input.send && protocol !== "monitor") {
+  if (input.duplex && !["convai", "monitor", "raw"].includes(protocol)) {
+    return inputError(
+      `--duplex is not yet supported for the ${protocol} protocol; use a complete --send script`,
+    );
+  }
+  if (!input.send && !input.duplex && protocol !== "monitor") {
     return inputError("Missing --send script.ndjson");
   }
-  const baseQuery = namedEntry ? input.query : { ...entry?.defaultQuery, ...input.query };
-  const query = withConfiguredTtsModel(baseQuery, entry, config.defaultTtsModelId);
+  const defaultQuery = withConfiguredTtsModel(
+    { ...entry?.defaultQuery },
+    entry,
+    config.defaultTtsModelId,
+  );
+  const embeddedQuery = embeddedQueryForRawTarget(urlOverride ?? target, config.baseUrl);
+  const query = withTokenEnvironment(
+    { ...defaultQuery, ...embeddedQuery, ...input.query },
+    input.tokenEnv,
+    protocol,
+    urlOverride,
+  );
   const script = input.send ? parseScriptFile(input.send, protocol) : [];
   validateScriptFiles(script);
-  const resolved = resolveTargetForInput(input.target, namedEntry, query, config.baseUrl);
-  const validationErrorResult = validateScriptedTarget(entry, query, script);
+  const resolved = resolveTargetForInput(target, namedEntry, query, config.baseUrl, urlOverride);
+  const validationErrorResult = validateScriptedTarget(entry, resolved.url, script);
   if (validationErrorResult) return validationErrorResult;
-  const preflight = wsPreflight(entry, script, resolved.url, config.maxCredits);
+  const preflight = wsPreflight(
+    entry,
+    script,
+    resolved.url,
+    config.maxCredits,
+    input.duplex === true,
+  );
   const headers = headersForTarget(resolved.usesProfileAuth, options);
 
   if (options.dryRun) {
@@ -112,9 +149,13 @@ async function runScriptedWs(
   }
   if (preflight.requiresYes && !options.yes) {
     return {
-      env: confirmationRequired("elv ws", "Outbound agent or monitor actions require --yes", {
-        raw: { catalog: entry?.name, outbound_actions: preflight.outboundActions },
-      }),
+      env: confirmationRequired(
+        "elv ws",
+        preflight.unboundedBudget
+          ? "Configured max-credits cannot bound this raw WebSocket session; rerun with --yes to accept that limit"
+          : "Outbound agent or monitor actions require --yes",
+        { raw: { catalog: entry?.name, outbound_actions: preflight.outboundActions } },
+      ),
       exitCode: ExitCode.ConfirmationRequired,
     };
   }
@@ -130,6 +171,13 @@ async function runScriptedWs(
     headers,
     timeoutMs: options.timeoutMs,
     outputFormat: resolved.url.searchParams.get("output_format") ?? input.query.output_format,
+    duplex: input.duplex
+      ? {
+          input: options.duplexInput ?? process.stdin,
+          protocol,
+          onEvent: options.duplexEventSink ?? ((line: string) => process.stderr.write(`${line}\n`)),
+        }
+      : undefined,
   });
 
   return {
@@ -142,6 +190,15 @@ async function runScriptedWs(
         credits_charged: null,
         credits_source: preflight.creditsEstimated === null ? "none" : "estimate",
       },
+      warnings: preflight.unboundedBudget
+        ? [
+            {
+              code: "budget_unbounded",
+              message:
+                "Configured max-credits could not bound this raw WebSocket session; --yes accepted the unbounded request.",
+            },
+          ]
+        : undefined,
     }),
     exitCode: ExitCode.Success,
   };
@@ -149,7 +206,7 @@ async function runScriptedWs(
 
 function validateScriptedTarget(
   entry: WsCatalogEntry | undefined,
-  query: Record<string, string>,
+  url: URL,
   script: ReturnType<typeof parseSendScript>,
 ): CommandResult | undefined {
   if (entry && !entry.scriptable) {
@@ -157,10 +214,21 @@ function validateScriptedTarget(
       `${entry.name} is interactive and is not supported by the scripted ws player`,
     );
   }
-  if (entry && rejectsElevenV3(entry, query, script)) {
+  if (entry && rejectsElevenV3(entry, url, script)) {
     return inputError(
       "eleven_v3 is not supported over ElevenLabs WebSocket TTS; use eleven_flash_v2_5",
     );
+  }
+  if (entry?.protocol === "ttd" || entry?.protocol === "ttd-multi") {
+    try {
+      validateTtdModel(
+        script,
+        entry.protocol,
+        url.searchParams.get("model_id") ?? entry.defaultQuery?.model_id ?? "",
+      );
+    } catch (error) {
+      return inputError(errorMessage(error));
+    }
   }
   return undefined;
 }
@@ -170,7 +238,16 @@ function resolveTarget(
   entry: WsCatalogEntry | undefined,
   query: Record<string, string>,
   baseUrl: string,
+  urlOverride?: string,
 ): { url: URL; path: string; usesProfileAuth: boolean } {
+  if (urlOverride) {
+    const url = new URL(urlOverride);
+    if (url.protocol !== "ws:" && url.protocol !== "wss:") {
+      throw new Error("--url-env must contain a ws:// or wss:// URL");
+    }
+    for (const [key, value] of Object.entries(query)) url.searchParams.set(key, value);
+    return { url, path: url.pathname, usesProfileAuth: false };
+  }
   if (entry)
     return {
       url: buildCatalogUrl(entry, { baseUrl, query }),
@@ -185,10 +262,27 @@ function resolveTarget(
   return { url, path: url.pathname, usesProfileAuth: rawPath };
 }
 
-function catalogEntryForRawPath(target: string): WsCatalogEntry | undefined {
-  if (!target.startsWith("/") || target.startsWith("//")) return undefined;
-  const path = target.replace(/\?.*$/u, "");
-  return listWsCatalog().find((entry) => wsPathMatches(entry.pathTemplate, path));
+function catalogEntryForRawTarget(target: string, baseUrl: string): WsCatalogEntry | undefined {
+  const url = rawTargetUrl(target, baseUrl);
+  if (!url) return undefined;
+  return listWsCatalog().find((entry) => wsPathMatches(entry.pathTemplate, url.pathname));
+}
+
+function embeddedQueryForRawTarget(target: string, baseUrl: string): Record<string, string> {
+  const url = rawTargetUrl(target, baseUrl);
+  return url ? Object.fromEntries(url.searchParams.entries()) : {};
+}
+
+function rawTargetUrl(target: string, baseUrl: string): URL | undefined {
+  try {
+    if (target.startsWith("/") && !target.startsWith("//")) {
+      return wsUrlFromPath(target, baseUrl);
+    }
+    if (target.startsWith("ws://") || target.startsWith("wss://")) return new URL(target);
+  } catch {
+    return undefined;
+  }
+  return undefined;
 }
 
 function wsPathMatches(template: string, path: string): boolean {
@@ -207,9 +301,10 @@ function resolveTargetForInput(
   entry: WsCatalogEntry | undefined,
   query: Record<string, string>,
   baseUrl: string,
+  urlOverride?: string,
 ): { url: URL; path: string; usesProfileAuth: boolean } {
   try {
-    return resolveTarget(target, entry, query, baseUrl);
+    return resolveTarget(target, entry, query, baseUrl, urlOverride);
   } catch (error) {
     throw new ScriptValidationError(errorMessage(error));
   }
@@ -217,11 +312,15 @@ function resolveTargetForInput(
 
 function rejectsElevenV3(
   entry: WsCatalogEntry,
-  query: Record<string, string>,
+  url: URL,
   script: ReturnType<typeof parseSendScript>,
 ): boolean {
   if (!entry.name.startsWith("tts-")) return false;
-  return query.model_id?.toLowerCase() === "eleven_v3" || scriptUsesModel(script, "eleven_v3");
+  return (
+    url.searchParams.get("model_id")?.toLowerCase().startsWith("eleven_v3") === true ||
+    scriptUsesModel(script, "eleven_v3") ||
+    scriptUsesModel(script, "eleven_v3_conversational")
+  );
 }
 
 function headersForTarget(
@@ -249,6 +348,8 @@ interface WsPreflight {
   creditsEstimated: number | null;
   budgetPolicy: BudgetDecision["policy"];
   wouldExceedBudget: boolean | null;
+  unboundedBudget: boolean;
+  duplex: boolean;
 }
 
 function withConfiguredTtsModel(
@@ -260,16 +361,51 @@ function withConfiguredTtsModel(
   return { ...query, model_id: defaultTtsModelId };
 }
 
+function withTokenEnvironment(
+  query: Record<string, string>,
+  tokenEnv: string | undefined,
+  protocol: WsProtocol | "raw",
+  urlOverride: string | undefined,
+): Record<string, string> {
+  if (!tokenEnv) return query;
+  if (urlOverride) throw new ScriptValidationError("--token-env cannot be combined with --url-env");
+  const parameter =
+    protocol === "stt"
+      ? "token"
+      : protocol === "tts" || protocol === "ttd" || protocol === "ttd-multi"
+        ? "single_use_token"
+        : undefined;
+  if (!parameter) {
+    throw new ScriptValidationError(
+      "--token-env is supported only for named TTS, Text to Dialogue, and realtime STT protocols",
+    );
+  }
+  if (query.token !== undefined || query.single_use_token !== undefined) {
+    throw new ScriptValidationError(
+      "Use --token-env or an explicit token query parameter, not both",
+    );
+  }
+  return { ...query, [parameter]: environmentValue(tokenEnv, "--token-env") };
+}
+
+function environmentValue(name: string, flag: "--token-env" | "--url-env"): string {
+  const value = process.env[name];
+  if (!value)
+    throw new ScriptValidationError(`${flag} ${name} is unset or empty; set it and retry`);
+  return value;
+}
+
 function wsPreflight(
   entry: WsCatalogEntry | undefined,
   script: SendScriptAction[],
   url: URL,
   maxCredits: number | undefined,
+  duplex: boolean,
 ): WsPreflight {
   const outboundActions = outboundActionCount(script);
   const protocol = entry?.protocol ?? "raw";
   const creditsEstimated =
-    protocol === "tts"
+    protocol === "tts" || protocol === "ttd" || protocol === "ttd-multi"
       ? ttsCharacterEstimate(
           script,
           url.searchParams.get("model_id") ?? entry?.defaultQuery?.model_id ?? "",
@@ -292,12 +428,23 @@ function wsPreflight(
         : estimateUnavailable
           ? true
           : null;
+  const unboundedBudget =
+    entry === undefined &&
+    protocol === "raw" &&
+    maxCredits !== undefined &&
+    (outboundActions > 0 || duplex);
+  const dynamicAgentActions = duplex && (protocol === "convai" || protocol === "monitor");
   return {
     outboundActions,
-    requiresYes: outboundActions > 0 && entry?.outboundRisk !== undefined,
+    requiresYes:
+      (outboundActions > 0 && entry?.outboundRisk !== undefined) ||
+      dynamicAgentActions ||
+      unboundedBudget,
     creditsEstimated,
     budgetPolicy,
     wouldExceedBudget,
+    unboundedBudget,
+    duplex,
   };
 }
 
@@ -327,12 +474,14 @@ function dryRunResult(
           headers: headers ?? {},
           script,
         },
-        risk: preflight.requiresYes ? entry?.outboundRisk : "read",
+        risk: entry?.outboundRisk ?? (preflight.unboundedBudget ? "unknown_unbounded" : "read"),
         outbound_actions: preflight.outboundActions,
         credits_estimated: preflight.creditsEstimated,
         budget_policy: preflight.budgetPolicy,
         would_require_yes: preflight.requiresYes,
         would_exceed_budget: preflight.wouldExceedBudget,
+        unbounded_budget: preflight.unboundedBudget,
+        duplex: preflight.duplex,
       }),
     }),
     exitCode: ExitCode.Success,
@@ -392,7 +541,8 @@ function parseScriptFile(
 ): ReturnType<typeof parseSendScript> {
   try {
     return parseSendScript(readFileSync(path, "utf8"), protocol).map((action) =>
-      action.type === "send_binary_file" && !isAbsolute(action.path)
+      (action.type === "send_binary_file" || action.type === "send_audio_file") &&
+      !isAbsolute(action.path)
         ? { ...action, path: resolve(dirname(path), action.path) }
         : action,
     );
@@ -425,11 +575,12 @@ function errorEnvelope(error: unknown): CommandResult {
   }
   if (error instanceof WsSessionError) {
     const partial = error.files.length > 0;
+    const duplexInputError = error.code.startsWith("ws_duplex_");
     return {
       env: failure({
         cmd: "elv ws",
         error: {
-          type: "network_error",
+          type: duplexInputError ? "validation_error" : "network_error",
           code: error.code,
           message: error.message,
           raw: partial ? { partial: true } : undefined,
@@ -449,7 +600,7 @@ function errorEnvelope(error: unknown): CommandResult {
             ]
           : [],
       }),
-      exitCode: ExitCode.ProviderError,
+      exitCode: duplexInputError ? ExitCode.InputValidation : ExitCode.ProviderError,
     };
   }
   const message = errorMessage(error);

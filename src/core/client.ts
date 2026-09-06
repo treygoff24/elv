@@ -31,6 +31,7 @@ import {
 import { requiresYes } from "./safety";
 import { OutTargetError } from "./files";
 import type { ErrorObject, ValidateFunction } from "ajv";
+import type Ajv2020 from "ajv/dist/2020.js";
 import type { OpenApiDocument } from "../openapi/compile-spec";
 import type { JsonInputValue, JsonObjectInput, JsonValue } from "../util/json";
 import { SchemaResolutionError, type OperationCard } from "../openapi/types";
@@ -87,13 +88,7 @@ export async function runOperation(
       opts.limit ?? 20,
     );
     const validation = await validateInput(op, normalized, cached?.bundledSpec);
-    if (validation)
-      return validationError(cmd, validation.message, {
-        operationId,
-        param: validation.param,
-        raw: validation.raw,
-        hints: validationHints(validation),
-      });
+    if (validation) return paramValidationEnvelope(cmd, operationId, validation);
 
     const { credits: estimate, warnings: estimateWarnings } = await estimateDetail(
       op,
@@ -456,7 +451,10 @@ async function sendAndNormalize(
   ctx: SendAndNormalizeContext,
 ): Promise<Envelope> {
   const res = await sendWithRetry(req, op, { retryPost: ctx.retryPost });
-  return normalizeResponse(op, res, ctx);
+  return normalizeResponse(op, res, {
+    ...ctx,
+    outputFormat: new URL(req.url).searchParams.get("output_format") ?? undefined,
+  });
 }
 
 async function validateInput(
@@ -464,23 +462,147 @@ async function validateInput(
   input: AgentInput,
   bundledSpec: OpenApiDocument | undefined,
 ): Promise<NormalizedError | null> {
-  const missingParam = missingRequiredParamError(op, input);
-  if (missingParam) return missingParam;
+  const engine = await import("../openapi/ajv");
+  const ajv = engine.buildAjv(bundledSpec ?? minimalSpec());
+  const invalidParam = await validateParameters(op, input, bundledSpec, ajv);
+  if (invalidParam) return invalidParam;
   if (skipRequestBodyValidation(op, bundledSpec)) return null;
-
   const missingBody = missingRequiredBodyError(op, input);
   if (missingBody) return missingBody;
-
-  const validator = await getInputValidatorForOperation(op, bundledSpec ?? minimalSpec());
+  const validator = engine.getInputValidator(ajv, op);
   if (!validator) return null;
   return validationFailure(op, input, validator);
 }
+export async function validateParameters(
+  op: OperationCard,
+  input: AgentInput,
+  bundledSpec: OpenApiDocument | undefined,
+  ajv?: Ajv2020,
+): Promise<NormalizedError | null> {
+  const missingParam = missingRequiredParamError(op, input);
+  if (missingParam) return missingParam;
+  const params = [...op.pathParams, ...op.queryParams, ...op.headerParams];
+  if (params.length === 0) return null;
+  const headerKeys = new Map<string, string>();
+  for (const key of Object.keys(input.headers ?? {})) {
+    const lower = key.toLowerCase();
+    if (!headerKeys.has(lower)) headerKeys.set(lower, key);
+  }
+  const engine = await import("../openapi/ajv");
+  const instance = ajv ?? engine.buildAjv(bundledSpec ?? minimalSpec());
+  let coercingInstance: Ajv2020 | undefined;
+  for (const param of params) {
+    const raw =
+      param.location === "header"
+        ? readHeaderParam(input, headerKeys, param.name)
+        : input[param.location]?.[param.name];
+    if (raw === undefined || isEmptyParamSchema(param.schema)) continue;
+    if (!bundledSpec && engine.paramSchemaHasRef(param.schema)) continue;
+    const validator = engine.compileParamSchema(instance, op.operationId, param.schema);
+    if (validator({ value: raw })) continue;
+    const originalErrors = validator.errors ?? [];
+    // Preserve valid string/union values. Coerce a copy only as a fallback, using
+    // a separate AJV instance so request bodies remain strictly typed.
+    const wrapped: { value: JsonInputValue } = { value: structuredClone(raw) };
+    coercingInstance ??= engine.buildAjv(bundledSpec ?? minimalSpec(), "array");
+    const coerce = engine.compileParamSchema(coercingInstance, op.operationId, param.schema);
+    coerce(wrapped);
+    wrapped.value = preserveValidParameterValues(raw, wrapped.value, originalErrors);
+    // oneOf may mutate data while evaluating later branches; never send a value
+    // unless the final representation also passes non-coercing validation.
+    if (validator(wrapped)) {
+      if (param.location !== "header") {
+        const bucket = input[param.location];
+        input[param.location] = { ...bucket, [param.name]: wrapped.value };
+      }
+      continue;
+    }
+    const errors = validator.errors ?? [];
+    const detail = errors[0];
+    const duplicateHint =
+      param.location === "query" &&
+      Array.isArray(raw) &&
+      raw.length > 1 &&
+      detail?.instancePath === "/value" &&
+      detail.params.type !== "array" &&
+      errors.every((error) => error.keyword === "type")
+        ? "; supply this parameter only once, in the URL or --query"
+        : "";
+    return {
+      type: "validation_error",
+      code: "validation_error",
+      message: `${param.location}: ${param.name} ${detail?.message ?? "is invalid"}${duplicateHint}`,
+      param: param.name,
+      raw: { location: param.location, name: param.name, errors },
+    };
+  }
+  return null;
+}
+
+// Coercion can revisit already-valid union branches. Keep subtrees with no
+// original validation failures, then validate the entire proposed value again.
+function preserveValidParameterValues(
+  original: JsonInputValue,
+  proposed: JsonInputValue,
+  errors: ErrorObject[],
+  path = "/value",
+): JsonInputValue {
+  if (errors.some((error) => error.instancePath === path)) return proposed;
+  if (Array.isArray(original) && Array.isArray(proposed)) {
+    return proposed.map((value, index) =>
+      preserveValidParameterValues(original[index], value, errors, `${path}/${index}`),
+    );
+  }
+  if (isRecord(original) && isRecord(proposed)) {
+    return Object.fromEntries(
+      Object.entries(proposed).map(([key, value]) => [
+        key,
+        preserveValidParameterValues(
+          original[key],
+          value,
+          errors,
+          `${path}/${key.replaceAll("~", "~0").replaceAll("/", "~1")}`,
+        ),
+      ]),
+    );
+  }
+  return original;
+}
+
+export function paramValidationEnvelope(
+  cmd: string,
+  operationId: string,
+  error: NormalizedError,
+): Envelope {
+  return validationError(cmd, error.message, {
+    operationId,
+    param: error.param,
+    raw: error.raw,
+    hints: validationHints(error),
+  });
+}
+function readHeaderParam(
+  input: AgentInput,
+  headerKeys: Map<string, string>,
+  name: string,
+): JsonInputValue | undefined {
+  const actual = headerKeys.get(name.toLowerCase());
+  if (actual === undefined) return undefined;
+  return input.headers?.[actual];
+}
+function isEmptyParamSchema(schema: JsonValue): boolean {
+  if (schema === null || schema === undefined) return true;
+  if (typeof schema !== "object" || Array.isArray(schema)) return false;
+  return Object.keys(schema).length === 0;
+}
 
 function missingRequiredParamError(op: OperationCard, input: AgentInput): NormalizedError | null {
+  const headerKeys = new Set(Object.keys(input.headers ?? {}).map((key) => key.toLowerCase()));
   for (const param of [...op.pathParams, ...op.queryParams, ...op.headerParams]) {
     if (!param.required) continue;
-    const bucket = param.location === "header" ? input.headers : input[param.location];
-    if (bucket?.[param.name] !== undefined) continue;
+    if (param.location === "header") {
+      if (headerKeys.has(param.name.toLowerCase())) continue;
+    } else if (input[param.location]?.[param.name] !== undefined) continue;
     return {
       type: "validation_error",
       code: "validation_error",
@@ -556,14 +678,6 @@ function validationBody(op: OperationCard, input: AgentInput): JsonInputValue {
     ]),
   );
   return { ...asRecord(input.body), ...files };
-}
-
-async function getInputValidatorForOperation(
-  op: OperationCard,
-  bundledSpec: OpenApiDocument,
-): Promise<ValidateFunction | null> {
-  const { buildAjv, getInputValidator } = await import("../openapi/ajv");
-  return getInputValidator(buildAjv(bundledSpec), op);
 }
 
 function hydrateBodySchema(

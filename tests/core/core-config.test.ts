@@ -35,6 +35,20 @@ afterEach(() => {
 });
 
 describe("config", () => {
+  it("keeps doctor offline by default and runs provider checks only when requested", async () => {
+    vi.stubEnv("ELEVENLABS_API_KEY", "test_key_CANARY");
+    const fetch = vi.fn(async () => Response.json({ character_limit: 1000, character_count: 5 }));
+    vi.stubGlobal("fetch", fetch);
+    const offline = await configDoctor();
+    expect(fetch).not.toHaveBeenCalled();
+    expect(
+      offline.checks.filter((check) => check.status === "skip").map((check) => check.name),
+    ).toEqual(["base_url_reachable", "credit_balance"]);
+    const online = await configDoctor({ network: true });
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(online.checks.find((check) => check.name === "credit_balance")?.status).toBe("pass");
+    expect(JSON.stringify(online.env)).not.toContain("test_key_CANARY");
+  });
   it("resolves the active profile without exposing the raw API key", () => {
     mkdirSync(join(cwd, ".elv"));
     writeFileSync(

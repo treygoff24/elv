@@ -6,13 +6,13 @@ Independent project; not affiliated with or endorsed by ElevenLabs.
 
 ## Why this exists
 
-The ElevenLabs MCP server sucks, and the official skills basically expect your agent to hand-roll raw API calls through brittle wrappers. Worse, the MCP exposes a thin slice of what ElevenLabs can actually do. The API has more than three hundred operations; the MCP surfaces a fraction of them.
+Agents need predictable inputs, small outputs, and a way to discover unfamiliar API operations without writing a new wrapper each time.
 
-So we built `elv`: a simple, token-efficient, agent-first CLI over ElevenLabs' published API. The vendored August 11, 2026 OpenAPI document contains 364 operations; `elv` compiles 363 of them and deliberately skips one deprecated signed-URL route whose replacement is available. Each command returns one JSON envelope and an exit code an agent can branch on before parsing the result.
+So we built `elv`: a simple, token-efficient, agent-first CLI over ElevenLabs' published API. The vendored September 6, 2026 OpenAPI document contains 388 operations; `elv` compiles 387 of them and deliberately skips one deprecated signed-URL route whose replacement is available. Each command returns one JSON envelope and an exit code an agent can branch on before parsing the result.
 
 ## What is this?
 
-`elv` is a command-line tool that compiles the ElevenLabs OpenAPI spec for AI coding agents to drive. Text-to-speech, speech-to-text, music, sound effects, dubbing, voice cloning, conversational agents, usage, and history are all available through the generic runner. Named WebSocket clients cover the public client-side realtime protocols. [API coverage and its boundaries are documented explicitly](./docs/api-coverage.md).
+`elv` compiles the ElevenLabs OpenAPI spec into a command surface for agents. Speech, transcription, dialogue, music, sound effects, image/video generation, assets, dubbing, voices, conversations, and workspace operations share one runner. Named WebSocket clients handle realtime speech, dialogue, transcription, and conversations. [API coverage and its boundaries](./docs/api-coverage.md) distinguish the published contract from live provider verification.
 
 Every command is non-interactive and prints exactly one line of JSON to stdout, either a success envelope or an error envelope. Anything that isn't JSON (audio, transcripts, large payloads) is written to disk, and the file paths come back inside the envelope. No spinners, no prose, no second line. An agent branches on the exit code first and parses the envelope only when it needs the detail.
 
@@ -34,9 +34,9 @@ The short version of the contract: run a command, check the exit code, and read 
 
 Three layers sit over the ElevenLabs OpenAPI spec, from most general to most convenient.
 
-The generic runner, `elv call <operation_id> --json '{...}'`, can invoke all 363 operations compiled from the pinned OpenAPI document. Nothing is hidden behind a hand-written subset. Escape hatches cover published endpoints that have not reached the pinned registry yet: `elv http <METHOD> <path>` makes an arbitrary REST call against the configured base URL, `elv ws <catalog|url>` runs a scripted WebSocket session, and `elv wait` polls an operation until a status field resolves. Known raw REST requests inherit registry metadata. Otherwise, safety and budget behavior depends on what protocol information is available.
+The generic runner, `elv call <operation_id> --json '{...}'`, can invoke all 387 operations compiled from the pinned OpenAPI document. Nothing is hidden behind a hand-written subset. Escape hatches cover published endpoints that have not reached the pinned registry yet: `elv http <METHOD> <path>` makes an arbitrary REST call against the configured base URL, `elv ws <catalog|url>` runs a scripted WebSocket session, and `elv wait` polls an operation until a status field resolves. Known raw REST requests inherit registry metadata. Otherwise, safety and budget behavior depends on what protocol information is available.
 
-Fourteen thin aliases wrap common workflows: `tts`, `stt`, `music`, `sfx`, `voice-change`, `voice-isolate`, `dubbing`, `dubbing-project`, `voices`, `agents`, `models`, `history`, `usage`, and `workspace`. Each one builds an input and calls the same runner as `call`. Discovery is built in too: `elv capabilities` reports the machine contract and service map; `elv ops list`, `ops search`, `ops get`, and `ops schema` inspect the registry; and `elv spec status`, `spec diff`, and `spec update` expose and refresh the active spec provenance.
+Thin aliases wrap common workflows: `tts`, `stt`, `music`, `sfx`, `voice-change`, `voice-isolate`, `dubbing`, `dubbing-project`, `voices`, `agents`, `models`, `history`, `usage`, `workspace`, `flows`, and `assets`. Each builds an input and calls the same runner as `call`. Discovery is built in too: `elv capabilities` reports the machine contract and service map; `elv ops list`, `ops search`, `ops get`, and `ops schema` inspect the registry; and `elv spec status`, `spec diff`, and `spec update` expose and refresh the active spec provenance.
 
 Safety is on by default. Destructive operations, outbound calls and messages, API-key mutation, and member changes refuse to run without `--yes`. Plain GET reads are never gated. A budget guard blocks credit-consuming calls before any network request when the cost can be bounded. A configured ceiling fails closed for generation operations and STT or agent WebSocket sessions whose cost cannot be estimated. `--dry-run` validates a request and returns a redacted preview without spending anything.
 
@@ -160,7 +160,19 @@ elv stt --file note.m4a --model scribe_v2 --token-env SCRIBE_TOKEN
 
 ### The generic runner
 
-For anything outside the alias surface, call any operation by id. The August 11 contract adds the complete eight-operation Agents Procedures family, Dubbing v2 bulk source/target transcript updates, voice accents, and cross-residency voice replication; the `agents procedures`, `dubbing-project`, and `voices` aliases cover their common workflows. Replication requires `--yes`; both Procedure DELETE routes inherit the same central destructive gate without special-case command code. The `--json` body uses the bucketed shape (`path`, `query`, `body`), and `--path key=value` is a shorthand for single path parameters.
+For anything outside the alias surface, call any operation by id. The September 6 contract adds Flows image, video, and speech generation, reusable Assets, Agents triage tickets, and conversation summaries. The corresponding aliases are `flows`, `assets`, `agents tickets`, and `agents conversations summary`. The generic `--json` input uses the bucketed shape (`path`, `query`, `body`); aliases take the request body directly. `--path key=value` is a shorthand for path parameters.
+
+```bash
+# Discover a generation model's input contract before spending credits.
+elv ops schema create_image_generation --example
+elv flows image create --json-file image-request.json --dry-run
+elv flows image create --json-file image-request.json --wait
+elv assets upload --file reference.png
+elv agents tickets list --agent-id AGENT --status open
+elv agents conversations summary --conversation-id CONVERSATION
+```
+
+Flows generation costs depend on the selected model and options. A configured credit ceiling blocks these operations when no defensible estimate is available, even with `--yes`. Completed generations and Assets carry signed content URLs: full responses go to private `sensitive: true` files, while redacted IDs, status, and cursors remain available for polling and pagination.
 
 ```bash
 elv call text_to_speech_full \
@@ -200,7 +212,7 @@ elv ws --list
 elv ws tts-realtime --query voice_id=VOICE --query model_id=eleven_flash_v2_5 \
   --send script.ndjson --out ./session
 
-# Realtime STT accepts send_binary_file actions and arbitrary published query fields.
+# Realtime STT accepts send_audio_file actions and published query fields.
 elv ws stt-realtime --query entity_detection=true \
   --send transcribe.ndjson --out ./session --dry-run
 
@@ -215,9 +227,30 @@ elv wait --operation get_dubbed_metadata \
   --interval-ms 2000 --timeout-ms 600000
 ```
 
-The named WebSocket catalog contains `tts-realtime`, `tts-multi`, `stt-realtime`, `convai`, and `convai-monitor`. Script validation is protocol-specific: the TTS keep-alive is required only for TTS, binary file actions are accepted only for STT and raw sessions, and `eleven_v3` is rejected for WebSocket TTS. `--dry-run`, `--yes`, and `--max-credits` apply to catalog sessions, but a ceiling rejects STT and agent sessions whose cost cannot be bounded before connection.
+The WebSocket catalog contains `tts-realtime`, `tts-multi`, `ttd-realtime`, `ttd-multi`, `stt-realtime`, `convai`, and `convai-monitor`. Dialogue sessions use a voices initialization message and `inputs` arrays, not TTS's initial space. TTD supports v3 dialogue models; the older TTS protocol rejects `eleven_v3`. Multi-context audio is saved separately with context-to-file mappings in the result. `--dry-run`, `--yes`, and `--max-credits` apply; a ceiling rejects STT and agent sessions whose cost cannot be bounded.
 
-Speech Engine upstream is not a WebSocket target. It is an inverted protocol in which ElevenLabs connects to a server you host, so `elv ws` intentionally does not pretend to implement it.
+Use `--token-env TOKEN_VARIABLE` for single-use authentication and `--url-env URL_VARIABLE` for a signed WebSocket URL. Neither secret needs to appear in argv. STT's `send_audio_file` action wraps PCM bytes in the published JSON audio-chunk message:
+
+```json
+{"type":"send_audio_file","path":"audio.pcm","sample_rate":16000,"commit":true}
+```
+
+`send_binary_file` is reserved for unknown raw protocols. Known URL paths inherit their catalog's safety and budget rules, without forwarding your profile key to an arbitrary host.
+
+Agents can answer live tool calls with `elv ws convai --duplex --query agent_id=AGENT --yes --out ./session`. Send wrapped NDJSON actions on stdin and consume redacted events on stderr; stdout still contains one final envelope. Duplex currently supports Agents, monitoring, and raw protocols, not TTS/TTD/STT. Dynamic sessions cannot use a bounded generation estimate.
+
+### Speech Engine hosting
+
+Speech Engine connects to a server you host. `elv` can serve that upstream protocol with a local handler:
+
+```bash
+elv speech-engine serve --handler-json '["node","./handler.mjs"]' \
+  --host 127.0.0.1 --port 3001 --path /ws --yes
+```
+
+Each transcript starts a handler with one JSON object on stdin (`conversation_id`, optional `event_id`, and `user_transcript`). The handler writes NDJSON `{"text":"response chunk"}` records; successful exit finalizes the response. New transcripts interrupt obsolete handlers. The listener verifies incoming signed requests using the API key associated with the engine, binds loopback by default, and stops after ten minutes unless `--timeout-ms` changes the lifetime. Readiness goes to stderr or a new private `--ready-file`; stdout receives one final result on shutdown.
+
+Provider resource creation, a publicly reachable TLS endpoint, and deployment remain explicit separate steps. Discover the resource API with `elv ops schema create_speech_engine --example`. A configured credit ceiling blocks serving because inbound session costs cannot be bounded. Handler environment variables are allowlisted; use `--handler-env NAME` only for variables your handler needs. Process-group cleanup is verified on Linux; Windows descendant cleanup is not verified.
 
 ### Music detailed streaming
 

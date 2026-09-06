@@ -1,11 +1,11 @@
 {
   "schema": "elv.openapi.snapshot.v1",
   "source": "https://api.elevenlabs.io/openapi.json",
-  "retrieved_at": "2026-08-11T14:43:48Z",
-  "sha256": "d1a4847203cef628b0c43760b0c74ecd88fa280034bb47c973874ae911f6153a",
-  "paths": 285,
-  "total_operations": 364,
-  "callable_operations": 363,
+  "retrieved_at": "2026-09-06T04:06:22Z",
+  "sha256": "587ca2ac585d793cbf210512806bfcdf78e6c4ee187fcd756bb25f764b8cfd39",
+  "paths": 300,
+  "total_operations": 388,
+  "callable_operations": 387,
   "skipped_operations": 1,
-  "schemas": 1402
+  "schemas": 1507
 }

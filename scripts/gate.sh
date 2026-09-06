@@ -4,6 +4,13 @@
 # eslint, and do not pass eslint-era flags such as --no-cache to oxlint.
 set -eu
 cd "$(dirname "$0")/.."
+node --version
+npm --version
+./node_modules/.bin/oxfmt --version
+./node_modules/.bin/oxlint --version
+./node_modules/.bin/tsc --version
+./node_modules/.bin/tsup --version
+./node_modules/.bin/vitest --version
 npm run format:check
 npm run lint
 npm run typecheck

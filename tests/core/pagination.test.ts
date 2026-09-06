@@ -39,6 +39,22 @@ function ok(data: JsonValue): Envelope {
 }
 
 describe("pagination cursor derivation", () => {
+  it("caps automatic page sizes at the provider maximum without changing explicit input", () => {
+    const schemas: JsonValue[] = [
+      { type: "integer", maximum: 100 },
+      { anyOf: [{ type: "integer", maximum: 100 }, { type: "null" }] },
+    ];
+    for (const schema of schemas) {
+      const operation = op({
+        queryParams: [{ name: "page_size", location: "query", required: false, schema }],
+      });
+      expect(applyPaginationDefaults(operation, {}, 500)).toEqual({ query: { page_size: 100 } });
+      expect(applyPaginationDefaults(operation, {}, 5)).toEqual({ query: { page_size: 5 } });
+      expect(applyPaginationDefaults(operation, { query: { page_size: 500 } }, 5)).toEqual({
+        query: { page_size: 500 },
+      });
+    }
+  });
   it("derives history next cursor and default page_size", () => {
     const operation = op({ operationId: "get_speech_history", pathTemplate: "/v1/history" });
     expect(applyPaginationDefaults(operation, {})).toEqual({ query: { page_size: 20 } });
