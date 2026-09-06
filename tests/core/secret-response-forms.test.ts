@@ -51,6 +51,22 @@ describe("secret results in non-JSON response forms", () => {
     },
   );
 
+  it("does not double the marker on a caller-named sensitive binary target", async () => {
+    const bytes = Buffer.from(canary);
+    const env = await normalizeResponse(
+      secretOp(),
+      new Response(bytes, { headers: { "content-type": "application/octet-stream" } }),
+      {
+        cmd: "get token",
+        out: join(mkdtempSync(join(tmpdir(), "elv-marked-secret-")), "chosen-sensitive.bin"),
+      },
+    );
+
+    expect(env.files?.[0]?.path).toMatch(/[/\\]chosen-sensitive\.bin$/);
+    expect(env.files?.[0]?.sensitive).toBe(true);
+    expect(buildViewResult(env.files![0]!.path).exitCode).toBe(2);
+  });
+
   it("marks caller-named secret JSON outputs so opaque values cannot bypass view", async () => {
     const env = await normalizeResponse(secretOp(), Response.json({ opaque: canary }), {
       cmd: "get token",

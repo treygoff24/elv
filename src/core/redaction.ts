@@ -27,8 +27,13 @@ const NORMALIZED_CREDENTIAL_KEYS = new Set(
   [...CREDENTIAL_KEYS].map((key) => normalizeCredentialKey(key)),
 );
 
+// CloudFront signs with Signature/Policy/Key-Pair-Id; S3 and GCS with x-*-signature;
+// Azure SAS with sig. Azure's se/sv/sp/sr are left alone: too generic to match safely.
 const URL_CREDENTIAL =
-  /([?&](?:single_?use_?token|access_?token|refresh_?token|signed_?token|authorization|token|x-goog-signature|x-amz-signature|x-amz-credential|sig)=)([^&#\s,;"')]+)/giu;
+  /([?&](?:single_?use_?token|access_?token|refresh_?token|signed_?token|authorization|token|x-goog-signature|x-amz-signature|x-amz-credential|signature|policy|key-?pair-?id|sig)=)([^&#\s,;"')]+)/giu;
+
+/** A URL carrying a query string in a media response is presumptively signed. */
+const MEDIA_URL = /^(https?:\/\/[^\s?#]*)\?[^\s]*$/iu;
 
 function isCredentialKey(key: string): boolean {
   const normalized = key.toLowerCase();
@@ -78,17 +83,32 @@ export function redactString(value: string): string {
 
 // Single redaction chokepoint: stdout envelopes and ELV_DEBUG stderr logs must pass through here.
 export function redact<T>(value: T): T {
-  return cloneRedacted(value, undefined, new WeakMap<object, unknown>()) as T;
+  return cloneRedacted(value, undefined, new WeakMap<object, unknown>(), redactString) as T;
+}
+
+/**
+ * Redaction for media responses that go inline while their signed originals stay in a
+ * private file. `redact` is a key-name denylist, so an undocumented URL field would ride
+ * along in cleartext; here every URL loses its query string regardless of field name.
+ */
+export function redactMedia<T>(value: T): T {
+  return cloneRedacted(value, undefined, new WeakMap<object, unknown>(), redactMediaString) as T;
+}
+
+function redactMediaString(value: string): string {
+  const url = MEDIA_URL.exec(value);
+  return url ? `${url[1]!}?[REDACTED]` : redactString(value);
 }
 
 function cloneRedacted(
   value: unknown,
   key: string | undefined,
   seen: WeakMap<object, unknown>,
+  redactText: (value: string) => string,
 ): unknown {
   if (key && isCredentialKey(key) && value != null && typeof value !== "boolean")
     return "[REDACTED]";
-  if (typeof value === "string") return redactString(value);
+  if (typeof value === "string") return redactText(value);
   if (value === null || typeof value !== "object") return value;
 
   const previous = seen.get(value);
@@ -97,7 +117,7 @@ function cloneRedacted(
   if (Array.isArray(value)) {
     const output: unknown[] = [];
     seen.set(value, output);
-    for (const item of value) output.push(cloneRedacted(item, undefined, seen));
+    for (const item of value) output.push(cloneRedacted(item, undefined, seen, redactText));
     return output;
   }
 
@@ -107,7 +127,7 @@ function cloneRedacted(
   const output: Record<string, unknown> = {};
   seen.set(value, output);
   for (const [entryKey, entryValue] of Object.entries(value)) {
-    output[entryKey] = cloneRedacted(entryValue, entryKey, seen);
+    output[entryKey] = cloneRedacted(entryValue, entryKey, seen, redactText);
   }
   return output;
 }

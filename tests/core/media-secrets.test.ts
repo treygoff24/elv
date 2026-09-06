@@ -51,6 +51,32 @@ describe("signed media content", () => {
     expect(redactString(JSON.stringify(data))).not.toContain("media-canary");
   });
 
+  it("keeps undocumented signed sibling URLs out of the inline media payload", async () => {
+    const data = {
+      project_id: "p1",
+      state: "default",
+      signed_url: signedUrl,
+      preview_url: "https://d1.cloudfront.net/a.mp3?Expires=99&Signature=ABCDEF&Key-Pair-Id=KP123",
+      cover_image_url: "https://cdn.example/cover.png",
+    };
+    const env = await normalizeResponse(operations.get("get_project_by_id")!, Response.json(data), {
+      cmd: "elv project get",
+      out: outputDir(),
+    });
+
+    expect(env.ok).toBe(true);
+    if (!env.ok) throw new Error("expected success");
+    expect(JSON.stringify(env)).not.toContain("ABCDEF");
+    expect(env.data).toMatchObject({
+      project_id: "p1",
+      state: "default",
+      preview_url: "https://d1.cloudfront.net/a.mp3?[REDACTED]",
+      cover_image_url: "https://cdn.example/cover.png",
+    });
+    expect(env.files?.[0]?.sensitive).toBe(true);
+    expect(readFileSync(env.files![0]!.path, "utf8")).toContain("ABCDEF");
+  });
+
   it.each(["X-Goog-Signature", "X-Amz-Signature", "sig"])(
     "detects %s URLs under arbitrary provider field names and in error text",
     async (parameter) => {
