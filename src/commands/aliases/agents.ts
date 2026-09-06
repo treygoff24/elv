@@ -41,9 +41,7 @@ interface ConversationSummaryFlags {
   maxMessages?: string;
 }
 
-export function buildAgentConversationSummaryInput(
-  flags: ConversationSummaryFlags,
-): BuiltOperation {
+function buildAgentConversationSummaryInput(flags: ConversationSummaryFlags): BuiltOperation {
   return {
     operationId: "get_conversation_summary_route",
     input: compactInput({
@@ -53,7 +51,7 @@ export function buildAgentConversationSummaryInput(
   };
 }
 
-export function buildWorkspaceTicketsListInput(flags: TicketFlags): BuiltOperation {
+function buildWorkspaceTicketsListInput(flags: TicketFlags): BuiltOperation {
   return {
     operationId: "list_workspace_conversation_tickets_route",
     input: compactInput({
@@ -66,7 +64,7 @@ export function buildWorkspaceTicketsListInput(flags: TicketFlags): BuiltOperati
   };
 }
 
-export function buildAgentTicketsListInput(flags: TicketFlags): BuiltOperation {
+function buildAgentTicketsListInput(flags: TicketFlags): BuiltOperation {
   return {
     operationId: "list_agent_conversation_tickets_route",
     input: compactInput({
@@ -83,14 +81,14 @@ export function buildAgentTicketsListInput(flags: TicketFlags): BuiltOperation {
   };
 }
 
-export function buildAgentTicketCreateInput(flags: TicketFlags): BuiltOperation {
+function buildAgentTicketCreateInput(flags: TicketFlags): BuiltOperation {
   return {
     operationId: "create_agent_conversation_ticket_route",
     input: { body: readJsonBody(flags) },
   };
 }
 
-export function buildAgentTicketCreateManualInput(flags: TicketFlags): BuiltOperation {
+function buildAgentTicketCreateManualInput(flags: TicketFlags): BuiltOperation {
   return {
     operationId: "create_manual_agent_ticket_route",
     input: {
@@ -100,7 +98,7 @@ export function buildAgentTicketCreateManualInput(flags: TicketFlags): BuiltOper
   };
 }
 
-export function buildAgentTicketAssignableUsersInput(flags: TicketFlags): BuiltOperation {
+function buildAgentTicketAssignableUsersInput(flags: TicketFlags): BuiltOperation {
   return {
     operationId: "get_assignable_users_route",
     input: { path: { agent_id: required(flags.agentId, "--agent-id") } },
@@ -111,36 +109,12 @@ function ticketPath(flags: TicketFlags): Record<string, string> {
   return { agentqa_ticket_id: required(flags.ticketId, "--ticket-id") };
 }
 
-export function buildAgentTicketGetInput(flags: TicketFlags): BuiltOperation {
-  return { operationId: "get_agent_conversation_ticket_route", input: { path: ticketPath(flags) } };
-}
-
-export function buildAgentTicketUpdateInput(flags: TicketFlags): BuiltOperation {
-  return {
-    operationId: "update_agent_conversation_ticket_route",
-    input: { path: ticketPath(flags), body: readJsonBody(flags) },
-  };
-}
-
-export function buildAgentTicketDeleteInput(flags: TicketFlags): BuiltOperation {
-  return {
-    operationId: "delete_agent_conversation_ticket_route",
-    input: { path: ticketPath(flags) },
-  };
-}
-
-export function buildAgentTicketCommentInput(flags: TicketFlags): BuiltOperation {
-  return {
-    operationId: "add_ticket_comment_route",
-    input: { path: ticketPath(flags), body: readJsonBody(flags) },
-  };
-}
-
-export function buildAgentTicketTurnCommentInput(flags: TicketFlags): BuiltOperation {
-  return {
-    operationId: "add_turn_comment_route",
-    input: { path: ticketPath(flags), body: readJsonBody(flags) },
-  };
+/** The ticket-scoped routes differ only by operation id and whether they take a body. */
+function ticketOperation(operationId: string, json = false) {
+  return (flags: TicketFlags): BuiltOperation => ({
+    operationId,
+    input: compactInput({ path: ticketPath(flags), body: json ? readJsonBody(flags) : undefined }),
+  });
 }
 
 function procedureCollectionPath(flags: AgentsFlags): Record<string, string> {
@@ -571,6 +545,15 @@ export function registerAgentsCommand(
   );
 }
 
+interface TicketAction {
+  name: string;
+  description: string;
+  build: (flags: TicketFlags) => BuiltOperation;
+  /** Which id flag the subcommand takes; omitted when it needs neither. */
+  scope?: "agent" | "ticket";
+  json?: boolean;
+}
+
 function registerTicketsCommands(
   agents: Command,
   addCommonFlags: (command: Command) => Command,
@@ -605,76 +588,73 @@ function registerTicketsCommands(
         runListAlias(buildWorkspaceTicketsListInput, options, command),
     ),
   );
-  const actions: [
-    string,
-    string,
-    (flags: TicketFlags) => BuiltOperation,
-    "agent" | "ticket" | null,
-    boolean,
-  ][] = [
-    [
-      "create",
-      "Create a ticket for a conversation (JSON: conversation_id, qa_comment, turn_comments)",
-      buildAgentTicketCreateInput,
-      null,
-      true,
-    ],
-    [
-      "create-manual",
-      "Create a manual agent ticket (JSON: qa_comment)",
-      buildAgentTicketCreateManualInput,
-      "agent",
-      true,
-    ],
-    [
-      "assignable-users",
-      "List users who can be assigned tickets for an agent",
-      buildAgentTicketAssignableUsersInput,
-      "agent",
-      false,
-    ],
-    ["get", "Get a triage ticket", buildAgentTicketGetInput, "ticket", false],
-    [
-      "update",
-      "Update a ticket (JSON: status, assignee_user_id; null unassigns)",
-      buildAgentTicketUpdateInput,
-      "ticket",
-      true,
-    ],
-    [
-      "delete",
-      "Delete a triage ticket (requires --yes)",
-      buildAgentTicketDeleteInput,
-      "ticket",
-      false,
-    ],
-    [
-      "comment",
-      "Add a resolution comment (JSON: comment)",
-      buildAgentTicketCommentInput,
-      "ticket",
-      true,
-    ],
-    [
-      "turn-comment",
-      "Add a transcript-turn comment (JSON: turn_index, comment)",
-      buildAgentTicketTurnCommentInput,
-      "ticket",
-      true,
-    ],
+  const actions: TicketAction[] = [
+    {
+      name: "create",
+      description:
+        "Create a ticket for a conversation (JSON: conversation_id, qa_comment, turn_comments)",
+      build: buildAgentTicketCreateInput,
+      json: true,
+    },
+    {
+      name: "create-manual",
+      description: "Create a manual agent ticket (JSON: qa_comment)",
+      build: buildAgentTicketCreateManualInput,
+      scope: "agent",
+      json: true,
+    },
+    {
+      name: "assignable-users",
+      description: "List users who can be assigned tickets for an agent",
+      build: buildAgentTicketAssignableUsersInput,
+      scope: "agent",
+    },
+    {
+      name: "get",
+      description: "Get a triage ticket",
+      build: ticketOperation("get_agent_conversation_ticket_route"),
+      scope: "ticket",
+    },
+    {
+      name: "update",
+      description: "Update a ticket (JSON: status, assignee_user_id; null unassigns)",
+      build: ticketOperation("update_agent_conversation_ticket_route", true),
+      scope: "ticket",
+      json: true,
+    },
+    {
+      name: "delete",
+      description: "Delete a triage ticket (requires --yes)",
+      build: ticketOperation("delete_agent_conversation_ticket_route"),
+      scope: "ticket",
+    },
+    {
+      name: "comment",
+      description: "Add a resolution comment (JSON: comment)",
+      build: ticketOperation("add_ticket_comment_route", true),
+      scope: "ticket",
+      json: true,
+    },
+    {
+      name: "turn-comment",
+      description: "Add a transcript-turn comment (JSON: turn_index, comment)",
+      build: ticketOperation("add_turn_comment_route", true),
+      scope: "ticket",
+      json: true,
+    },
   ];
-  for (const [name, description, builder, scope, json] of actions) {
-    const command = tickets.command(name).description(description);
-    if (scope === "agent") command.option("--agent-id <id>", "conversational agent id");
-    if (scope === "ticket") command.option("--ticket-id <id>", "triage ticket id");
-    if (json) {
+  for (const action of actions) {
+    const command = tickets.command(action.name).description(action.description);
+    if (action.scope === "agent") command.option("--agent-id <id>", "conversational agent id");
+    if (action.scope === "ticket") command.option("--ticket-id <id>", "triage ticket id");
+    if (action.json) {
       command
         .option("--json <json>", "complete request body as JSON")
         .option("--json-file <path>", "complete request body from a JSON file");
     }
     addCommonFlags(
       command.action((options: TicketFlags, command: Command) =>
-        runAlias(builder, options, command),
+        runAlias(action.build, options, command),
       ),
     );
   }
