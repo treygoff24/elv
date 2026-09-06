@@ -26,6 +26,7 @@ import { runWs } from "./commands/ws";
 import { handleOpsGet, handleOpsList, handleOpsSchema, handleOpsSearch } from "./commands/ops";
 import { handleCapabilities } from "./commands/capabilities";
 import { registerSpeechEngineCommand } from "./commands/speech-engine";
+import { registerRtcCommand } from "./commands/rtc";
 import { buildViewResult } from "./commands/view";
 import { registerAliases } from "./commands/aliases/index";
 import { handleSpecDiff, handleSpecStatus, handleSpecUpdate } from "./commands/spec";
@@ -176,6 +177,7 @@ function buildProgram(version: string): Command {
 
   registerAliases(program, addCommonFlags);
   registerSpeechEngineCommand(program, addCommonFlags);
+  registerRtcCommand(program, addCommonFlags);
 
   return program;
 }

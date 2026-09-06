@@ -49,6 +49,37 @@ validate the entire JSON file before executing. Target regeneration is treated
 as generation; with a credit ceiling, an unbounded estimate fails before the
 network call.
 
+## WebRTC sessions
+
+Use `rtc` when the application needs LiveKit media tracks rather than WebSocket
+audio frames. It supports ElevenAgents and Speech Engine IDs:
+
+```bash
+elv rtc --agent-id AGENT_ID --send session.ndjson --out ./rtc --dry-run
+elv rtc --agent-id AGENT_ID --send session.ndjson --out ./rtc --yes
+```
+
+Joining may start a paid conversation and requires `--yes`; a configured credit
+ceiling blocks it. Dry-run never fetches a token, loads the native transport,
+connects, or reads duplex stdin. Existing tokens use `--token-env NAME` or
+`--token-file` with the private JSON response from `get_livekit_token`, not argv.
+The regional server is selected for global/US, EU, and India. For Singapore or
+a custom API host, provide the known `--server-url` explicitly.
+
+Send arbitrary published client events with `{"type":"send","data":{...}}`.
+For overrides or dynamic variables, put `conversation_initiation_client_data`
+first; otherwise an empty initialization is sent automatically. Audio actions
+use `{"type":"send_audio_file","path":"input.pcm","sample_rate":48000}` and
+require PCM16LE, 48 kHz, mono. Received audio tracks are separate PCM files;
+transcripts, tools, interruptions and other metadata go to NDJSON. Use
+`{"type":"wait","ms":1000}` to receive and `{"type":"close"}` to leave.
+`--duplex` allows live tool replies on stdin with redacted events on stderr.
+Wait for the needed response before EOF; EOF closes transport.
+
+For live audio chunks, use `type:send_audio` with `audio_base_64` and
+`sample_rate:48000`. Each action is bounded to 1 MiB and must contain complete
+PCM16LE samples; it does not require a temporary input file.
+
 ## WebSocket sessions
 
 List the installed protocol catalog and inspect the selected command:

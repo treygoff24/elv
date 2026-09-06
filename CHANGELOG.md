@@ -14,6 +14,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Added Text-to-Dialogue single/multi-context WebSockets, separate audio files per context, and environment-sourced WebSocket tokens and signed URLs.
 - Added opt-in duplex WebSockets for every catalog protocol and raw targets: live NDJSON actions on stdin, redacted events on stderr, and one final stdout envelope. This supports live synthesis/transcription and responses to server-generated tool-call IDs, with shared incremental protocol validation.
 - Added authenticated Speech Engine upstream hosting with a local subprocess handler, bounded sessions and turns, interruption handling, and private readiness files. Hosting does not create provider resources, deploy, or expose a public tunnel.
+- Added WebRTC agent and Speech Engine client sessions with reliable data events, PCM media tracks, scripted/duplex input, gated token acquisition, regional server selection, and an isolated native SDK worker.
 - Added explicit REST query-array flags such as `--query 'sources[]=qa'`.
 
 ### Fixed

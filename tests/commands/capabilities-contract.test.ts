@@ -36,6 +36,8 @@ describe("capabilities machine contract", () => {
       "next",
     ]);
     expect(record(data.cli)).toEqual({ name: "elv", version: "9.8.7", envelope_version: 1 });
+    expect(array(data.command_families).map((entry) => record(entry).name)).toContain("rtc");
+    expect(record(data.protocol).realtime_transports).toEqual(["websocket", "webrtc"]);
     expect(record(data.spec)).toMatchObject({
       source: expect.any(String),
       sha256: expect.any(String),

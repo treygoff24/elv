@@ -25,6 +25,8 @@
 0	assets
 0	speech-engine
 0	speech-engine serve --help
+0	rtc --help
+0	rtc --server-url wss://example.invalid --dry-run
 0	ops get create_image_generation
 0	ops get get_conversation_summary_route
 0	ops schema create_video_generation --example

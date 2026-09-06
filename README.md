@@ -40,6 +40,10 @@ Thin aliases wrap common workflows: `tts`, `stt`, `music`, `sfx`, `voice-change`
 
 Safety is on by default. Destructive operations, outbound calls and messages, API-key mutation, and member changes refuse to run without `--yes`. Plain GET reads are never gated. A budget guard blocks credit-consuming calls before any network request when the cost can be bounded. A configured ceiling fails closed for generation operations and STT or agent WebSocket sessions whose cost cannot be estimated. `--dry-run` validates a request and returns a redacted preview without spending anything.
 
+`elv rtc` exchanges agent events and PCM audio tracks over WebRTC.
+`elv speech-engine serve` hosts the authenticated upstream protocol with a local
+subprocess handler. Both keep one final stdout envelope.
+
 ## Install
 
 Requires Node 22 or newer.
@@ -238,6 +242,47 @@ Use `--token-env TOKEN_VARIABLE` for single-use authentication and `--url-env UR
 `send_binary_file` is reserved for unknown raw protocols. Known URL paths inherit their catalog's safety and budget rules, without forwarding your profile key to an arbitrary host.
 
 Agents can answer live tool calls with `elv ws convai --duplex --query agent_id=AGENT --yes --out ./session`. All catalog protocols also accept live stdin with `--duplex`: send wrapped NDJSON actions and consume redacted events on stderr; stdout still contains one final envelope. Initial `--send` actions can seed a live session. Dynamic speech, dialogue, transcription, and conversation costs cannot be bounded, so configured credit ceilings block those sessions before connection. EOF closes the transport; send the protocol's flush/end controls and wait for final events before closing stdin if queued output matters.
+
+### WebRTC agent sessions
+
+`rtc` joins ElevenAgents and Speech Engine sessions through LiveKit, with audio
+on media tracks and client events on a reliable data channel:
+
+```bash
+elv rtc --agent-id AGENT_ID --send session.ndjson --out ./rtc-session --dry-run
+elv rtc --agent-id AGENT_ID --send session.ndjson --out ./rtc-session --yes
+```
+
+The first command does not fetch a token or connect. Joining can start a paid
+conversation, so it requires `--yes` and refuses any configured credit ceiling.
+`--agent-id` accepts an agent ID or a Speech Engine `seng_` ID. Existing sessions
+can use `--token-env NAME` or `--token-file` pointing at the private JSON response
+from `get_livekit_token`. Tokens never belong in command arguments.
+
+Scripts use NDJSON actions. Send public client events with
+`{"type":"send","data":{"type":"user_message","text":"Hello"}}`.
+Send audio with `{"type":"send_audio_file","path":"input.pcm","sample_rate":48000}`:
+the file must be signed 16-bit little-endian PCM, 48 kHz, mono, at most 64 MiB. Audio uses media
+tracks, not `user_audio_chunk` data events. A custom
+`conversation_initiation_client_data` event may be the first send; otherwise
+the CLI sends the required empty initialization. Use `{"type":"wait","ms":1000}`
+to receive responses and `{"type":"close"}` to leave.
+
+Live PCM chunks can use `{"type":"send_audio","audio_base_64":"...","sample_rate":48000}`
+instead of creating temporary files. Each chunk must contain complete PCM16LE
+samples and fit the 1 MiB action limit.
+
+`--duplex` accepts live actions on stdin and writes redacted events on stderr.
+Incoming tracks are saved separately as PCM files; event metadata is NDJSON.
+EOF disconnects, so await the events you need before closing stdin. The default
+session deadline is ten minutes and includes connection setup. Native SDK work
+runs in a child process so SDK logs cannot corrupt stdout or prevent bounded exit.
+
+Global/US, EU, and India use the official SDK's regional LiveKit hosts.
+Singapore and custom API hosts require `--server-url`; no host is guessed.
+The pinned LiveKit Node SDK is a developer-preview native dependency supporting
+glibc Linux and macOS on x64/arm64, and Windows x64. Other CLI commands do not
+load it. A live provider session still depends on account and region access.
 
 ### Speech Engine hosting
 

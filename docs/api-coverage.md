@@ -62,6 +62,14 @@ Malformed or interrupted parts return an error with available partial artifacts,
 without recommending a paid retry. Framing is bounded to 16 parts, 64 KiB headers,
 and 2 MiB per metadata part. Missing boundaries cannot yield reliable split files.
 
+WebRTC agent and Speech Engine clients use `elv rtc`. The CLI exchanges reliable
+JSON client events and PCM audio tracks through the pinned official LiveKit Node
+SDK. Token retrieval supports both resource kinds, as specified by the
+[public token endpoint](https://elevenlabs.io/docs/api-reference/conversations/get-webrtc-token).
+Regional URLs and required initialization follow the
+[ElevenLabs client implementation](https://github.com/elevenlabs/packages/blob/489a95318c699d5be3adc090ff9e969c711dd124/packages/client/src/utils/WebRTCConnection.ts).
+WebRTC support is distinct from the seven WebSocket protocols above.
+
 ## Model examples
 
 | Area | Model IDs |
