@@ -52,6 +52,11 @@ describe("capabilities machine contract", () => {
       schemas: 1507,
     });
 
+    const ws = array(data.command_families)
+      .map((entry) => record(entry))
+      .find((entry) => entry.name === "ws");
+    expect(String(ws?.description)).toContain("--duplex");
+
     const groups = array(data.service_groups).map((entry) => String(record(entry).name));
     expect(groups).toEqual([...groups].sort());
     const aliasEntries = aliasFamilies(data);

@@ -21,7 +21,10 @@ const COMMAND_FAMILIES = [
   ["ops", "List, search, inspect, and generate schemas for OpenAPI operations."],
   ["call", "Run a known OpenAPI operation by operation ID."],
   ["http", "Call an arbitrary REST method and path with shared safety controls."],
-  ["ws", "List or run a scripted WebSocket catalog session."],
+  [
+    "ws",
+    "List or run a scripted WebSocket catalog session; --duplex accepts live NDJSON actions on stdin.",
+  ],
   ["wait", "Poll an operation or command until a status condition resolves."],
   ["view", "Inspect spilled JSON or NDJSON without loading the full result."],
   ["config", "Inspect configuration and diagnose auth/runtime readiness."],
