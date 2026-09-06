@@ -243,6 +243,38 @@ describe("compact schema", () => {
     }
   });
 
+  it("passes multipart binary fields as --file, not as JSON body values", async () => {
+    const compiled = await compileSpec({ sourcePath: "spec/openapi.snapshot.json" });
+    const upload = compiled.operations.find(
+      (candidate) => candidate.operationId === "upload_asset",
+    );
+    const isolation = compiled.operations.find(
+      (candidate) => candidate.operationId === "audio_isolation",
+    );
+    expect(upload?.requestBody?.fileFields).toEqual(["asset"]);
+    expect(isolation?.requestBody?.fileFields).toEqual(["audio"]);
+
+    expect(exampleArgs(buildExampleCommand(upload!, compiled.bundledSpec).cmd)).toEqual([
+      "call",
+      "upload_asset",
+      "--json",
+      '{"body":{"name":"<name>"}}',
+      "--file",
+      "asset=./path/to/asset",
+    ]);
+    // The body holds nothing but the file, so it drops out of --json entirely.
+    expect(exampleArgs(buildExampleCommand(isolation!, compiled.bundledSpec).cmd)).toEqual([
+      "call",
+      "audio_isolation",
+      "--json",
+      "{}",
+      "--file",
+      "audio=./path/to/audio",
+      "--out",
+      "./out",
+    ]);
+  });
+
   it("marks binary CSV export examples with an output target", async () => {
     const compiled = await compileSpec({ sourcePath: "spec/openapi.snapshot.json" });
     const op = compiled.operations.find(
