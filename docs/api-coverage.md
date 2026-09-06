@@ -56,6 +56,12 @@ Validation follows the selected protocol. Dialogue initialization declares voice
 
 Music detailed streaming begins as a REST request but returns Server-Sent Events. `elv music detailed-stream` decodes its audio chunks to an audio file and writes the remaining event data to NDJSON. Both appear in `files[]`.
 
+`elv call compose_detailed` returns multipart/mixed instead. The CLI streams its
+audio and saves separate JSON metadata files; use a directory for `--out`.
+Malformed or interrupted parts return an error with available partial artifacts,
+without recommending a paid retry. Framing is bounded to 16 parts, 64 KiB headers,
+and 2 MiB per metadata part. Missing boundaries cannot yield reliable split files.
+
 ## Model examples
 
 | Area | Model IDs |

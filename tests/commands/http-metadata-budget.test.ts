@@ -63,6 +63,53 @@ const tts = () =>
   });
 
 describe("raw HTTP registry metadata and budget policy", () => {
+  it.each([
+    "/%76%31/voices/voice-1/replicate-to-isolated-environment",
+    "/v1%2Fvoices%2Fvoice-1%2Freplicate-to-isolated-environment",
+  ])("retains confirmation metadata on backend-decoded path %s", async (path) => {
+    registry.set(
+      "replicate_voice_to_isolated_environment",
+      op({
+        operationId: "replicate_voice_to_isolated_environment",
+        method: "POST",
+        pathTemplate: "/v1/voices/{voice_id}/replicate-to-isolated-environment",
+        risk: "external_side_effect",
+      }),
+    );
+    const fetch = vi.fn();
+    vi.stubGlobal("fetch", fetch);
+    const env = await runHttp("POST", path, { dryRun: true });
+    expect(env).toMatchObject({
+      ok: true,
+      operation_id: "replicate_voice_to_isolated_environment",
+      data: { would_require_yes: true },
+    });
+    const blocked = await runHttp("POST", path);
+    expect(blocked.ok ? "" : blocked.error.code).toBe("confirmation");
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("decodes path values only once when validating a matched operation", async () => {
+    registry.set(
+      "voice",
+      op({
+        operationId: "voice",
+        pathTemplate: "/v1/voices/{voice_id}",
+        pathParams: [
+          {
+            name: "voice_id",
+            location: "path",
+            required: true,
+            schema: { type: "string", enum: ["voice%2Fid"] },
+          },
+        ],
+      }),
+    );
+    expect(await runHttp("GET", "/v1/voices/voice%252Fid", { dryRun: true })).toMatchObject({
+      ok: true,
+      operation_id: "voice",
+    });
+  });
   beforeEach(() => {
     registry.clear();
     vi.stubEnv("ELV_CONFIG", undefined);

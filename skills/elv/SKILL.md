@@ -1,12 +1,10 @@
 ---
 name: elv
 description: >-
-  Use elv for any ElevenLabs API workflow: text to speech, transcription,
-  music, sound effects, image/video generation, assets, voices, dubbing, agents, workspace administration,
-  usage or history, raw REST, and realtime WebSockets. Also use it to discover
-  the installed ElevenLabs contract or safely preview an operation. elv is
-  agent-first: every command returns one JSON envelope, while media and large
-  results are written to files.
+  ElevenLabs via `elv`: speech, transcription, music, sound effects, image/video
+  generation, voices, dubbing, agents, workspace administration, REST and realtime.
+  Use for API discovery and execution. One JSON envelope per command; media and
+  large results go to files.
 ---
 
 # elv

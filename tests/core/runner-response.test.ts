@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -299,30 +299,38 @@ describe("response normalization", () => {
   });
 
   it("reports malformed successful JSON as a provider response error", async () => {
-    const env = await normalizeResponse(
-      op(),
-      new Response("{broken", {
-        status: 200,
-        headers: { "content-type": "application/json" },
-      }),
-      { cmd: "elv call response_demo", requestPath: "/v1/demo?x=1" },
-    );
+    const out = mkdtempSync(join(tmpdir(), "elv-malformed-response-"));
+    try {
+      const env = await normalizeResponse(
+        op(),
+        new Response("{broken", {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+        { cmd: "elv call response_demo", requestPath: "/v1/demo?x=1", out },
+      );
 
-    expect(env.ok).toBe(false);
-    if (env.ok) throw new Error("expected failure");
-    expect(env.error).toMatchObject({
-      type: "provider_error",
-      code: "invalid_json_response",
-      message: "Provider returned invalid JSON response",
-      raw: {
-        status: 200,
-        path: "/v1/demo?x=1",
-        body: "{broken",
-      },
-    });
-    expect(env.error.raw).toMatchObject({ parse_error: expect.stringContaining("JSON") });
-    expect(env.http?.status).toBe(200);
-    expect(env.retry?.recommended).toBe(false);
+      expect(env.ok).toBe(false);
+      if (env.ok) throw new Error("expected failure");
+      expect(env.error).toMatchObject({
+        type: "provider_error",
+        code: "invalid_json_response",
+        message: "Provider returned invalid JSON response",
+        raw: {
+          status: 200,
+          path: "/v1/demo?x=1",
+        },
+      });
+      expect(env.error.raw).toMatchObject({ parse_error: expect.stringContaining("JSON") });
+      expect(env.http?.status).toBe(200);
+      expect(env.retry?.recommended).toBe(false);
+      expect(JSON.stringify(env)).not.toContain("{broken");
+      expect(env.files?.[0]?.sensitive).toBe(true);
+      expect(readFileSync(env.files![0]!.path, "utf8")).toBe("{broken\n");
+      expect(statSync(env.files![0]!.path).mode & 0o777).toBe(0o600);
+    } finally {
+      rmSync(out, { recursive: true, force: true });
+    }
   });
 
   it("points spilled JSON hints at elv view", async () => {

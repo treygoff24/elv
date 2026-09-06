@@ -260,7 +260,13 @@ function resolveTarget(
 function catalogEntryForRawTarget(target: string, baseUrl: string): WsCatalogEntry | undefined {
   const url = rawTargetUrl(target, baseUrl);
   if (!url) return undefined;
-  return listWsCatalog().find((entry) => wsPathMatches(entry.pathTemplate, url.pathname));
+  let path: string;
+  try {
+    path = decodeURIComponent(url.pathname);
+  } catch {
+    throw new ScriptValidationError("WebSocket path has invalid percent-encoding");
+  }
+  return listWsCatalog().find((entry) => wsPathMatches(entry.pathTemplate, path));
 }
 
 function embeddedQueryForRawTarget(target: string, baseUrl: string): Record<string, string> {
@@ -353,7 +359,12 @@ function withConfiguredTtsModel(
   entry: WsCatalogEntry | undefined,
   defaultTtsModelId: string | undefined,
 ): Record<string, string> {
-  if (entry?.protocol !== "tts" || query.model_id || !defaultTtsModelId) return query;
+  if (
+    (entry?.protocol !== "tts" && entry?.protocol !== "tts-multi") ||
+    query.model_id ||
+    !defaultTtsModelId
+  )
+    return query;
   return { ...query, model_id: defaultTtsModelId };
 }
 
@@ -368,7 +379,10 @@ function withTokenEnvironment(
   const parameter =
     protocol === "stt"
       ? "token"
-      : protocol === "tts" || protocol === "ttd" || protocol === "ttd-multi"
+      : protocol === "tts" ||
+          protocol === "tts-multi" ||
+          protocol === "ttd" ||
+          protocol === "ttd-multi"
         ? "single_use_token"
         : undefined;
   if (!parameter) {
@@ -401,9 +415,13 @@ function wsPreflight(
   const outboundActions = outboundActionCount(script);
   const protocol = entry?.protocol ?? "raw";
   const dynamicCostUnbounded =
-    duplex && ["tts", "ttd", "ttd-multi", "stt", "convai"].includes(protocol);
+    duplex && ["tts", "tts-multi", "ttd", "ttd-multi", "stt", "convai"].includes(protocol);
   const creditsEstimated =
-    !dynamicCostUnbounded && (protocol === "tts" || protocol === "ttd" || protocol === "ttd-multi")
+    !dynamicCostUnbounded &&
+    (protocol === "tts" ||
+      protocol === "tts-multi" ||
+      protocol === "ttd" ||
+      protocol === "ttd-multi")
       ? ttsCharacterEstimate(
           script,
           url.searchParams.get("model_id") ?? entry?.defaultQuery?.model_id ?? "",

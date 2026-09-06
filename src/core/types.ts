@@ -36,7 +36,6 @@ export interface RunOpts {
   /** dir or single file (single-file ops only). */
   out?: string;
   allowUnknown?: boolean;
-  unpack?: boolean;
   hash?: boolean;
   baseUrl?: string;
   apiKey?: string;

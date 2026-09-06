@@ -29,6 +29,11 @@ function runCli(args: string[], env?: Record<string, string>): CliResult {
 }
 
 describe("CLI JSON output contract", () => {
+  it("rejects the old no-op unpack flag instead of promising extraction", () => {
+    const { stdout, code } = runCli(["call", "get_models", "--unpack", "--dry-run"]);
+    expect(code).toBe(2);
+    expect(errorRecord(parseEnvelope(stdout)).message).toContain("--unpack");
+  });
   it("config get emits one success envelope with v=1 and ok=true", () => {
     const { stdout, stderr, code } = runCli(["config", "get"]);
 

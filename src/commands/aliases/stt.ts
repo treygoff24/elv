@@ -1,5 +1,7 @@
 import type { Command } from "commander";
 import { runOperation } from "../../core/client";
+import type { SuccessEnvelope } from "../../core/types";
+import { isRecord } from "../../util/json";
 import type { CliOptionValues } from "../options";
 import {
   type BuiltOperation,
@@ -62,13 +64,16 @@ export function registerSttCommand(
       .description("Speech to text")
       .option("--file <path>", "audio file to transcribe")
       .option("--model <id>", "STT model id")
-      .option("--timestamps <granularity>", "timestamp granularity (e.g. word, segment)")
+      .option("--timestamps <granularity>", "timestamp granularity: none, word, character")
       .option("--diarize", "enable speaker diarization")
       .option("--language <code>", "expected language code")
       .option("--webhook [legacy-url]", "deliver asynchronously to a configured workspace webhook")
       .option("--webhook-id <id>", "configured workspace webhook id (requires --webhook)")
       .option("--token-env <name>", "read a single-use STT token from an environment variable")
-      .option("--wait", "poll until transcription completes")
+      .option(
+        "--wait",
+        "return completed transcripts directly; otherwise poll a returned transcription id",
+      )
       .action(async (options: SttFlags, command: Command) => {
         const opts = validationOrExit(command, () => aliasRunOpts(command));
         const built = validationOrExit(command, () => buildSttInput(options));
@@ -83,7 +88,32 @@ export function registerSttCommand(
           statusPath: "$.data.status",
           success: "completed,succeeded,done",
           failure: "failed,error",
+          isComplete: (result) => completedTranscript(result, options.webhook === true),
         });
       }),
+  );
+}
+
+function completedTranscript(env: SuccessEnvelope, webhook: boolean): boolean {
+  if (env.http?.status !== 200) return false;
+  const data = env.data;
+  if (isRecord(data)) {
+    const chunk = (value: unknown): boolean =>
+      isRecord(value) && typeof value.text === "string" && Array.isArray(value.words);
+    if (chunk(data) || (Array.isArray(data.transcripts) && data.transcripts.every(chunk)))
+      return true;
+  }
+  const jsonFiles =
+    env.files?.filter((file) => file.mime === "application/json" && !file.partial) ?? [];
+  if (!jsonFiles.length) return false;
+  const keys = env.data_summary?.preview ?? [];
+  if ((keys.includes("text") && keys.includes("words")) || keys.includes("transcripts"))
+    return true;
+  // Private spills intentionally omit key previews. These HTTP 200 contracts
+  // return completed transcripts; retain the private file without rereading it.
+  return (
+    jsonFiles.some((file) => file.sensitive) &&
+    (env.operation_id === "get_transcript_by_id" ||
+      (env.operation_id === "speech_to_text" && !webhook))
   );
 }

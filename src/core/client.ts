@@ -29,7 +29,7 @@ import {
   type PaginatedRunOptions,
 } from "./pagination";
 import { requiresYes } from "./safety";
-import { OutTargetError } from "./files";
+import { OutTargetError, resolveOutTarget } from "./files";
 import type { ErrorObject, ValidateFunction } from "ajv";
 import type Ajv2020 from "ajv/dist/2020.js";
 import type { OpenApiDocument } from "../openapi/compile-spec";
@@ -133,6 +133,17 @@ export function runPreparedOperation({
     maxCredits: opts.maxCredits,
   });
   const effectiveOpts = { ...opts, maxCredits: config.maxCredits };
+  if (
+    op.streamKind === "json_events" ||
+    op.streamKind === "sse_events" ||
+    op.responses.some(
+      (response) =>
+        response.status.startsWith("2") &&
+        response.contentType?.toLowerCase() === "multipart/mixed",
+    )
+  ) {
+    resolveOutTarget(opts.out ?? config.outputDir, true);
+  }
   const budget = budgetDecision(op, creditsEstimated, effectiveOpts);
   const effectiveWarnings = [
     ...warnings,

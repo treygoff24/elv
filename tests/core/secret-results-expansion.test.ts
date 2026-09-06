@@ -119,7 +119,7 @@ describe("secret result handling", () => {
     expect(redactString('{"accessToken":"canary"}')).toBe('{"accessToken":"[REDACTED]"}');
   });
 
-  it("tightens an existing --save-json destination instead of retaining weak permissions", async () => {
+  it("publishes a private marked result without modifying an occupied --save-json destination", async () => {
     const out = mkdtempSync(join(tmpdir(), "elv-save-secret-"));
     const saveJson = join(out, "credential.json");
     const text = JSON.stringify({
@@ -136,7 +136,13 @@ describe("secret result handling", () => {
 
     expect(env.ok).toBe(true);
     if (!env.ok) throw new Error("expected success");
-    expect(env.files?.[0]?.path).toBe(saveJson);
-    expect(statSync(saveJson).mode & 0o777).toBe(0o600);
+    const file = env.files![0]!;
+    expect(file.path).not.toBe(saveJson);
+    expect(file.path).toMatch(/\.sensitive\.json$/u);
+    expect(file.sensitive).toBe(true);
+    expect(statSync(file.path).mode & 0o777).toBe(0o600);
+    expect(readFileSync(file.path, "utf8")).toBe(`${text}\n`);
+    expect(statSync(saveJson).mode & 0o777).toBe(0o644);
+    expect(readFileSync(saveJson, "utf8")).toBe(`${text}\n`);
   });
 });

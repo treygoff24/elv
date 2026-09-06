@@ -186,9 +186,45 @@ describe("WebSocket protocol scripts", () => {
           { context_id: "a", close_context: true },
           { close_socket: true },
         ),
-        "tts",
+        "tts-multi",
       ),
     ).not.toThrow();
+  });
+
+  it("treats empty text as terminal only for single-context TTS", () => {
+    expect(() =>
+      parseSendScript(
+        script({ text: " " }, { text: "Hello " }, { text: "" }, { text: "too late" }),
+        "tts",
+      ),
+    ).toThrow(/closed/iu);
+    expect(() => parseSendScript(script({ text: " " }, { close_socket: true }), "tts")).toThrow(
+      /close_socket/iu,
+    );
+
+    expect(() =>
+      parseSendScript(
+        script(
+          { text: " ", context_id: "a" },
+          { text: "", context_id: "a" },
+          { text: "still open ", context_id: "a" },
+          { context_id: "a", flush: true },
+          { context_id: "a", close_context: true },
+          { text: "reused ", context_id: "a" },
+          { close_socket: true },
+        ),
+        "tts-multi",
+      ),
+    ).not.toThrow();
+  });
+
+  it("rejects messages after multi-context socket close", () => {
+    expect(() =>
+      parseSendScript(
+        script({ text: " ", context_id: "a" }, { close_socket: true }, { text: "late" }),
+        "tts-multi",
+      ),
+    ).toThrow(/closed/iu);
   });
 
   it("accepts an empty-base64 STT commit-only chunk but rejects non-string audio", () => {

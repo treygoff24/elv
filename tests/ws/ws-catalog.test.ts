@@ -24,6 +24,7 @@ describe("ws catalog", () => {
       outboundRisk: "external_side_effect",
     });
     expect(getWsCatalogEntry("tts-realtime")?.requiredParams).toContain("voice_id");
+    expect(getWsCatalogEntry("tts-multi")?.protocol).toBe("tts-multi");
     expect(getWsCatalogEntry("ttd-realtime")).toMatchObject({
       protocol: "ttd",
       pathTemplate: "/v1/text-to-dialogue/stream-input",

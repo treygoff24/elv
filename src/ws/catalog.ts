@@ -1,6 +1,6 @@
 import type { Risk } from "../openapi/types";
 
-export type WsProtocol = "tts" | "ttd" | "ttd-multi" | "stt" | "convai" | "monitor";
+export type WsProtocol = "tts" | "tts-multi" | "ttd" | "ttd-multi" | "stt" | "convai" | "monitor";
 
 interface WsCatalogFields {
   urlTemplate: string;
@@ -34,7 +34,7 @@ const WS_CATALOG = [
     requiredParams: ["voice_id"],
     auth: "xi-api-key header, single_use_token query, or xi_api_key in first message",
     scriptable: true,
-    protocol: "tts",
+    protocol: "tts-multi",
     defaultQuery: { model_id: "eleven_flash_v2_5" },
   },
   {

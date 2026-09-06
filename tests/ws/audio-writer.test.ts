@@ -33,6 +33,42 @@ describe("AudioWriter", () => {
     await expect(readFile(writer.path, "utf8")).resolves.toBe("onetwothree");
   });
 
+  it("returns the authoritative collision path across writers in one output directory", async () => {
+    const dir = await tempDir();
+    const first = new AudioWriter(dir, "mp3_44100_128");
+    await first.writeFromEvent({ audio: Buffer.from("first").toString("base64") });
+    const firstPath = await first.close();
+
+    const second = new AudioWriter(dir, "mp3_44100_128");
+    await second.writeFromEvent({ audio: Buffer.from("second").toString("base64") });
+    const secondPath = await second.close();
+
+    expect(firstPath).not.toBeNull();
+    expect(secondPath).not.toBeNull();
+    expect(secondPath).not.toBe(firstPath);
+    await expect(readFile(firstPath!, "utf8")).resolves.toBe("first");
+    await expect(readFile(secondPath!, "utf8")).resolves.toBe("second");
+  });
+
+  it.each([
+    ["pcm_16000", "pcm"],
+    ["ulaw_8000", "ulaw"],
+    ["alaw_8000", "alaw"],
+    ["opus_48000_64", "opus"],
+    ["wav_44100", "wav"],
+    ["mp3_44100_128", "mp3"],
+  ])("labels %s bytes with the %s extension", async (format, extension) => {
+    const dir = await tempDir();
+    const bytes = Buffer.from([0, 1, 2, 127, 128, 255]);
+    const writer = new AudioWriter(dir, format);
+    await writer.writeFromEvent({ audio: bytes.toString("base64") });
+
+    const path = await writer.close();
+
+    expect(path).toBe(join(dir, `audio.${extension}`));
+    await expect(readFile(path!)).resolves.toEqual(bytes);
+  });
+
   it("ignores non-audio events and closes without a file", async () => {
     const dir = await tempDir();
     const writer = new AudioWriter(dir, "opus_48000");

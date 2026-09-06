@@ -63,7 +63,6 @@ export interface CliOptionValues
   timestamps?: boolean;
   tokenEnv?: string;
   urlEnv?: string;
-  unpack?: boolean;
   uploads?: boolean;
   deprecated?: boolean;
   cost?: string;

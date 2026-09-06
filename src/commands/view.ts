@@ -21,6 +21,7 @@ interface ViewOptions extends Pick<CliOptionValues, "limit"> {
 export function buildViewResult(path: string, options: ViewOptions = {}): CommandResult {
   const cmd = `elv view ${path}`;
   const resolved = resolve(path);
+  if (isSensitiveSpillFilename(basename(resolved))) return sensitiveRefusal(cmd, resolved);
 
   let parsed: JsonValue;
   try {
@@ -56,19 +57,7 @@ export function buildViewResult(path: string, options: ViewOptions = {}): Comman
     return { env: validationError(cmd, message), exitCode: ExitCode.InputValidation };
   }
 
-  if (isSensitiveSpillFilename(basename(resolved)) || containsCredential(parsed)) {
-    return {
-      env: validationError(cmd, `Refusing to render sensitive provider response: ${resolved}`, {
-        hints: [
-          {
-            cmd: `cat ${shellArg(resolved)}`,
-            why: "Read the credential directly from its restrictive file when you intend to reveal it.",
-          },
-        ],
-      }),
-      exitCode: ExitCode.InputValidation,
-    };
-  }
+  if (containsCredential(parsed)) return sensitiveRefusal(cmd, resolved);
 
   let value = parsed;
   if (options.path) {
@@ -122,6 +111,20 @@ export function buildViewResult(path: string, options: ViewOptions = {}): Comman
       hints: [narrowHint(resolved, value, options.path)],
     }),
     exitCode: ExitCode.Success,
+  };
+}
+
+function sensitiveRefusal(cmd: string, resolved: string): CommandResult {
+  return {
+    env: validationError(cmd, `Refusing to render sensitive provider response: ${resolved}`, {
+      hints: [
+        {
+          cmd: `cat ${shellArg(resolved)}`,
+          why: "Read the credential directly from its restrictive file when you intend to reveal it.",
+        },
+      ],
+    }),
+    exitCode: ExitCode.InputValidation,
   };
 }
 

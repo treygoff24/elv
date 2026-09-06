@@ -909,6 +909,82 @@ describe("ws session", () => {
     expect(serialized).toContain('"would_require_yes":true');
   });
 
+  it.each([
+    "/%76%31/convai/conversation",
+    "/v1%2Fconvai%2Fconversation",
+    "wss://api.elevenlabs.io/v1%2Fconvai%2Fconversation",
+  ])("decodes a known WebSocket route exactly once before preflight: %s", async (target) => {
+    const dir = await tempDir();
+    const script = join(dir, "agent.ndjson");
+    writeFileSync(script, JSON.stringify({ type: "send", data: { type: "user_message" } }));
+
+    const result = await runWs(
+      { target, send: script, out: dir, query: { agent_id: "agent-1" } },
+      { baseUrl: "https://api.elevenlabs.io", dryRun: true },
+    );
+
+    expect(result.exitCode).toBe(0);
+    const serialized = JSON.stringify(result.env);
+    expect(serialized).toContain('"catalog":"convai"');
+    expect(serialized).toContain('"would_require_yes":true');
+  });
+
+  it("does not double-decode encoded WebSocket separators", async () => {
+    const dir = await tempDir();
+    const script = join(dir, "raw.ndjson");
+    writeFileSync(script, JSON.stringify({ type: "send", data: { hello: "world" } }));
+
+    const result = await runWs(
+      {
+        target: "/v1%252Fconvai%252Fconversation",
+        send: script,
+        out: dir,
+        query: {},
+      },
+      { baseUrl: "https://api.elevenlabs.io", dryRun: true },
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(JSON.stringify(result.env)).toContain('"catalog":null');
+  });
+
+  it("rejects malformed WebSocket path encoding before connecting", async () => {
+    const dir = await tempDir();
+    const script = join(dir, "raw.ndjson");
+    writeFileSync(script, JSON.stringify({ type: "send", data: { hello: "world" } }));
+
+    const result = await runWs(
+      { target: "/v1/%ZZ/convai/conversation", send: script, out: dir, query: {} },
+      { baseUrl: "https://api.elevenlabs.io", dryRun: true },
+    );
+
+    expect(result.exitCode).toBe(2);
+    expect(result.env.ok ? undefined : result.env.error.message).toContain(
+      "invalid percent-encoding",
+    );
+  });
+
+  it("rejects a named override whose encoded URL resolves to another known route", async () => {
+    const urlName = "ELV_TEST_ENCODED_MISMATCH_WS_URL";
+    const original = process.env[urlName];
+    process.env[urlName] = "wss://api.elevenlabs.io/v1%2Fconvai%2Fconversation";
+    const dir = await tempDir();
+    const script = join(dir, "tts.ndjson");
+    writeFileSync(script, JSON.stringify({ type: "send", data: { text: " " } }));
+
+    try {
+      const result = await runWs(
+        { target: "tts-realtime", urlEnv: urlName, send: script, out: dir, query: {} },
+        { dryRun: true },
+      );
+      expect(result.exitCode).toBe(2);
+      expect(result.env.ok ? undefined : result.env.error.message).toContain("does not match");
+    } finally {
+      if (original === undefined) delete process.env[urlName];
+      else process.env[urlName] = original;
+    }
+  });
+
   it("applies WebSocket query precedence as defaults, embedded URL, then explicit query", async () => {
     const dir = await tempDir();
     const script = join(dir, "dialogue.ndjson");
@@ -1060,6 +1136,114 @@ describe("ws session", () => {
       { text: "" },
     ]);
     expect(readFileSync(join(dir, "audio.mp3"), "utf8")).toBe("tts-live");
+  });
+
+  it("rejects incremental single-context TTS after empty-text termination", async () => {
+    const server = await startServer((socket, received) => {
+      socket.send(JSON.stringify({ type: "next", step: "handshake" }));
+      socket.on("message", () => {
+        const message = JSON.parse(received.at(-1)!) as { text?: unknown };
+        if (message.text === " ") {
+          socket.send(JSON.stringify({ type: "next", step: "eos" }));
+        } else if (message.text === "") {
+          socket.send(JSON.stringify({ type: "next", step: "late" }));
+        } else {
+          socket.close(1000, "unexpected late message");
+        }
+      });
+    });
+    const dir = await tempDir();
+    const input = new PassThrough();
+    const actions: Record<string, Record<string, unknown>> = {
+      handshake: { text: " " },
+      eos: { text: "" },
+      late: { text: "must not send" },
+    };
+
+    const result = await runWs(
+      {
+        target: "tts-realtime",
+        duplex: true,
+        out: dir,
+        query: { voice_id: "voice-a" },
+      },
+      {
+        baseUrl: httpBase(server.url),
+        duplexInput: input,
+        duplexEventSink: (line) => {
+          const event = JSON.parse(line) as { step?: string };
+          const data = event.step ? actions[event.step] : undefined;
+          if (data) input.write(`${JSON.stringify({ type: "send", data })}\n`);
+        },
+        timeoutMs: 500,
+      },
+    );
+    input.destroy();
+
+    expect(result.exitCode).toBe(2);
+    expect(result.env.ok ? undefined : result.env.error.code).toBe("ws_duplex_invalid_action");
+    expect(result.env.ok ? undefined : result.env.error.message).toContain("closed");
+    expect(server.received.map((raw) => JSON.parse(raw))).toEqual([{ text: " " }, { text: "" }]);
+    expect(result.env.files?.every((file) => file.partial)).toBe(true);
+  });
+
+  it("keeps multi-context TTS open after empty-text keepalive and supports context reuse", async () => {
+    const actions = [
+      { text: " ", context_id: "a" },
+      { text: "", context_id: "a" },
+      { text: "after keepalive ", context_id: "a" },
+      { context_id: "a", flush: true },
+      { context_id: "a", close_context: true },
+      { text: "reused ", context_id: "a" },
+      { close_socket: true },
+    ];
+    const server = await startServer((socket, received) => {
+      socket.send(JSON.stringify({ type: "next", index: 0 }));
+      socket.on("message", () => {
+        const index = received.length;
+        if (index === actions.length) {
+          socket.send(
+            JSON.stringify({
+              audio: Buffer.from("tts-multi-live").toString("base64"),
+              contextId: "a",
+            }),
+          );
+          socket.send(JSON.stringify({ isFinal: true, contextId: "a" }), () =>
+            socket.close(1000, "done"),
+          );
+        } else {
+          socket.send(JSON.stringify({ type: "next", index }));
+        }
+      });
+    });
+    const dir = await tempDir();
+    const input = new PassThrough();
+
+    const result = await runWs(
+      {
+        target: "tts-multi",
+        duplex: true,
+        out: dir,
+        query: { voice_id: "voice-a" },
+      },
+      {
+        baseUrl: httpBase(server.url),
+        duplexInput: input,
+        duplexEventSink: (line) => {
+          const event = JSON.parse(line) as { index?: number };
+          if (event.index !== undefined && actions[event.index]) {
+            input.write(`${JSON.stringify({ type: "send", data: actions[event.index] })}\n`);
+          }
+        },
+        timeoutMs: 500,
+      },
+    );
+    input.destroy();
+
+    expect(result.exitCode).toBe(0);
+    expect(server.received.map((raw) => JSON.parse(raw))).toEqual(actions);
+    const audio = result.env.files?.find((file) => file.path.includes("audio.context-"));
+    expect(audio && readFileSync(audio.path, "utf8")).toBe("tts-multi-live");
   });
 
   it("streams incremental multi-context TTD lifecycle actions", async () => {

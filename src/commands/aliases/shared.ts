@@ -34,6 +34,7 @@ interface WaitAfterCreateConfig extends RequiredWaitFields, Pick<WaitOptions, "f
   idKeys: string[];
   missingIdMessage: string;
   pathKey: string;
+  isComplete?: (env: SuccessEnvelope) => boolean;
 }
 
 export function aliasRunOpts(command: Command): RunOpts {
@@ -191,10 +192,25 @@ export async function waitAfterCreate(
   opts: RunOpts,
   config: WaitAfterCreateConfig,
 ): Promise<never> {
+  if (opts.dryRun || config.isComplete?.(env)) emit(env);
   const id = stringAt(env, config.idKeys);
   if (!id) {
     emitAndExit(
-      validationError(config.commandName, config.missingIdMessage),
+      {
+        ...validationError(
+          config.commandName,
+          `${config.missingIdMessage}. The creation request succeeded; inspect its response or webhook instead of resubmitting it.`,
+          {
+            operationId: env.operation_id,
+            raw: { response: env.data, request: env.request },
+            hints: env.hints,
+          },
+        ),
+        http: env.http,
+        cost: env.cost,
+        files: env.files,
+        warnings: env.warnings,
+      },
       ExitCode.InputValidation,
     );
   }
@@ -206,7 +222,13 @@ export async function waitAfterCreate(
       success: config.success,
       failure: config.failure,
     },
-    { runOperation: (operationId, input) => runOperation(operationId, input, opts) },
+    {
+      runOperation: async (operationId, input) => {
+        const result = await runOperation(operationId, input, opts);
+        if (result.ok && config.isComplete?.(result)) emit(result);
+        return result;
+      },
+    },
   );
   emitAndExit(result.env, result.exitCode);
 }

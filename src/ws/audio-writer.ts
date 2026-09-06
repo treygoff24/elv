@@ -51,9 +51,9 @@ export class AudioWriter {
 
   async closeAll(): Promise<AudioOutput[]> {
     return await Promise.all(
-      [...this.writers.values()].map(async ({ writer, ...output }) => {
-        await writer.close();
-        return output;
+      [...this.writers.values()].map(async ({ writer, contextId }) => {
+        const path = await writer.close();
+        return { path, contextId };
       }),
     );
   }
@@ -76,9 +76,11 @@ export class AudioWriter {
 
 function audioExtension(outputFormat: string | undefined): string {
   const value = outputFormat?.toLowerCase() ?? "";
+  if (value.includes("wav")) return "wav";
   if (value.includes("pcm")) return "pcm";
   if (value.includes("opus")) return "opus";
   if (value.includes("ulaw") || value.includes("mulaw") || value.includes("mu_law")) return "ulaw";
+  if (value.includes("alaw")) return "alaw";
   return "mp3";
 }
 

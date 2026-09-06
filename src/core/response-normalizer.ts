@@ -9,12 +9,14 @@ import { normalizeProviderError } from "./error-normalizer";
 import {
   deriveFilename,
   fileRecord,
+  isSensitiveSpillFilename,
   resolveOutTarget,
   streamToFile,
   tempFileWriter,
   toNodeReadable,
   writeBufferToFile,
 } from "./files";
+import { extractMultipartResponse, MultipartResponseError } from "./multipart-response";
 import { isRecord, parseJson as parseJsonValue } from "../util/json";
 import { errorMessage } from "../util/error";
 import { shellArg } from "../util/shell";
@@ -114,6 +116,41 @@ async function normalizeSuccessResponse(
   warnings: Warning[],
   runtimeType: string,
 ): Promise<Envelope> {
+  if (op.secretResult && runtimeType && !isJson(runtimeType)) {
+    const target = resolveOutTarget(ctx.saveJson ?? ctx.out, false);
+    const name = target.file
+      ? `${target.file}.sensitive.bin`
+      : deriveFilename(op.operationId, "sensitive", "bin");
+    const path = await writeBufferToFile(
+      new Uint8Array(await res.arrayBuffer()),
+      join(target.dir, name),
+      { mode: 0o600 },
+    );
+    return fileSuccess(
+      base,
+      [{ ...(await fileRecord(path, { hash: ctx.hash })), mime: runtimeType, sensitive: true }],
+      warnings,
+    );
+  }
+  if (runtimeType === "multipart/mixed") {
+    try {
+      const files = await extractMultipartResponse(res, {
+        ...ctx,
+        operationId: op.operationId,
+        secretResult: op.secretResult,
+      });
+      return fileSuccess(base, files, warnings);
+    } catch (error) {
+      if (!(error instanceof MultipartResponseError)) throw error;
+      return failure({
+        ...base,
+        error: { type: "provider_error", code: error.code, message: error.message },
+        files: error.files,
+        retry: { recommended: false, after_ms: null },
+        warnings: optional(warnings),
+      });
+    }
+  }
   if (op.streamKind === "json_events") {
     return streamJsonEventsResponse(op, res, ctx, base, warnings);
   }
@@ -175,8 +212,8 @@ async function jsonSuccess(
   let data: JsonValue;
   try {
     data = parseOptionalJsonBody(text);
-  } catch (error) {
-    return invalidJsonSuccess(op, ctx, base, warnings, text, error);
+  } catch {
+    return invalidJsonSuccess(op, ctx, base, warnings, text);
   }
   if (op.secretResult || containsCredential(data)) {
     // Media status, IDs and cursors must remain usable for polling/pagination.
@@ -225,15 +262,15 @@ async function jsonSuccess(
   });
 }
 
-function invalidJsonSuccess(
+async function invalidJsonSuccess(
   op: OperationCard,
   ctx: ResponseContext,
   base: Omit<SuccessEnvelope, "v" | "ok">,
   warnings: Warning[],
   body: string,
-  error: unknown,
-): Envelope {
-  const parseError = errorMessage(error);
+): Promise<Envelope> {
+  // Malformed provider JSON may be a bare token; even parser messages can echo it.
+  const file = await spillSecretJsonFile(op, body, ctx);
   return failure({
     cmd: ctx.cmd,
     operation_id: op.operationId,
@@ -245,12 +282,12 @@ function invalidJsonSuccess(
       raw: {
         status: base.http?.status,
         path: base.http?.path,
-        parse_error: parseError,
-        body: previewText(body),
+        parse_error: "Invalid JSON; raw body retained in a private file",
       },
     },
     retry: { recommended: false, after_ms: null },
     cost: base.cost,
+    files: [{ ...file, partial: true }],
     warnings: optional(warnings),
     hints: [],
   });
@@ -286,7 +323,9 @@ async function spillSecretJsonFile(
   const filename = target.file
     ? sidecar
       ? `${target.file}.sensitive.json`
-      : target.file
+      : isSensitiveSpillFilename(target.file)
+        ? target.file
+        : `${target.file}.sensitive.json`
     : deriveFilename(op.operationId, "sensitive", "json");
   const path = await writeBufferToFile(`${text}\n`, join(target.dir, filename), { mode: 0o600 });
   return {
@@ -882,8 +921,7 @@ async function streamResponseFile(
 ): Promise<FileRecord> {
   const target = resolveOutTarget(ctx.out, false);
   const filename = target.file ?? deriveFilename(op.operationId, undefined, extensionForMime(mime));
-  const path = join(target.dir, filename);
-  await streamToFile(res.body, path);
+  const path = await streamToFile(res.body, join(target.dir, filename));
   const record = await fileRecord(path, { hash: ctx.hash });
   return { ...record, mime };
 }
@@ -896,7 +934,14 @@ function audioExtension(ctx: ResponseContext): string {
   const outputFormat =
     ctx.outputFormat ?? requestPathSearchParams(ctx.requestPath ?? "").get("output_format") ?? "";
   const codec = outputFormat.split("_")[0];
-  if (codec === "pcm" || codec === "ulaw" || codec === "alaw" || codec === "opus") return codec;
+  if (
+    codec === "pcm" ||
+    codec === "ulaw" ||
+    codec === "alaw" ||
+    codec === "opus" ||
+    codec === "wav"
+  )
+    return codec;
   return "mp3";
 }
 
@@ -1001,10 +1046,6 @@ function numberHeader(headers: Headers, name: string): number | null {
   if (!value) return null;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
-}
-
-function previewText(value: string): string {
-  return value.length > 500 ? `${value.slice(0, 500)}...` : value;
 }
 
 function optional<T>(items: T[]): T[] | undefined {

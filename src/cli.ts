@@ -87,7 +87,6 @@ function buildProgram(version: string): Command {
     .option("--path <key=value>", "add path parameter", collect, [])
     .option("--file <field=path>", "add file upload field", collect, [])
     .option("--allow-unknown", "route unknown flat keys to body")
-    .option("--unpack", "unpack zip responses when supported")
     .option("--hash", "force sha256 hashing for large output files")
     .option("--all", "fetch and save all pages")
     .option("--limit <n>", "max items inlined in the envelope")

@@ -41,6 +41,15 @@ SCRIBE_TOKEN=... elv stt --file note.m4a --model scribe_v2 \
 configured webhook ID when required. A single-use token belongs in the named
 environment variable, not in an argument.
 
+`--timestamps` accepts `none`, `word`, or `character`, not `segment`.
+Rebuild speaker turns from `words[].speaker_id` when needed. Plain STT calls
+return the completed transcript synchronously. In 0.4.0, `--wait` preserves that
+success and polls only an asynchronous transcription ID; `--wait --dry-run`
+returns the preview without polling. Version 0.3.0 could return a complete file
+then fail with a missing-ID error, so inspect existing files before retrying.
+A September 5, 2026 run transcribed a 47-minute, 47 MB m4a in about two minutes;
+that is one observed duration, not a latency guarantee.
+
 ## Sound effects and music
 
 ```bash
@@ -55,6 +64,10 @@ elv music detailed-stream --prompt "warm jazz trio" --model music_v2 \
 `music detailed-stream` writes audio and metadata NDJSON separately. Discover
 Music Finetune commands with `elv music finetunes`; generation accepts
 `--finetune-id` when the installed help exposes it.
+
+`elv call compose_detailed` returns separate audio and JSON metadata files from
+a multipart response. Pass a directory to `--out` and inspect every returned
+path. An interrupted response may still retain usable partial artifacts.
 
 ## Voice workflows
 

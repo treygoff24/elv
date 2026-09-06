@@ -23,6 +23,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Agents WebSockets now preserve `agent_id`, acknowledge nested pings correctly, and decode nested audio events. Known absolute WebSocket paths inherit safety and budget metadata without forwarding profile credentials to arbitrary hosts.
 - Signed media URLs stay in private artifacts while redacted metadata supports polling, pagination, projection, and `view`. Failed later pages retain earlier private artifact paths.
 - Automatic pagination sizes respect published provider maxima.
+- Music's non-streaming detailed response now yields separate audio and JSON metadata files instead of an opaque multipart blob, with partial recovery on malformed or interrupted responses.
+- Output publication is atomic and never replaces occupied files, including modified collision targets and symlinks. Concurrent results return their actual distinct paths. Sensitive outputs retain explicit filename markers, including caller-named destinations; prior files and permissions remain unchanged.
+- Malformed successful JSON and opaque credential responses are preserved privately instead of leaking parse previews. `view` refuses marked private files before parsing, including binary and collision-suffixed files.
+- Encoded HTTP/WebSocket paths inherit the same safety metadata as the routes the provider decodes; path values are decoded only once. TTS single/multi-context terminal rules now match their distinct protocols.
+- WAV timestamp responses and requested A-law/WAV WebSocket files retain the appropriate extensions. Multi-file output targets are checked before generation.
 
 ### Changed
 
@@ -30,6 +35,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - `config doctor` is offline by default. `--online` opts into provider checks, which refuse redirects.
 - Updated the transitive `fast-uri` dependency to resolve its published security advisories.
 - OpenAPI compilation now rejects nested external references before bundling, preventing provider documents from reading local files or fetching arbitrary URLs. Explicit local JSON sources and recursive internal references remain supported; multi-file specs require prebundling.
+
+### Removed
+
+- Removed the no-op `call --unpack` flag. ZIP responses still download intact; the CLI no longer advertises extraction it never performed.
 
 ## [0.3.0] - 2026-08-11
 

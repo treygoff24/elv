@@ -11,6 +11,7 @@ import type { WsProtocol } from "./catalog";
 
 export const MAX_BINARY_FILE_BYTES = 64 * 1024 * 1024;
 export const MAX_DUPLEX_LINE_BYTES = 1024 * 1024;
+const DEFAULT_TTS_CONTEXT = "\0default";
 
 export type SendScriptAction =
   | { type: "send"; data: JsonObject }
@@ -179,6 +180,8 @@ export class WsProtocolValidator {
   private position = 0;
   private closed = false;
   private ttsInitialized = false;
+  private ttsMultiInitialized = false;
+  private readonly ttsContexts = new Set<string>();
   private sttChunks = 0;
   private ttdVoices: Set<string> | undefined;
   private readonly ttdContexts = new Map<string, Set<string>>();
@@ -222,6 +225,7 @@ export class WsProtocolValidator {
     }
 
     if (this.protocol === "tts") this.validateTts(action.data, label);
+    else if (this.protocol === "tts-multi") this.validateTtsMulti(action.data, label);
     else if (this.protocol === "stt") this.validateStt(action.data, label);
     else if (this.protocol === "ttd") this.validateTtd(action.data, label);
     else if (this.protocol === "ttd-multi") this.validateTtdMulti(action.data, label);
@@ -230,6 +234,9 @@ export class WsProtocolValidator {
   finishStatic(): void {
     if (this.protocol === "tts" && !this.ttsInitialized) {
       throw new Error("send-script must contain a TTS keep-alive send event");
+    }
+    if (this.protocol === "tts-multi" && !this.ttsMultiInitialized) {
+      throw new Error("send-script must contain a TTS multi-context initialization event");
     }
     if (this.protocol === "ttd" && !this.ttdVoices) {
       throw new Error("send-script must begin with a Text to Dialogue send event");
@@ -240,17 +247,69 @@ export class WsProtocolValidator {
   }
 
   private validateTts(data: JsonObject, label: string): void {
+    for (const field of ["close_socket", "close_context", "context_id"]) {
+      if (data[field] !== undefined) {
+        throw new Error(`${label}.${field} is not supported by single-context TTS`);
+      }
+    }
+    validateBooleanFields(data, label, ["flush", "try_trigger_generation"]);
     const text = data.text;
     if (!this.ttsInitialized) {
-      if (typeof text !== "string" || text.length === 0 || text.trim() !== "") {
+      if (text !== " ") {
         throw new Error('first TTS send must be the keep-alive text " "');
       }
       this.ttsInitialized = true;
       return;
     }
-    if (text !== undefined && typeof text !== "string") {
-      throw new Error(`${label}.text must be a string when provided`);
+    if (typeof text !== "string") throw new Error(`${label}.text must be a string`);
+    if (text === "") this.closed = true;
+  }
+
+  private validateTtsMulti(data: JsonObject, label: string): void {
+    validateBooleanFields(data, label, ["flush", "close_context", "close_socket"]);
+    if (!this.ttsMultiInitialized) {
+      if (data.text !== " ") {
+        throw new Error('first TTS multi-context send must have the initialization text " "');
+      }
+      const contextId = optionalContextId(data.context_id, label);
+      this.ttsContexts.add(contextId);
+      this.ttsMultiInitialized = true;
+      return;
     }
+    if (data.close_socket !== undefined) {
+      if (data.close_socket !== true || Object.keys(data).length !== 1) {
+        throw new Error(`${label}.close_socket must be true and the only field`);
+      }
+      this.closed = true;
+      return;
+    }
+    if (data.close_context !== undefined) {
+      if (data.close_context !== true) {
+        throw new Error(`${label}.close_context must be true`);
+      }
+      const contextId = requiredString(data.context_id, `${label}.context_id`);
+      if (!this.ttsContexts.has(contextId)) {
+        throw new Error(`${label}.context_id is not an active TTS context`);
+      }
+      this.ttsContexts.delete(contextId);
+      return;
+    }
+    if (data.text === undefined) {
+      if (data.flush === undefined) {
+        throw new Error(`${label} must contain text or a context control`);
+      }
+      const contextId = requiredString(data.context_id, `${label}.context_id`);
+      if (!this.ttsContexts.has(contextId)) {
+        throw new Error(`${label}.context_id is not an active TTS context`);
+      }
+      return;
+    }
+    if (typeof data.text !== "string") throw new Error(`${label}.text must be a string`);
+    const contextId = optionalContextId(data.context_id, label);
+    if (data.text === "" && !this.ttsContexts.has(contextId)) {
+      throw new Error(`${label}.context_id is not an active TTS context`);
+    }
+    this.ttsContexts.add(contextId);
   }
 
   private validateStt(data: JsonObject, label: string): void {
@@ -441,6 +500,10 @@ function requiredString(value: unknown, label: string): string {
     throw new Error(`${label} must be a non-empty string`);
   }
   return value;
+}
+
+function optionalContextId(value: unknown, label: string): string {
+  return value === undefined ? DEFAULT_TTS_CONTEXT : requiredString(value, `${label}.context_id`);
 }
 
 function redactedEventLine(raw: string): string {

@@ -15,7 +15,7 @@ interface CallOptions
   extends
     RunOptionValues,
     PaginationOptionValues,
-    Pick<RunOpts, "allowUnknown" | "unpack">,
+    Pick<RunOpts, "allowUnknown">,
     Pick<CliOptionValues, "json" | "jsonFile" | "stdinJson" | "query" | "path"> {
   file?: string[];
 }
@@ -91,7 +91,6 @@ function callRunOpts(options: CallOptions): PaginatedRunOptions {
   return {
     ...runOptsFromOptions(options),
     allowUnknown: options.allowUnknown,
-    unpack: options.unpack,
     ...paginationOptionsFromOptions(options),
   };
 }

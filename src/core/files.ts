@@ -1,16 +1,21 @@
 import { createHash, randomUUID } from "node:crypto";
 import {
+  constants,
+  closeSync,
   createReadStream,
   createWriteStream,
   existsSync,
   mkdirSync,
+  openSync,
+  rmSync,
   statSync,
+  type Stats,
   type WriteStream,
 } from "node:fs";
-import { chmod, rename, rm, writeFile } from "node:fs/promises";
+import { chmod, link, lstat, open, rm } from "node:fs/promises";
 import { basename, dirname, extname, isAbsolute, join, resolve } from "node:path";
 import { Readable } from "node:stream";
-import { pipeline } from "node:stream/promises";
+import { finished, pipeline } from "node:stream/promises";
 import { lookup } from "mime-types";
 import type { FileRecord } from "./types";
 import type { JsonValue } from "../util/json";
@@ -45,6 +50,9 @@ export interface TempFileWriter {
 }
 
 class TempFileWriterImpl implements TempFileWriter {
+  private done = false;
+  private closing: Promise<string> | undefined;
+
   constructor(
     private readonly path: string,
     private readonly tmpPath: string,
@@ -66,15 +74,33 @@ class TempFileWriterImpl implements TempFileWriter {
     });
   }
 
-  async close(): Promise<string> {
-    await closeWriteStream(this.stream);
-    const finalPath = await collisionPathForFile(this.path, this.tmpPath);
-    await rename(this.tmpPath, finalPath);
-    return finalPath;
+  close(): Promise<string> {
+    return (this.closing ??= this.finishClose());
+  }
+
+  private async finishClose(): Promise<string> {
+    if (this.done) throw new Error("Temporary file writer is already closed");
+    try {
+      await closeWriteStream(this.stream);
+      const finalPath = await publishTempFile(this.tmpPath, this.path);
+      this.done = true;
+      return finalPath;
+    } catch (error) {
+      await rm(this.tmpPath, { force: true });
+      this.done = true;
+      throw error;
+    }
   }
 
   async abort(): Promise<void> {
+    if (this.closing) {
+      await this.closing.catch(() => undefined);
+      return;
+    }
+    if (this.done) return;
+    this.done = true;
     this.stream.destroy();
+    await finished(this.stream).catch(() => undefined);
     await rm(this.tmpPath, { force: true });
   }
 }
@@ -99,9 +125,23 @@ export function deriveFilename(
   return `${stem}.${cleanExt}`;
 }
 
-/** Matches names produced by deriveFilename(op, "sensitive", "json") — keep in sync. */
+/** Matches sensitive spill names, including collision suffixes produced during publication. */
 export function isSensitiveSpillFilename(name: string): boolean {
-  return name.endsWith("-sensitive.json") || name.endsWith(".sensitive.json");
+  const lower = name.toLowerCase();
+  const extension = extname(lower);
+  if (extension !== ".json" && extension !== ".bin") return false;
+  const stem = lower.slice(0, -extension.length);
+  const marker = Math.max(stem.lastIndexOf("-sensitive"), stem.lastIndexOf(".sensitive"));
+  if (marker < 0) return false;
+  const suffix = stem.slice(marker + "-sensitive".length);
+  return (
+    suffix === "" ||
+    (suffix.startsWith("-") &&
+      suffix
+        .slice(1)
+        .split("-")
+        .every((part) => /^[a-f0-9]{8}$/u.test(part) || /^\d+$/u.test(part)))
+  );
 }
 
 export function resolveOutTarget(
@@ -131,14 +171,20 @@ export function resolveOutTarget(
 export async function streamToFile(
   body: globalThis.ReadableStream | Readable | null,
   path: string,
-): Promise<void> {
+): Promise<string> {
   mkdirSync(dirname(path), { recursive: true });
   const tmpPath = tempPathFor(path);
+  let ownsTmp = false;
+  let handle;
   try {
-    await pipeline(toNodeReadable(body), createWriteStream(tmpPath));
-    await rename(tmpPath, await collisionPathForFile(path, tmpPath));
+    handle = await open(tmpPath, "wx");
+    ownsTmp = true;
+    await pipeline(toNodeReadable(body), handle.createWriteStream());
+    handle = undefined;
+    return await publishTempFile(tmpPath, path);
   } catch (error) {
-    await rm(tmpPath, { force: true });
+    await handle?.close().catch(() => undefined);
+    if (ownsTmp) await rm(tmpPath, { force: true });
     throw error;
   }
 }
@@ -150,22 +196,39 @@ export async function writeBufferToFile(
 ): Promise<string> {
   mkdirSync(dirname(path), { recursive: true });
   const content = Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer);
-  const finalPath = await collisionPath(path, content);
-  if (opts.mode === undefined) {
-    await writeFile(finalPath, content);
-  } else {
-    if (existsSync(finalPath)) await chmod(finalPath, opts.mode);
-    await writeFile(finalPath, content, { mode: opts.mode });
-    // writeFile preserves an existing file's mode; force restrictive permissions too.
-    await chmod(finalPath, opts.mode);
+  const tmpPath = tempPathFor(path);
+  let ownsTmp = false;
+  let handle;
+  try {
+    handle = await open(tmpPath, "wx", opts.mode);
+    ownsTmp = true;
+    await handle.writeFile(content);
+    await handle.close();
+    handle = undefined;
+    if (opts.mode !== undefined) await chmod(tmpPath, opts.mode);
+    return await publishTempFile(tmpPath, path, opts);
+  } catch (error) {
+    await handle?.close().catch(() => undefined);
+    if (ownsTmp) await rm(tmpPath, { force: true });
+    throw error;
   }
-  return finalPath;
 }
 
 export function tempFileWriter(path: string): TempFileWriter {
   mkdirSync(dirname(path), { recursive: true });
   const tmpPath = tempPathFor(path);
-  return new TempFileWriterImpl(path, tmpPath, createWriteStream(tmpPath));
+  const fd = openSync(tmpPath, "wx");
+  try {
+    return new TempFileWriterImpl(
+      path,
+      tmpPath,
+      createWriteStream(tmpPath, { fd, autoClose: true }),
+    );
+  } catch (error) {
+    closeSync(fd);
+    rmSync(tmpPath, { force: true });
+    throw error;
+  }
 }
 
 export async function fileRecord(path: string, opts: HashOptions = {}): Promise<FileRecord> {
@@ -180,32 +243,107 @@ export async function fileRecord(path: string, opts: HashOptions = {}): Promise<
 
 export async function writeManifest(dir: string, manifest: JsonValue): Promise<string> {
   const path = join(dir, "manifest.json");
-  await writeBufferToFile(`${JSON.stringify(manifest, null, 2)}\n`, path);
-  return path;
+  return await writeBufferToFile(`${JSON.stringify(manifest, null, 2)}\n`, path);
 }
 
-async function collisionPath(path: string, content: Buffer): Promise<string> {
-  if (!existsSync(path)) return path;
-
-  const existingHash = await sha256File(path, { hash: true });
-  const contentHash = createHash("sha256").update(content).digest("hex");
-  if (existingHash === contentHash) return path;
-
-  const extension = extname(path);
-  const stem = path.slice(0, path.length - extension.length);
-  return `${stem}-${contentHash.slice(0, 8)}${extension}`;
+async function publishTempFile(
+  tmpPath: string,
+  requestedPath: string,
+  options: WriteOptions = {},
+): Promise<string> {
+  let contentHash: string | undefined;
+  for (let attempt = 0; attempt < 10_000; attempt += 1) {
+    const candidate = publicationCandidate(requestedPath, contentHash ?? "", attempt);
+    try {
+      await link(tmpPath, candidate);
+      await rm(tmpPath, { force: true });
+      return candidate;
+    } catch (error) {
+      if (!isNodeError(error, "EEXIST")) {
+        throw new Error(
+          `Atomic output publication requires exclusive same-directory hard-link support (${errorCode(error)})`,
+          { cause: error },
+        );
+      }
+    }
+    // Fresh names need no extra read of a potentially large streamed file.
+    contentHash ??= (await sha256File(tmpPath, { hash: true })) ?? undefined;
+    if (!contentHash) throw new Error("Could not hash temporary output file");
+    if (await reusablePublishedFile(candidate, contentHash, options.mode)) {
+      await rm(tmpPath, { force: true });
+      return candidate;
+    }
+  }
+  throw new Error("Could not publish output without replacing an occupied path");
 }
 
-async function collisionPathForFile(path: string, contentPath: string): Promise<string> {
-  if (!existsSync(path)) return path;
-
-  const existingHash = await sha256File(path, { hash: true });
-  const contentHash = await sha256File(contentPath, { hash: true });
-  if (existingHash === contentHash) return path;
-
+function publicationCandidate(path: string, contentHash: string, attempt: number): string {
+  if (attempt === 0) return path;
   const extension = extname(path);
   const stem = path.slice(0, path.length - extension.length);
-  return `${stem}-${contentHash!.slice(0, 8)}${extension}`;
+  const suffix = attempt === 1 ? contentHash.slice(0, 8) : `${contentHash.slice(0, 8)}-${attempt}`;
+  return `${stem}-${suffix}${extension}`;
+}
+
+async function reusablePublishedFile(
+  path: string,
+  contentHash: string,
+  requestedMode: number | undefined,
+): Promise<boolean> {
+  let initial: Stats;
+  try {
+    initial = await lstat(path);
+  } catch {
+    return false;
+  }
+  if (!initial.isFile()) return false;
+  if (requestedMode !== undefined && (initial.mode & 0o777) !== (requestedMode & 0o777)) {
+    return false;
+  }
+
+  let handle;
+  try {
+    handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+  } catch {
+    return false;
+  }
+  try {
+    const before = await handle.stat();
+    if (!sameFileIdentity(initial, before)) return false;
+    const hash = createHash("sha256");
+    await pipeline(handle.createReadStream({ autoClose: false }), hash);
+    const after = await handle.stat();
+    if (!sameStableFile(before, after)) return false;
+    const final = await lstat(path);
+    return sameFileIdentity(after, final) && hash.digest("hex") === contentHash;
+  } catch {
+    return false;
+  } finally {
+    await handle.close().catch(() => undefined);
+  }
+}
+
+function sameFileIdentity(left: Stats, right: Stats): boolean {
+  return left.dev === right.dev && left.ino === right.ino && left.isFile() && right.isFile();
+}
+
+function sameStableFile(left: Stats, right: Stats): boolean {
+  return (
+    sameFileIdentity(left, right) &&
+    left.size === right.size &&
+    left.mtimeMs === right.mtimeMs &&
+    left.ctimeMs === right.ctimeMs
+  );
+}
+
+function isNodeError(error: unknown, code: string): boolean {
+  return error instanceof Error && "code" in error && error.code === code;
+}
+
+function errorCode(error: unknown): string {
+  return error instanceof Error && "code" in error && typeof error.code === "string"
+    ? error.code
+    : "unknown";
 }
 
 async function closeWriteStream(stream: WriteStream): Promise<void> {

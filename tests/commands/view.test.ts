@@ -17,6 +17,29 @@ afterEach(() => {
 });
 
 describe("view command", () => {
+  it.each(["secret-sensitive-deadbeef.json", "secret-sensitive.bin"])(
+    "refuses private %s even when the JSON has no recognizable credential key",
+    (name) => {
+      const file = join(dir, name);
+      writeFileSync(file, JSON.stringify({ opaque: "PRIVATE_VALUE_CANARY" }));
+      const result = buildViewResult(file);
+      expect(JSON.stringify(result.env)).not.toContain("PRIVATE_VALUE_CANARY");
+      expect(result.exitCode).toBe(2);
+    },
+  );
+  it.each(["secret-sensitive.json", "secret-sensitive-deadbeef.json", "secret-sensitive.bin"])(
+    "refuses %s before a parser can echo malformed private contents",
+    (name) => {
+      const file = join(dir, name);
+      writeFileSync(file, "PRIVATE_PARSE_CANARY not-json");
+      const result = buildViewResult(file);
+      expect(result.exitCode).toBe(2);
+      expect(JSON.stringify(result.env)).not.toContain("PRIVATE_PARSE_CANARY");
+      expect(result.env.ok ? "" : result.env.error.message).toContain(
+        "Refusing to render sensitive",
+      );
+    },
+  );
   it("returns small JSON inline as data", () => {
     const file = join(dir, "small.json");
     writeFileSync(file, JSON.stringify({ ok: true, count: 2 }), "utf8");

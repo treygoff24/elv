@@ -254,6 +254,17 @@ Provider resource creation, a publicly reachable TLS endpoint, and deployment re
 
 ### Music detailed streaming
 
+For non-streaming audio plus composition metadata, use
+`elv call compose_detailed --json-file request.json --out ./song`.
+The CLI splits the multipart response into audio and JSON files. Always use the
+returned `files[].path`: existing files are preserved, collisions get distinct
+names, and credential files receive a `.sensitive` marker even with an explicit
+output filename. Multi-file operations require an output directory.
+
+Atomic publication requires a filesystem that supports same-directory hard links.
+Unsupported filesystems fail rather than falling back to replacing existing files.
+The release gate is verified on Linux with Node 22 and 26.
+
 The detailed Music endpoint returns Server-Sent Events rather than a normal audio body. `elv music detailed-stream` parses the event framing, decodes audio chunks to an audio file, and writes the remaining event metadata as NDJSON. Both paths are returned in `files[]`.
 
 ```bash

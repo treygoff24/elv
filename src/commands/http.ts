@@ -192,20 +192,20 @@ async function httpOperation(
 }
 function matchPathValues(template: string, requestPath: string): JsonObjectInput {
   const templateParts = pathParts(template);
-  const requestParts = pathParts(requestPath);
+  const requestParts = pathParts(decodeRequestPath(requestPath));
   const values: JsonObjectInput = {};
   if (templateParts.length !== requestParts.length) return values;
   templateParts.forEach((part, index) => {
     if (!isTemplateParameter(part)) return;
-    values[part.slice(1, -1)] = safeDecodeSegment(requestParts[index] ?? "");
+    values[part.slice(1, -1)] = requestParts[index] ?? "";
   });
   return values;
 }
-function safeDecodeSegment(segment: string): string {
+function decodeRequestPath(path: string): string {
   try {
-    return decodeURIComponent(segment);
+    return decodeURIComponent(path);
   } catch {
-    return segment;
+    throw new InputNormalizationError("HTTP path contains malformed percent encoding");
   }
 }
 function mergeUrlQuery(search: string, explicit: AgentInput["query"]): JsonObjectInput | undefined {
@@ -233,7 +233,7 @@ async function matchingRegistryOperation(
   method: HttpMethod,
   path: string,
 ): Promise<OperationCard | undefined> {
-  const requestPath = path.replace(/\?.*$/u, "");
+  const requestPath = decodeRequestPath(path.replace(/\?.*$/u, ""));
   const registry = await loadRegistry();
   const candidates = [...registry.values()]
     .filter((op) => op.method === method && pathMatchesTemplate(op.pathTemplate, requestPath))
