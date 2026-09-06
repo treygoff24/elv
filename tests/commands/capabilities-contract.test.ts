@@ -3,7 +3,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { handleCapabilities } from "../../src/commands/capabilities";
+import { loadRegistry } from "../../src/openapi/registry";
 import { arrayValue as array, recordValue as record } from "../helpers/cli-result";
+
+function aliasFamilies(data: ReturnType<typeof record>) {
+  return array(data.alias_families).map((entry) => record(entry));
+}
 
 describe("capabilities machine contract", () => {
   const previousCache = process.env.ELV_CACHE_DIR;
@@ -49,7 +54,7 @@ describe("capabilities machine contract", () => {
 
     const groups = array(data.service_groups).map((entry) => String(record(entry).name));
     expect(groups).toEqual([...groups].sort());
-    const aliasEntries = array(data.alias_families).map((entry) => record(entry));
+    const aliasEntries = aliasFamilies(data);
     const aliases = aliasEntries.map((entry) => String(entry.name));
     expect(aliases).toEqual([...aliases].sort());
     for (const alias of aliasEntries) {
@@ -105,5 +110,19 @@ describe("capabilities machine contract", () => {
       budget_flag: "--max-credits",
     });
     expect(array(data.next)).toHaveLength(4);
+  });
+
+  it("advertises only operation ids the compiled registry can resolve", async () => {
+    const result = await handleCapabilities({ version: "9.8.7" });
+    const registry = await loadRegistry();
+
+    const advertised = aliasFamilies(record(result.env.ok ? result.env.data : undefined)).flatMap(
+      (family) =>
+        array(family.operation_ids).map((id) => ({ family: String(family.name), id: String(id) })),
+    );
+
+    // Guards against a silent shrink of the hand-maintained inventory.
+    expect(advertised.length).toBeGreaterThan(60);
+    expect(advertised.filter(({ id }) => !registry.has(id))).toEqual([]);
   });
 });
