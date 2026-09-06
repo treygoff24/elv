@@ -15,6 +15,7 @@ import {
   buildFlowListInput,
 } from "../../src/commands/aliases/flows";
 import { errorRecord, filesArray, parseEnvelope, recordValue, runCli } from "../helpers/cli-result";
+import { rejectPortProbe } from "../helpers/http";
 
 describe("Flows and assets input mapping", () => {
   it("preserves model-specific JSON while explicit flags override matching fields", () => {
@@ -128,6 +129,7 @@ describe("Flows and assets CLI against offline/mock transport", () => {
       '{"model_id":"gpt-image-1","prompt":"A lighthouse","quality":"high"}',
     );
     server = createServer(async (req, res) => {
+      if (rejectPortProbe(req, res)) return;
       const chunks: Buffer[] = [];
       for await (const chunk of req) chunks.push(Buffer.from(chunk));
       requests.push({

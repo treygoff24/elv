@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { addFiles, addPairs } from "../../src/commands/input";
 import type { AgentInput } from "../../src/core/types";
 import { errorRecord, parseEnvelope, runCli } from "../helpers/cli-result";
+import { rejectPortProbe } from "../helpers/http";
 
 describe("command input helpers", () => {
   it("adds query/path pairs and accumulates array file fields", () => {
@@ -56,6 +57,7 @@ describe("command input helpers", () => {
   it("serializes explicit query arrays as repeated HTTP parameters and rejects empty names before network", async () => {
     const urls: string[] = [];
     const server = createServer((req, res) => {
+      if (rejectPortProbe(req, res)) return;
       urls.push(req.url ?? "");
       res.writeHead(200, { "content-type": "application/json" });
       res.end(JSON.stringify({ received: true }));

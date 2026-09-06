@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { errorRecord, parseEnvelope, recordValue, runCli } from "../helpers/cli-result";
+import { rejectPortProbe } from "../helpers/http";
 
 const agentPath = "/v1/convai/agents/agent_1/triage-tickets";
 const workspacePath = "/v1/convai/triage-tickets";
@@ -100,6 +101,7 @@ describe("agent triage tickets and conversation summaries", () => {
   beforeAll(async () => {
     directory = mkdtempSync(join(tmpdir(), "elv-triage-"));
     server = createServer(async (req, res) => {
+      if (rejectPortProbe(req, res)) return;
       const url = new URL(req.url ?? "/", "http://localhost");
       const chunks: Buffer[] = [];
       for await (const chunk of req) chunks.push(Buffer.from(chunk));
