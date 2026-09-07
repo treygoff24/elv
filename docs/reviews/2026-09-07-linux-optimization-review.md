@@ -416,3 +416,13 @@ worktree contains unrelated dirty files and origin/main advanced, so neither
 was reset, stashed, or overwritten to force an in-place merge. No GitHub push,
 tag, npm publication, broad estate deployment, or retained-worktree deletion
 was performed. The publish decision remains `elv-w9t`.
+
+### Incremental closeout, 04:55 UTC
+
+The shared launcher is now included in Forgejo main at merge `1ce4ffc`.
+The parent fetched that ref, verified `6abda82` is its ancestor, and confirmed
+the merged template still matches the installed elv launcher byte-for-byte.
+The original dirty Linux checkout was left untouched. The 04:36 rebuild and
+both 30-case installed/PATH smoke runs passed; closeout parity reports no
+runtime or skill drift. All session agents are finished, implementation beads
+are closed, and npm publication remains held under `elv-w9t`.
