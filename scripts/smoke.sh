@@ -14,12 +14,22 @@
 #   ELV_BIN   executable to smoke (default: node dist/cli.js, built if missing).
 #             Point it at the installed binary to verify the runtime agents
 #             actually get:  ELV_BIN="$(command -v elv)" scripts/smoke.sh
+#   ELV_NO_EGRESS_ALLOW
+#             comma-separated hosts the no-egress preload should let through.
+#             Needed only when ELV_BIN is a launcher that reaches a broker on a
+#             non-loopback address; an allowlisted host is outside the offline
+#             guarantee, so name the broker and nothing else.
 #
-# Every row is local-only. ELEVENLABS_API_KEY is unset below so a careless row
-# can never reach the provider or spend credits, and the run uses a throwaway
-# ELV_CACHE_DIR so it neither depends on nor mutates your real registry cache.
+# Offline is enforced, not assumed. Unsetting ELEVENLABS_API_KEY proves nothing
+# when ELV_BIN is a credential-injecting wrapper that re-adds the key, so this
+# run also preloads scripts/no-egress.mjs through NODE_OPTIONS, which every
+# descendant Node process inherits: any non-loopback TCP, TLS, DNS or fetch is
+# refused before a packet leaves. Read that file for the exact scope. The unset
+# stays as a second layer, and a throwaway ELV_CACHE_DIR keeps the run from
+# depending on or mutating the real registry cache.
 set -eu
 cd "$(dirname "$0")/.."
+ROOT=$(pwd)
 
 unset ELEVENLABS_API_KEY || true
 
@@ -53,6 +63,17 @@ if [ -z "${ELV_BIN:-}" ] && [ ! -f dist/cli.js ]; then
   echo "smoke: dist/cli.js missing, building"
   npm run build >/dev/null
 fi
+
+# Armed after the build: the bundler has no business reaching the network
+# either, but a build failure caused by the preload would be a confusing way to
+# learn that.
+BLOCKER="$ROOT/scripts/no-egress.mjs"
+test -f "$BLOCKER" || {
+  echo "smoke: missing network blocker: $BLOCKER" >&2
+  exit 1
+}
+NODE_OPTIONS="--import $BLOCKER${NODE_OPTIONS:+ $NODE_OPTIONS}"
+export NODE_OPTIONS
 
 run_elv() {
   if [ -n "${ELV_BIN:-}" ]; then

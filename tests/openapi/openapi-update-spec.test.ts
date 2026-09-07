@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, type RequestListener, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -6,7 +7,13 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { handleSpecDiff, handleSpecStatus, handleSpecUpdate } from "../../src/commands/spec";
-import { diffSpec, updateSpecCache } from "../../src/openapi/fetch-spec";
+import * as compileSpecModule from "../../src/openapi/compile-spec";
+import {
+  diffSpec,
+  specStatus,
+  SpecInputError,
+  updateSpecCache,
+} from "../../src/openapi/fetch-spec";
 import { rawSpecCachePath, registryCachePath } from "../../src/openapi/registry";
 import { isRecord, parseJsonRecord } from "../../src/util/json";
 import type { OpenApiDocument } from "../../src/openapi/compile-spec";
@@ -15,6 +22,8 @@ import type { JsonValue } from "../../src/util/json";
 
 let cacheDir: string;
 const servers: Server[] = [];
+const packageVersion = (JSON.parse(readFileSync("package.json", "utf8")) as { version: string })
+  .version;
 
 afterEach(async () => {
   vi.unstubAllGlobals();
@@ -322,9 +331,111 @@ describe("spec update", () => {
   });
 });
 
+describe("spec status", () => {
+  it("reports pinned provenance and counts without compiling the vendored snapshot", async () => {
+    cacheDir = mkdtempSync(join(tmpdir(), "elv-spec-status-"));
+    // Deliberately not a real API surface: any compile of it would report zeros, so the
+    // pinned counts below can only come from the metadata this case controls.
+    const snapshot = '{"openapi":"3.1.0","paths":{},"components":{"schemas":{}}}';
+    const moduleUrl = vendoredPackage(cacheDir, snapshot, {
+      schema: "elv.openapi.snapshot.v1",
+      source: "https://pinned.example/openapi.json",
+      retrieved_at: "2026-08-01T00:00:00Z",
+      sha256: sha256(snapshot),
+      ...pinnedCounts,
+    });
+    const compile = vi.spyOn(compileSpecModule, "compileSpec");
+
+    const status = await specStatus({ cacheDir, moduleUrl });
+
+    expect(compile).not.toHaveBeenCalled();
+    expect(status.vendored_metadata_verified).toBe(true);
+    expect(status.vendored).toEqual({
+      source: "https://pinned.example/openapi.json",
+      retrieved_at: "2026-08-01T00:00:00Z",
+      sha256: sha256(snapshot),
+      ...pinnedCounts,
+    });
+  });
+
+  it("recompiles rather than trusting counts behind a stale pinned digest", async () => {
+    cacheDir = mkdtempSync(join(tmpdir(), "elv-spec-status-"));
+    const snapshot = readFileSync("fixtures/fake-openapi.json", "utf8");
+    const moduleUrl = vendoredPackage(cacheDir, snapshot, {
+      schema: "elv.openapi.snapshot.v1",
+      source: "https://pinned.example/openapi.json",
+      retrieved_at: "2026-08-01T00:00:00Z",
+      sha256: `${"0".repeat(64)}`,
+      ...pinnedCounts,
+    });
+
+    const status = await specStatus({ cacheDir, moduleUrl });
+
+    expect(status.vendored_metadata_verified).toBe(false);
+    expect(status.vendored.sha256).toBe(sha256(snapshot));
+    expect(status.vendored.callable_operations).toBe(4);
+    expect(status.vendored.total_operations).not.toBe(pinnedCounts.total_operations);
+    // Where the document came from is still the metadata's to state, and is unchanged.
+    expect(status.vendored.source).toBe("https://pinned.example/openapi.json");
+    expect(status.vendored.retrieved_at).toBe("2026-08-01T00:00:00Z");
+  });
+
+  it("fails as an input error when the vendored metadata is invalid", async () => {
+    cacheDir = mkdtempSync(join(tmpdir(), "elv-spec-status-"));
+    const snapshot = '{"openapi":"3.1.0","paths":{},"components":{"schemas":{}}}';
+    const moduleUrl = vendoredPackage(cacheDir, snapshot, {
+      retrieved_at: "2026-08-01T00:00:00Z",
+      sha256: sha256(snapshot),
+    });
+
+    await expect(specStatus({ cacheDir, moduleUrl })).rejects.toThrow(SpecInputError);
+    await expect(specStatus({ cacheDir, moduleUrl })).rejects.toThrow(
+      /expected source, retrieved_at, sha256, and non-negative integer counts/u,
+    );
+  });
+
+  it("compares an active cache from another source against the vendored snapshot", async () => {
+    cacheDir = mkdtempSync(join(tmpdir(), "elv-spec-status-"));
+    await updateSpecCache({ from: "fixtures/fake-openapi.json", cacheDir });
+
+    const status = await specStatus({ cacheDir });
+
+    expect(status.vendored_metadata_verified).toBe(true);
+    expect(status.vendored.callable_operations).toBe(387);
+    expect(status.active.present).toBe(true);
+    expect(status.active.counts).toMatchObject({ callable_operations: 4 });
+    expect(status.active_differs_from_vendored).toBe(true);
+  });
+});
+
 function operation(operationId: string) {
   return { operationId, responses: { "200": { description: "ok" } } };
 }
+
+function sha256(value: string): string {
+  return createHash("sha256").update(value).digest("hex");
+}
+
+/** A package root whose vendored snapshot and pinned metadata the test fully controls. */
+function vendoredPackage(dir: string, snapshot: string, metadata: JsonValue): URL {
+  const root = join(dir, "node_modules", "eleven-agent-cli");
+  mkdirSync(join(root, "spec"), { recursive: true });
+  writeFileSync(
+    join(root, "package.json"),
+    JSON.stringify({ name: "eleven-agent-cli", version: packageVersion }),
+  );
+  writeFileSync(join(root, "spec", "openapi.snapshot.json"), snapshot);
+  writeFileSync(join(root, "spec", "openapi.snapshot.meta.json"), JSON.stringify(metadata));
+  return pathToFileURL(join(root, "dist", "cli.js"));
+}
+
+const pinnedCounts = {
+  paths: 300,
+  total_operations: 388,
+  callable_operations: 387,
+  skipped_operations: 1,
+  schemas: 1507,
+};
 
 function listen(handler: RequestListener): Promise<string> {
   const server = createServer(handler);

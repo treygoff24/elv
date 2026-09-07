@@ -24,6 +24,16 @@ const op: OperationCard = {
 };
 
 const servers: Server[] = [];
+const cleanups: (() => void)[] = [];
+
+/** Resolves once `check` holds, so a stream cancellation can be observed without a sleep. */
+async function until(check: () => boolean, label: string, budgetMs = 5_000): Promise<void> {
+  const deadline = Date.now() + budgetMs;
+  while (!check()) {
+    if (Date.now() > deadline) throw new Error(`timed out waiting for ${label}`);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+}
 
 function req(method: HttpRequest["method"] = "GET"): HttpRequest {
   return { url: "https://api.test/v1/demo", method, headers: {}, path: "/v1/demo" };
@@ -39,6 +49,7 @@ function json(status: number, code: string): Response {
 describe("retry runner", () => {
   afterEach(async () => {
     vi.unstubAllGlobals();
+    for (const cleanup of cleanups.splice(0)) cleanup();
     await Promise.all(
       servers
         .splice(0)
@@ -156,6 +167,116 @@ describe("retry runner", () => {
 
     expect(res.status).toBe(200);
     expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("cancels an abandoned 5xx body before backing off", async () => {
+    let attempts = 0;
+    let firstResponseClosed = false;
+    const sleeps: number[] = [];
+    const url = await listen((_request, response) => {
+      attempts += 1;
+      if (attempts > 1) {
+        response.writeHead(200, { "content-type": "application/json" }).end('{"ok":true}');
+        return;
+      }
+      response.writeHead(500, { "content-type": "application/json" });
+      response.write('{"detail":{"code":"internal_error"}}');
+      // Never ends on its own: only a client-side cancel can close this response.
+      const ticker = setInterval(() => response.write(" ".repeat(256)), 2);
+      const stop = () => {
+        clearInterval(ticker);
+        response.destroy();
+      };
+      cleanups.push(stop);
+      response.on("close", () => {
+        firstResponseClosed = true;
+        clearInterval(ticker);
+      });
+    });
+
+    const res = await sendWithRetry({ ...req(), url: `${url}/v1/demo` }, op, {
+      sleep: async (ms) => {
+        // The abandoned body must already be released when the backoff starts.
+        await until(() => firstResponseClosed, "the abandoned 5xx body to be cancelled");
+        sleeps.push(ms);
+      },
+      jitter: () => 0,
+      maxAttempts: 2,
+    });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true });
+    expect(sleeps).toHaveLength(1);
+    expect(firstResponseClosed).toBe(true);
+  });
+
+  it("retries a 429 whose body never ends instead of buffering it", async () => {
+    let attempts = 0;
+    const url = await listen((_request, response) => {
+      attempts += 1;
+      if (attempts > 1) {
+        response.writeHead(200, { "content-type": "application/json" }).end('{"ok":true}');
+        return;
+      }
+      response.writeHead(429, { "content-type": "application/json" });
+      response.write('{"detail":{"code":"rate_limit_exceeded","message":"slow down"}}');
+      // Valid JSON so far, then padding forever: the document never completes.
+      const ticker = setInterval(() => response.write(" ".repeat(256)), 1);
+      cleanups.push(() => {
+        clearInterval(ticker);
+        response.destroy();
+      });
+      response.on("close", () => clearInterval(ticker));
+    });
+
+    const res = await sendWithRetry({ ...req(), url: `${url}/v1/demo` }, op, {
+      sleep: async () => undefined,
+      jitter: () => 0,
+      maxAttempts: 2,
+      errorBodyMaxBytes: 2_048,
+    });
+
+    expect(res.status).toBe(200);
+    expect(attempts).toBe(2);
+  });
+
+  it("gives up on a stalled 429 body rather than waiting for it", async () => {
+    let attempts = 0;
+    const url = await listen((_request, response) => {
+      attempts += 1;
+      if (attempts > 1) {
+        response.writeHead(200, { "content-type": "application/json" }).end('{"ok":true}');
+        return;
+      }
+      response.writeHead(429, { "content-type": "application/json" });
+      // A truncated document and then silence: no further chunk ever arrives.
+      response.write('{"detail":');
+      cleanups.push(() => response.destroy());
+    });
+
+    const started = Date.now();
+    const res = await sendWithRetry({ ...req(), url: `${url}/v1/demo` }, op, {
+      sleep: async () => undefined,
+      jitter: () => 0,
+      maxAttempts: 2,
+      errorBodyTimeoutMs: 50,
+    });
+
+    expect(res.status).toBe(200);
+    expect(Date.now() - started).toBeLessThan(5_000);
+  });
+
+  it("returns the final retryable response with its body still readable", async () => {
+    const fetch = vi.fn().mockResolvedValue(json(429, "rate_limit_exceeded"));
+    vi.stubGlobal("fetch", fetch);
+
+    const res = await sendWithRetry(req(), op, { sleep: async () => undefined, maxAttempts: 1 });
+
+    expect(res.status).toBe(429);
+    expect(res.bodyUsed).toBe(false);
+    await expect(res.json()).resolves.toMatchObject({
+      detail: { code: "rate_limit_exceeded" },
+    });
   });
 
   it("never retries deterministic client/provider status codes", async () => {

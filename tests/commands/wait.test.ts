@@ -130,7 +130,9 @@ describe("wait command", () => {
       statusPath: "data.status",
       success: "done",
       intervalMs: 1,
-      timeoutMs: 1,
+      // The child must outlive its budget to be diagnosed rather than terminated:
+      // --timeout-ms now bounds the child itself (see tests/core/wait-child-deadline).
+      timeoutMs: 10_000,
     });
 
     expect(result.exitCode).toBe(ExitCode.ProviderError);

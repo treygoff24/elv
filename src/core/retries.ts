@@ -9,9 +9,22 @@ interface RetryContext {
   maxAttempts?: number;
   sleep?: (ms: number) => Promise<void>;
   jitter?: () => number;
+  /** Test seam: cap on the 429 error body read (default {@link ERROR_BODY_MAX_BYTES}). */
+  errorBodyMaxBytes?: number;
+  /** Test seam: stall budget for that read (default {@link ERROR_BODY_TIMEOUT_MS}). */
+  errorBodyTimeoutMs?: number;
 }
 
 export const DEFAULT_RETRY_ATTEMPTS = 3;
+
+/**
+ * A provider error envelope is a few hundred bytes. Reading a retryable 429 body must be
+ * bounded in both directions: a stream that never ends and a stream that never advances
+ * are both possible from a load balancer under pressure, and either one would otherwise
+ * park `sendWithRetry` forever.
+ */
+const ERROR_BODY_MAX_BYTES = 64 * 1024;
+const ERROR_BODY_TIMEOUT_MS = 2_000;
 
 export class NetworkRetryError extends Error {
   readonly normalizedError: NormalizedError;
@@ -50,7 +63,10 @@ export async function sendWithRetry(
     try {
       const res = await fetchSameOrigin(req);
       const decision = await retryDecision(res, req, ctx, attempt, maxAttempts, jitter);
+      // The returned response is the caller's to read; only an abandoned one is disposed,
+      // and it is disposed before the backoff so the socket is not held across the sleep.
       if (!decision.retry) return res;
+      await disposeBody(res);
       await sleep(decision.afterMs);
     } catch (error) {
       lastNetworkError = error;
@@ -116,9 +132,12 @@ async function retryDecision(
   if (!methodCanRetry(req, ctx)) return { retry: false };
   if (attempt >= maxAttempts) return { retry: false };
 
+  // Past this point the response is always abandoned, so its body can be consumed
+  // directly. Cloning would tee the stream and leave the untouched branch buffering the
+  // whole body in memory, with no bound on an endless one.
   const retryAfter = retryAfterMs(res.headers);
   if (res.status === 429) {
-    const code = await responseCode(res);
+    const code = await responseCode(res, ctx);
     if (CONCURRENT_429.has(code)) {
       return { retry: true, afterMs: retryAfter ?? 250 };
     }
@@ -136,12 +155,92 @@ function methodCanRetry(req: HttpRequest, ctx: RetryContext): boolean {
   );
 }
 
-async function responseCode(res: Response): Promise<string> {
+async function responseCode(res: Response, ctx: RetryContext): Promise<string> {
+  const text = await readBoundedBody(
+    res,
+    ctx.errorBodyMaxBytes ?? ERROR_BODY_MAX_BYTES,
+    ctx.errorBodyTimeoutMs ?? ERROR_BODY_TIMEOUT_MS,
+  );
+  if (text === null) return "";
   try {
-    const body = (await res.clone().json()) as JsonValue;
+    const body = JSON.parse(text) as JsonValue;
     return normalizeProviderError(body, res.status, res.headers).code;
   } catch {
     return "";
+  }
+}
+
+/**
+ * Reads at most `maxBytes` of a body, giving up if any single chunk takes longer than
+ * `timeoutMs`, and always cancels the stream afterwards. Returns null when the body is
+ * absent, oversized, stalled, or errored — every one of which means "no usable error
+ * code", not "wait".
+ */
+async function readBoundedBody(
+  res: Response,
+  maxBytes: number,
+  timeoutMs: number,
+): Promise<string | null> {
+  const body = res.body;
+  if (!body) return null;
+  const reader = body.getReader();
+  const chunks: Uint8Array[] = [];
+  let bytes = 0;
+  let complete = false;
+  try {
+    for (;;) {
+      const chunk = await withTimeout(reader.read(), timeoutMs);
+      if (chunk === null || chunk.done) {
+        complete = chunk !== null;
+        break;
+      }
+      bytes += chunk.value.byteLength;
+      if (bytes > maxBytes) break;
+      chunks.push(chunk.value);
+    }
+  } catch {
+    return null;
+  } finally {
+    await cancelReader(reader);
+  }
+  return complete ? Buffer.concat(chunks).toString("utf8") : null;
+}
+
+async function withTimeout<T>(work: Promise<T>, timeoutMs: number): Promise<T | null> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      work,
+      new Promise<null>((resolve) => {
+        timer = setTimeout(() => resolve(null), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+async function cancelReader(reader: ReadableStreamDefaultReader<Uint8Array>): Promise<void> {
+  try {
+    await reader.cancel();
+  } catch {
+    // Already closed or errored; the stream needs no further disposal.
+  }
+  try {
+    reader.releaseLock();
+  } catch {
+    // Cancel already released it.
+  }
+}
+
+/** Releases an abandoned response's socket. Safe on a body already read or cancelled. */
+async function disposeBody(res: Response): Promise<void> {
+  const body = res.body;
+  if (!body || res.bodyUsed || body.locked) return;
+  try {
+    await body.cancel();
+  } catch {
+    // A body that cannot be cancelled is already finished with.
   }
 }
 

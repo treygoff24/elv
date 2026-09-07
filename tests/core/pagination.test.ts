@@ -95,9 +95,10 @@ describe("pagination cursor derivation", () => {
     });
     const cacheDir = mkdtempSync(join(tmpdir(), "elv-clamp-"));
     vi.stubEnv("ELV_CACHE_DIR", cacheDir);
-    vi.spyOn(registry, "loadRegistry").mockResolvedValue(
-      new Map([[operation.operationId, operation]]),
-    );
+    const operations = new Map([[operation.operationId, operation]]);
+    vi.spyOn(registry, "loadRegistry").mockResolvedValue(operations);
+    // runOperation takes the registry and the compiled cache in one snapshot.
+    vi.spyOn(registry, "loadRegistrySnapshot").mockResolvedValue({ operations, cache: null });
     try {
       const env = await runOperation(operation.operationId, {}, { dryRun: true, limit: 500 });
 

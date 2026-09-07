@@ -1,5 +1,6 @@
 import { join } from "node:path";
-import { deriveFilename, fileRecord, resolveOutTarget, writeBufferToFile } from "./files";
+import { deriveFilename, fileRecord, resolveOutTarget, tempFileWriter } from "./files";
+import type { TempFileWriter } from "./files";
 import { success } from "./envelope";
 import { isRecord } from "../util/json";
 import { shellArg } from "../util/shell";
@@ -155,43 +156,61 @@ export function nextCursor(op: OperationCard, data: unknown): CursorInfo {
   };
 }
 
+/**
+ * Fetches every page, appending each page's items straight to the combined output file
+ * instead of accumulating them in memory. Only the running count, the cursor, warnings,
+ * and the per-page file records are retained, so a large inventory costs one page of
+ * items rather than all of them.
+ *
+ * The output file is still published atomically at the end: it is written to a unique
+ * temporary path and only claimed once every page has been collected, so an aborted or
+ * failed run never publishes a partial collection as a complete one.
+ */
 export async function collectAllPages(options: CollectAllPagesOptions): Promise<Envelope> {
   const cap = options.maxPages ?? MAX_PAGES;
   let input = applyPaginationDefaults(options.op, options.input, options.limit ?? DEFAULT_LIMIT);
-  let lastEnv: SuccessEnvelope | undefined;
+  let base: AllPagesBase | undefined;
   const warnings: Warning[] = [];
-  const items: JsonValue[] = [];
+  const collected = new CollectedItemsFile(options);
   const files: FileRecord[] = [];
 
-  for (let page = 0; page < cap; page += 1) {
-    const env = await options.fetchPage(input);
-    if (!env.ok) return files.length ? { ...env, files: [...files, ...(env.files ?? [])] } : env;
-    lastEnv = env;
-    files.push(...(env.files ?? []));
-    items.push(...itemsFromData(options.op, env.data));
+  try {
+    for (let page = 0; page < cap; page += 1) {
+      const env = await options.fetchPage(input);
+      if (!env.ok) {
+        await collected.abort();
+        return files.length ? { ...env, files: [...files, ...(env.files ?? [])] } : env;
+      }
+      base = envelopeBase(env);
+      files.push(...(env.files ?? []));
+      for (const item of itemsFromData(options.op, env.data)) await collected.append(item);
 
-    const cursor = nextCursor(options.op, env.data);
-    warnings.push(...cursor.warnings);
-    if (!cursor.hasMore || !cursor.cursor) {
-      return allPagesEnvelope(options, env, items, warnings, files);
+      const cursor = nextCursor(options.op, env.data);
+      warnings.push(...cursor.warnings);
+      if (!cursor.hasMore || !cursor.cursor) {
+        return await allPagesEnvelope(options, base, collected, warnings, files);
+      }
+
+      const nextInput = inputWithCursor(input, cursor);
+      if (JSON.stringify(nextInput.query ?? {}) === JSON.stringify(input.query ?? {})) {
+        warnings.push({
+          code: "pagination_cursor_repeated",
+          message: "Stopping pagination because the next cursor did not change the request.",
+        });
+        return await allPagesEnvelope(options, base, collected, warnings, files);
+      }
+      input = nextInput;
     }
 
-    const nextInput = inputWithCursor(input, cursor);
-    if (JSON.stringify(nextInput.query ?? {}) === JSON.stringify(input.query ?? {})) {
-      warnings.push({
-        code: "pagination_cursor_repeated",
-        message: "Stopping pagination because the next cursor did not change the request.",
-      });
-      return allPagesEnvelope(options, env, items, warnings, files);
-    }
-    input = nextInput;
+    warnings.push({
+      code: "pagination_page_cap_hit",
+      message: `Stopped after ${cap} pages to avoid an unbounded pagination loop.`,
+    });
+    return await allPagesEnvelope(options, base, collected, warnings, files);
+  } catch (error) {
+    await collected.abort();
+    throw error;
   }
-
-  warnings.push({
-    code: "pagination_page_cap_hit",
-    message: `Stopped after ${cap} pages to avoid an unbounded pagination loop.`,
-  });
-  return allPagesEnvelope(options, lastEnv, items, warnings, files);
 }
 
 export function allOutputTarget(options: PaginationOptions): string | undefined {
@@ -267,23 +286,36 @@ function limitData(
   };
 }
 
+/** The envelope fields `--all` carries over from the last page it actually fetched. */
+type AllPagesBase = Pick<
+  SuccessEnvelope,
+  "cmd" | "operation_id" | "http" | "request" | "concurrency" | "cost"
+>;
+
+function envelopeBase(env: SuccessEnvelope): AllPagesBase {
+  return {
+    cmd: env.cmd,
+    operation_id: env.operation_id,
+    http: env.http,
+    request: env.request,
+    concurrency: env.concurrency,
+    cost: env.cost,
+  };
+}
+
 async function allPagesEnvelope(
   options: CollectAllPagesOptions,
-  env: SuccessEnvelope | undefined,
-  items: JsonValue[],
+  base: AllPagesBase | undefined,
+  collected: CollectedItemsFile,
   warnings: Warning[],
   files: FileRecord[],
 ): Promise<Envelope> {
-  const file = await writeAllItems(options, items);
-  const base = env ?? success({ cmd: nextCommand(options.op, options.input, options.command) });
+  const file = await collected.publish();
+  const envelope =
+    base ?? envelopeBase(success({ cmd: nextCommand(options.op, options.input, options.command) }));
   return success({
-    cmd: base.cmd,
-    operation_id: base.operation_id,
-    http: base.http,
-    request: base.request,
-    concurrency: base.concurrency,
-    cost: base.cost,
-    data_summary: { type: "array", count: items.length },
+    ...envelope,
+    data_summary: { type: "array", count: collected.count },
     files: [file, ...files],
     truncated: true,
     warnings: warnings.length > 0 ? warnings : undefined,
@@ -291,17 +323,69 @@ async function allPagesEnvelope(
   });
 }
 
-async function writeAllItems(
-  options: CollectAllPagesOptions,
-  items: JsonValue[],
-): Promise<FileRecord> {
-  const target = resolveOutTarget(options.saveJson ?? options.out, false);
-  const filename = target.file ?? deriveFilename(options.op.operationId, "all", "json");
-  const path = await writeBufferToFile(
-    `${JSON.stringify(items, null, 2)}\n`,
-    join(target.dir, filename),
-  );
-  return { ...(await fileRecord(path, { hash: options.hash })), mime: "application/json" };
+/**
+ * Writes the combined `--all` collection incrementally, byte-for-byte identical to
+ * `JSON.stringify(items, null, 2)` followed by a newline, so existing consumers of the
+ * artifact — including `elv view` — see exactly the file they saw before.
+ *
+ * The underlying temporary file is created on the first write, which keeps a run whose
+ * very first page fails from leaving any output behind, and it is published through the
+ * same never-overwrite path `writeBufferToFile` used.
+ */
+class CollectedItemsFile {
+  private writer: TempFileWriter | undefined;
+  private items = 0;
+  private settled = false;
+  private readonly path: string;
+
+  constructor(private readonly options: CollectAllPagesOptions) {
+    const target = resolveOutTarget(options.saveJson ?? options.out, false);
+    const filename = target.file ?? deriveFilename(options.op.operationId, "all", "json");
+    this.path = join(target.dir, filename);
+  }
+
+  get count(): number {
+    return this.items;
+  }
+
+  async append(item: JsonValue): Promise<void> {
+    const writer = this.open();
+    const body = indentJsonItem(item);
+    await writer.write(this.items === 0 ? `[\n${body}` : `,\n${body}`);
+    this.items += 1;
+  }
+
+  async publish(): Promise<FileRecord> {
+    const writer = this.open();
+    this.settled = true;
+    let path: string;
+    try {
+      await writer.write(this.items === 0 ? "[]\n" : "\n]\n");
+      path = await writer.close();
+    } catch (error) {
+      await writer.abort();
+      throw error;
+    }
+    return { ...(await fileRecord(path, { hash: this.options.hash })), mime: "application/json" };
+  }
+
+  /** Discards the partial collection: nothing is published under the requested name. */
+  async abort(): Promise<void> {
+    if (this.settled) return;
+    this.settled = true;
+    await this.writer?.abort();
+  }
+
+  private open(): TempFileWriter {
+    if (this.settled) throw new Error("Combined pagination output is already finalized");
+    return (this.writer ??= tempFileWriter(this.path));
+  }
+}
+
+/** One array element as `JSON.stringify(items, null, 2)` would nest it. */
+function indentJsonItem(item: JsonValue): string {
+  const text = JSON.stringify(item, null, 2) ?? "null";
+  return `  ${text.split("\n").join("\n  ")}`;
 }
 
 function itemsFromData(op: OperationCard, data: unknown): JsonValue[] {

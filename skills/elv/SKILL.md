@@ -22,8 +22,9 @@ and one skipped deprecated route. Confirm the active contract with
 
 1. **Orient.** When the runtime or auth state is uncertain, run `elv --version`
    and `elv config get`. On an auth failure, run `elv config doctor`.
-   Completion: the intended binary is active and the envelope reports whether
-   an API key is present without exposing it.
+   Completion: the intended binary is active and the envelope reports the
+   resolved config, cache, and output paths plus whether an API key is present,
+   without exposing it.
 2. **Route.** Prefer a named alias when it matches the job; otherwise use
    `ops` discovery and `call`. Reach for `http`, `ws`, or `wait` only when their
    distinct capability is required. Completion: one command family clearly
@@ -110,12 +111,18 @@ A success usually carries `operation_id`, `http`, `cost`, and either `data` or
   envelope and provider state before repeating it.
 - Credential-bearing responses are file-only with mode `0600` and
   `sensitive:true`; `elv view` refuses to render them.
+- A `.elv/config.json` picked up implicitly from the working directory sets
+  ordinary workflow options only. Endpoint and key-variable selection come from
+  user config or an explicit `ELV_CONFIG`, so a checkout cannot redirect
+  credentials by being the directory you happened to be standing in.
 
 ## Result discipline
 
-Use `--out <file-or-directory>` when the destination matters. Otherwise files
-land under the configured output directory. The envelope records path, MIME
-type, byte size, and SHA-256.
+Pass `--out <file-or-directory>` per job whenever the destination matters; it is
+the only control that survives a change of machine or profile. Otherwise files
+land in the configured output directory, which defaults to `$XDG_DATA_HOME/elv/out`
+(else `~/.local/share/elv/out`) and is deliberately separate from the registry
+cache. The envelope records path, MIME type, byte size, and SHA-256.
 
 For spilled JSON or NDJSON:
 

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { compileSpec } from "./compile-spec";
@@ -60,6 +61,13 @@ export interface SpecUpdateResult {
 interface SpecStatus {
   cache_path: string;
   vendored: SpecProvenance;
+  /**
+   * True when the pinned metadata digest matched the vendored snapshot on disk, so the
+   * reported provenance and counts are the pinned ones. False when it did not and every
+   * field was recomputed by compiling the snapshot actually present; stale pinned counts
+   * are never reported as if they had been verified.
+   */
+  vendored_metadata_verified: boolean;
   active: {
     present: boolean;
     provenance: SpecProvenance | "unknown";
@@ -81,8 +89,7 @@ interface ComparableSpec {
   provenance: SpecProvenance | "unknown";
 }
 
-export type VendoredMetadata = JsonObject &
-  Pick<SpecProvenance, "source" | "retrieved_at" | "sha256">;
+export type VendoredMetadata = JsonObject & SpecProvenance;
 
 export class SpecInputError extends Error {
   constructor(
@@ -124,12 +131,13 @@ export async function diffSpec(options: UpdateSpecOptions = {}): Promise<SpecUpd
 }
 
 export async function specStatus(options: RegistryOptions = {}): Promise<SpecStatus> {
-  const vendored = await compileVendored(options.moduleUrl);
+  const vendored = await vendoredStatus(options.moduleUrl);
   const active = readRegistryCache(options);
   const activeProvenance = active?.provenance ?? "unknown";
   return {
     cache_path: registryCachePath(options),
     vendored: vendored.provenance,
+    vendored_metadata_verified: vendored.verified,
     active: {
       present: active !== null,
       provenance: activeProvenance,
@@ -139,6 +147,46 @@ export async function specStatus(options: RegistryOptions = {}): Promise<SpecSta
       activeProvenance === "unknown"
         ? null
         : activeProvenance.sha256 !== vendored.provenance.sha256,
+  };
+}
+
+/**
+ * `spec status` reports provenance and counts, not a compiled registry, so it must not
+ * pay for a full compile of the vendored snapshot. Read the shipped metadata, hash the
+ * snapshot it claims to describe, and report the pinned fields only when the digest
+ * matches. On a mismatch the pinned counts are worthless, so recompile and report what
+ * the file on disk actually contains. Unreadable or invalid metadata still fails loudly
+ * through SpecInputError, exactly as it did when this path compiled first.
+ */
+async function vendoredStatus(moduleUrl: string | URL = import.meta.url): Promise<{
+  provenance: SpecProvenance;
+  verified: boolean;
+}> {
+  const metadata = readVendoredMetadata(moduleUrl);
+  const path = vendoredSpecPath(moduleUrl);
+  const snapshot = readBoundedBuffer(path);
+  if (createHash("sha256").update(snapshot).digest("hex") === metadata.sha256) {
+    return { provenance: pinnedProvenance(metadata), verified: true };
+  }
+
+  const rawText = snapshot.toString("utf8");
+  const compiled = await compileSpec({ document: parseSpecJson(rawText, path) });
+  return {
+    provenance: specProvenance(compiled, rawText, metadata.source, metadata.retrieved_at),
+    verified: false,
+  };
+}
+
+function pinnedProvenance(metadata: VendoredMetadata): SpecProvenance {
+  return {
+    source: metadata.source,
+    retrieved_at: metadata.retrieved_at,
+    sha256: metadata.sha256,
+    paths: metadata.paths,
+    total_operations: metadata.total_operations,
+    callable_operations: metadata.callable_operations,
+    skipped_operations: metadata.skipped_operations,
+    schemas: metadata.schemas,
   };
 }
 
@@ -230,6 +278,10 @@ function validateOptions(options: UpdateSpecOptions): void {
 }
 
 function readBoundedFile(path: string): string {
+  return readBoundedBuffer(path).toString("utf8");
+}
+
+function readBoundedBuffer(path: string): Buffer {
   let value: Buffer;
   try {
     value = readFileSync(path);
@@ -243,7 +295,7 @@ function readBoundedFile(path: string): string {
       `OpenAPI spec ${path} exceeds the ${MAX_SPEC_BYTES}-byte download limit`,
       { path, bytes: value.byteLength, max_bytes: MAX_SPEC_BYTES },
     );
-  return value.toString("utf8");
+  return value;
 }
 
 function parseSpecJson(rawText: string, path: string): JsonObject {
@@ -429,6 +481,11 @@ export function readVendoredMetadata(moduleUrl: string | URL = import.meta.url):
       source: metadata.source,
       retrieved_at: metadata.retrieved_at,
       sha256: metadata.sha256,
+      paths: metadata.paths,
+      total_operations: metadata.total_operations,
+      callable_operations: metadata.callable_operations,
+      skipped_operations: metadata.skipped_operations,
+      schemas: metadata.schemas,
     };
   }
   throw new SpecInputError(

@@ -80,7 +80,10 @@ describe("validation engine construction", () => {
 
   it("builds nothing for an operation with no parameters and no request body", async () => {
     const op = operation(undefined);
-    vi.spyOn(registry, "loadRegistry").mockResolvedValue(new Map([[op.operationId, op]]));
+    const operations = new Map([[op.operationId, op]]);
+    vi.spyOn(registry, "loadRegistry").mockResolvedValue(operations);
+    // runOperation takes the registry and the compiled cache in one snapshot.
+    vi.spyOn(registry, "loadRegistrySnapshot").mockResolvedValue({ operations, cache: null });
 
     const env = await runOperation(op.operationId, {}, { dryRun: true });
 

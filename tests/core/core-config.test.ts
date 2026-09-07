@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -50,9 +50,11 @@ describe("config", () => {
     expect(JSON.stringify(online.env)).not.toContain("test_key_CANARY");
   });
   it("resolves the active profile without exposing the raw API key", () => {
-    mkdirSync(join(cwd, ".elv"));
+    // base_url and api_key_env are credential-bearing, so they are honored only
+    // from a config the user pointed at (ELV_CONFIG) or their own config dir.
+    const configPath = join(home, "elv-config.json");
     writeFileSync(
-      join(cwd, ".elv", "config.json"),
+      configPath,
       JSON.stringify({
         default_profile: "prod",
         profiles: {
@@ -66,6 +68,7 @@ describe("config", () => {
         },
       }),
     );
+    vi.stubEnv("ELV_CONFIG", configPath);
     vi.stubEnv("ELEVENLABS_TEST_API_KEY", "sk_should_not_leak");
 
     const config = loadConfig();
@@ -99,7 +102,7 @@ describe("config", () => {
   });
 
   it("defaults output outside cwd while preserving explicit cwd-relative overrides", () => {
-    expect(loadConfig().outputDir).toBe(join(home, ".cache", "elv", "out"));
+    expect(loadConfig().outputDir).toBe(join(home, ".local", "share", "elv", "out"));
 
     vi.stubEnv("ELV_OUTPUT_DIR", "custom-out");
     expect(loadConfig().outputDir).toBe(join(cwd, "custom-out"));
@@ -128,7 +131,7 @@ describe("config", () => {
     if (!env.ok) throw new Error("expected success");
     const file = env.files?.[0];
     expect(file?.path.startsWith(cwd)).toBe(false);
-    expect(file?.path.startsWith(join(home, ".cache", "elv", "out"))).toBe(true);
+    expect(file?.path.startsWith(join(home, ".local", "share", "elv", "out"))).toBe(true);
     expect(basename(dirname(file!.path))).toBe("out");
     expect(basename(file!.path)).not.toBe("out");
     expect(existsSync(file!.path)).toBe(true);

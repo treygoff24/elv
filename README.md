@@ -275,7 +275,19 @@ elv config doctor
 
 Named profiles let you keep more than one setup. A config file at `.elv/config.json` (in the working directory) or `~/.config/elv/config.json` can define profiles with a base URL, an output directory, a default model, a default `max_credits`, and the name of the environment variable that holds the key. The config file stores the variable name, not the secret itself, so nothing sensitive lands on disk. Select a profile with `--profile <name>` or `ELV_PROFILE`.
 
-A few environment variables and flags adjust the rest. `--base-url` or `ELEVENLABS_BASE_URL` overrides the endpoint, `ELEVENLABS_API_RESIDENCY` (`us`, `eu`, `in`, `sg`) picks a residency host, `ELV_OUTPUT_DIR` changes where output spills (default `~/.cache/elv/out`), and `ELV_CACHE_DIR` changes where the compiled spec registry is cached (default `~/.cache/elv`).
+One asymmetry is deliberate. A `.elv/config.json` that `elv` finds implicitly in the current directory can set ordinary workflow options, but it cannot set `base_url` or `api_key_env` — otherwise cloning a repository would be enough to point your credentials at someone else's endpoint. Choose an endpoint or key variable deliberately: put it in your user config, or set `ELV_CONFIG` to the exact file you mean.
+
+A few environment variables and flags adjust the rest. `--base-url` or `ELEVENLABS_BASE_URL` overrides the endpoint, and `ELEVENLABS_API_RESIDENCY` (`us`, `eu`, `in`, `sg`) picks a residency host.
+
+Paths follow the XDG base directories, with the historical home-relative path as the fallback and an `ELV_*` override always winning:
+
+| What | Override | Default |
+| ---- | -------- | ------- |
+| Config | `ELV_CONFIG` (an exact file) | `$XDG_CONFIG_HOME/elv/config.json`, else `~/.config/elv/config.json` |
+| Registry cache | `ELV_CACHE_DIR` | `$XDG_CACHE_HOME/elv`, else `~/.cache/elv` |
+| Output | `--out` per command, then `ELV_OUTPUT_DIR`, then a profile's `output_dir` | `$XDG_DATA_HOME/elv/out`, else `~/.local/share/elv/out` |
+
+Generated files are durable, so output lives in a data directory rather than a cache directory — clearing a cache should never delete your audio. Anything already written under the older `~/.cache/elv/out` default stays there; `elv` moves nothing. Run `elv config get` to see the paths actually in effect.
 
 ## Models
 
@@ -351,11 +363,11 @@ List voices (the v2 payload is large, so it spills to disk; the `next` page comm
 elv voices list
 # {"v":1,"ok":true,"operation_id":"get_user_voices_v2",
 #  "data":{"next":{"cmd":"elv call get_user_voices_v2 --json '{...}'"}},
-#  "files":[{"path":"~/.cache/elv/out/get_user_voices_v2-response.json",...}],
+#  "files":[{"path":"~/.local/share/elv/out/get_user_voices_v2-response.json",...}],
 #  "data_summary":{...},"hints":[{"cmd":"elv view '<path>' --path 'voices'",...}]}
 
 # Then inspect it without loading the whole file into context:
-elv view ~/.cache/elv/out/get_user_voices_v2-response.json --path voices --limit 3
+elv view ~/.local/share/elv/out/get_user_voices_v2-response.json --path voices --limit 3
 
 # Or skip the spill: project just the fields you need, inline.
 elv voices list --fields voice_id,name
@@ -374,7 +386,7 @@ Transcribe audio:
 
 ```bash
 elv stt --file note.m4a --model scribe_v2
-# transcript spilled to ~/.cache/elv/out/, cost includes the real credits_charged
+# transcript spilled to ~/.local/share/elv/out/, cost includes the real credits_charged
 ```
 
 Hit the budget ceiling (exit 5, no network call):
@@ -402,16 +414,15 @@ elv tts --voice-id VOICE --text "..." --dry-run
 
 ## Development
 
-The gate, in order, is build, typecheck, test, lint:
+One command runs everything that has to pass:
 
 ```bash
-npm run build        # tsup
-npm run typecheck    # tsc --noEmit
-npm test             # vitest run
-npm run lint         # oxlint
+npm run gate
 ```
 
-`npm run format` applies the formatter; `npm run format:check` checks without writing.
+That is `scripts/gate.sh` — format check, lint, typecheck, build, tests, and the offline envelope smoke matrix, fail-fast in that order. Run the individual scripts while iterating if you like; the gate is what must be green. `npm run format` applies the formatter, and `ELV_TEST_MAX_WORKERS=<n>` adjusts the test run's worker ceiling for one run.
+
+Two checks reach past the source tree. `npm run smoke:pack` installs an `npm pack` tarball offline into a throwaway prefix and smokes it, which is what proves `dependencies` is complete. `npm run verify:install` compares your build against the globally installed copy and reports the drift; see [AGENTS.md](./AGENTS.md) for both.
 
 ## Contributing
 

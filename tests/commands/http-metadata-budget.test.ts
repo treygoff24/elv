@@ -11,6 +11,7 @@ let outputDir: string | undefined;
 
 vi.mock("../../src/openapi/registry", () => ({
   loadRegistry: async () => registry,
+  loadRegistrySnapshot: async () => ({ operations: registry, cache: null }),
   readRegistryCache: () => undefined,
 }));
 

@@ -7,9 +7,20 @@ on:
 jobs:
   test:
     strategy:
+      fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        # Linux on 22 (the engines floor) and on 26 (what the devbox actually
+        # runs), plus the macOS baseline. A README claim of "verified on Linux
+        # 22 and 26" is not the same thing as a lane that keeps proving it.
+        include:
+          - os: ubuntu-latest
+            node: 22
+          - os: ubuntu-latest
+            node: 26
+          - os: macos-latest
+            node: 22
     runs-on: ${{ matrix.os }}
+    name: ${{ matrix.os }} / node ${{ matrix.node }}
 
     steps:
       - name: Checkout
@@ -18,7 +29,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: ${{ matrix.node }}
 
       - name: Install dependencies
         run: npm ci
@@ -26,5 +37,7 @@ jobs:
       - name: Gate
         run: npm run gate
 
+      # Runs after npm ci so the production dependencies are in the npm cache;
+      # the install inside this step is offline and fails rather than fetching.
       - name: Pack smoke
         run: npm run smoke:pack

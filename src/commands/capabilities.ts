@@ -1,7 +1,7 @@
 import { success } from "../core/envelope";
 import { ENVELOPE_VERSION, ExitCode } from "../core/types";
 import { readVendoredMetadata } from "../openapi/fetch-spec";
-import { loadRegistry, readRegistryCache, vendoredSpecPath } from "../openapi/registry";
+import { loadRegistrySnapshot, vendoredSpecPath } from "../openapi/registry";
 import { listWsCatalog } from "../ws/catalog";
 import type { CommandResult } from "../core/types";
 import type { RegistryCache } from "../openapi/registry";
@@ -225,8 +225,7 @@ const EXIT_CODES = [
 ] as const;
 
 export async function handleCapabilities(options: CapabilitiesOptions): Promise<CommandResult> {
-  const registry = await loadRegistry();
-  const cache = readRegistryCache();
+  const { operations: registry, cache } = await loadRegistrySnapshot();
   return {
     env: success({
       cmd: "elv capabilities",

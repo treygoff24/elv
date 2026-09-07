@@ -6,7 +6,7 @@ import {
   compactSchemaForOperation,
   rawInputSchemaForOperation,
 } from "../openapi/compact-schema";
-import { readRegistryCache, loadRegistry } from "../openapi/registry";
+import { loadRegistry, loadRegistrySnapshot } from "../openapi/registry";
 import { COST_HINTS, HTTP_METHODS, RISKS, STREAM_KINDS } from "../openapi/types";
 import type { CostHint, HttpMethod, OperationCard, Risk, StreamKind } from "../openapi/types";
 import type { CommandResult, Hint, SuccessEnvelope } from "../core/types";
@@ -124,8 +124,7 @@ export async function handleOpsSchema(
       exitCode: ExitCode.InputValidation,
     };
   }
-  const registry = await loadRegistry();
-  const cached = readRegistryCache();
+  const { operations: registry, cache: cached } = await loadRegistrySnapshot();
   const op = registry.get(operationId);
   if (!op) return unknownOperation(`elv ops schema ${operationId}`, operationId);
   const spec = cached?.bundledSpec;

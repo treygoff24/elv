@@ -61,7 +61,7 @@ node dist/cli.js --version
 `elv` reads the key from the environment and sends it as the `xi-api-key` header. Two rules are absolute:
 
 1. Never pass the key as a command-line argument. It is read only from the environment (or a profile that names an environment variable). Passing it as an arg would risk leaking it into shell history and process listings. Request credentials are redacted from envelopes and logs. Provider responses that create credentials are written to restrictive files by design, as described below.
-2. Never commit the key. Do not write it into any tracked file. The repo's `.gitignore` already excludes the `.elv/` directory, and by default `elv` writes its output outside the repo under `~/.cache/elv/out`, so nothing it produces lands in a tracked file.
+2. Never commit the key. Do not write it into any tracked file. The repo's `.gitignore` already excludes the `.elv/` directory, and by default `elv` writes its output outside the repo under `~/.local/share/elv/out`, so nothing it produces lands in a tracked file.
 
 The simplest setup is a single environment variable:
 
@@ -85,7 +85,21 @@ If you need more than one configuration (for example, separate accounts or resid
 }
 ```
 
-Note what the config file stores: `api_key_env` is the name of the environment variable that holds the key, not the key itself. The secret value still lives only in the environment. The `output_dir` above is an explicit override; omit it and `elv` writes to the default `~/.cache/elv/out`. Select a profile at runtime with `--profile main` or by setting `ELV_PROFILE=main`.
+Note what the config file stores: `api_key_env` is the name of the environment variable that holds the key, not the key itself. The secret value still lives only in the environment. The `output_dir` above is an explicit override; omit it and `elv` writes to the default output directory. Select a profile at runtime with `--profile main` or by setting `ELV_PROFILE=main`.
+
+The `base_url` and `api_key_env` fields in that example need a trusted home. When `elv` picks up `.elv/config.json` implicitly from the current directory, it honours the ordinary workflow options and ignores those two: a checkout you have not read must not be able to point your credentials at an endpoint of its choosing. Put endpoint and key selection in `~/.config/elv/config.json`, or set `ELV_CONFIG` to the exact file you mean, which is an explicit choice rather than an accident of your working directory.
+
+### Where files go
+
+Paths follow the XDG base directories, falling back to the historical home-relative path when the XDG variable is unset or relative. An `ELV_*` override always wins.
+
+| What | Override | Default |
+| ---- | -------- | ------- |
+| Config | `ELV_CONFIG` (an exact file) | `$XDG_CONFIG_HOME/elv/config.json`, else `~/.config/elv/config.json` |
+| Registry cache | `ELV_CACHE_DIR` | `$XDG_CACHE_HOME/elv`, else `~/.cache/elv` |
+| Output | `--out` per command, then `ELV_OUTPUT_DIR`, then a profile's `output_dir` | `$XDG_DATA_HOME/elv/out`, else `~/.local/share/elv/out` |
+
+Generated results are durable, so output lives in a data directory rather than a cache directory — clearing a cache should never take your audio with it. Files already written under the older `~/.cache/elv/out` default stay where they are; `elv` relocates nothing. Run `elv config get` to see the paths in effect on this machine, and prefer an explicit `--out <file-or-directory>` per job whenever the destination matters.
 
 ## Step 4: Verify the environment
 
@@ -147,7 +161,7 @@ Agents Procedures, Dubbing v2 bulk transcript editing, voice accents, and cross-
 
 ### Discovery returns nothing, or the registry cache warns
 
-Discovery reads a compiled registry cached under `~/.cache/elv` (override the location with `ELV_CACHE_DIR`). On a fresh machine that cache may not exist yet, which is why `config doctor` can report the registry as a `warn` rather than a failure. The package ships the full spec as a vendored snapshot at `spec/openapi.snapshot.json`, so you can build the cache offline with no network access:
+Discovery reads a compiled registry cached under `$XDG_CACHE_HOME/elv`, or `~/.cache/elv` when that is unset (override the location outright with `ELV_CACHE_DIR`); `elv spec status` prints the resolved `cache_path`. On a fresh machine that cache may not exist yet, which is why `config doctor` can report the registry as a `warn` rather than a failure. The package ships the full spec as a vendored snapshot at `spec/openapi.snapshot.json`, so you can build the cache offline with no network access:
 
 ```bash
 elv spec update --offline
@@ -175,7 +189,7 @@ Use `elv spec diff` first when you want to inspect added, removed, changed, or n
 
 ### Output went somewhere unexpected
 
-Binary and large payloads are not printed to stdout; they are written to disk and referenced as `files[]` in the envelope. By default they land in `~/.cache/elv/out`. Change the destination per command with `--out <file-or-dir>`, or globally with `ELV_OUTPUT_DIR` or a profile's `output_dir`.
+Binary and large payloads are not printed to stdout; they are written to disk and referenced as `files[]` in the envelope. By default they land in `$XDG_DATA_HOME/elv/out`, or `~/.local/share/elv/out` when that is unset — see the table in Step 3, and check `elv config get` for the resolved path. Change the destination per command with `--out <file-or-dir>`, or globally with `ELV_OUTPUT_DIR` or a profile's `output_dir`. An older install may still have files under `~/.cache/elv/out`; they were left in place deliberately.
 
 Music detailed streaming writes two files: decoded audio and metadata as NDJSON. Credential-producing responses also go to disk, but their envelope entry is marked `sensitive: true` and the file mode is `0600`. `elv view` refuses to render those sensitive responses; read one directly only when you intend to reveal and use the credential.
 
@@ -186,6 +200,10 @@ Music detailed streaming writes two files: decoded audio and metadata as NDJSON.
 ### The build or typecheck fails
 
 Confirm Node is 22 or newer, delete `node_modules` and reinstall with `npm ci`, then `npm run build`. Run `npm run typecheck` for the detailed TypeScript output and `npm test` to confirm the suite passes.
+
+### A source fix did not change what `elv` does
+
+Rebuilding updates a *linked* install, where `npm link` points the global `elv` back into your checkout. It does nothing for a *packed* install (`npm install -g`, including `npm install -g <tarball>`), which copied the built file at install time. From a clone, `npm run verify:install` reports which case you are in — it compares your built bytes against the installed ones, compares the repo, packaged, and active copies of the shipped skill file by file, and smokes the installed binary. It writes nothing; add `-- --install` when you want it to do the pack-and-install.
 
 ## You're done
 

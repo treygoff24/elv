@@ -1,10 +1,10 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { createHash, randomUUID } from "node:crypto";
-import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { compileSpec, compilerSemanticsInputs, curationInputs } from "./compile-spec";
 import { isRecord, parseJson } from "../util/json";
+import { defaultCacheDir } from "../util/paths";
 import type { CompileSpecResult, OpenApiDocument } from "./compile-spec";
 import type { OperationCard } from "./types";
 import type { JsonObject, JsonValue } from "../util/json";
@@ -46,12 +46,23 @@ export interface RegistryCache extends Omit<CompileSpecResult, "bundledSpec"> {
   provenance: SpecProvenance;
 }
 
-export async function loadRegistry(
+/**
+ * One parse of the compiled registry per command. `operations` is the lookup map every
+ * command needs; `cache` carries the bundled spec, provenance, and source selector that
+ * callers used to obtain by parsing the same ~3 MB file a second time via
+ * {@link readRegistryCache}. It is null only when a compile produced no cache to return.
+ */
+export interface RegistrySnapshot {
+  operations: Map<string, OperationCard>;
+  cache: RegistryCache | null;
+}
+
+export async function loadRegistrySnapshot(
   options: RegistryOptions = {},
-): Promise<Map<string, OperationCard>> {
+): Promise<RegistrySnapshot> {
   if (!options.forceRecompile) {
     const cached = readRegistryCache(options);
-    if (cached) return mapOperations(cached.operations);
+    if (cached) return { operations: mapOperations(cached.operations), cache: cached };
   }
 
   const sourcePath =
@@ -64,7 +75,7 @@ export async function loadRegistry(
   const compiled = await compileSpec(
     options.specDocument === undefined ? { sourcePath } : { document: options.specDocument },
   );
-  writeRegistryCache(
+  const { cache } = persistRegistryCache(
     compiled,
     specProvenance(
       compiled,
@@ -73,7 +84,13 @@ export async function loadRegistry(
     ),
     options,
   );
-  return mapOperations(compiled.operations);
+  return { operations: mapOperations(compiled.operations), cache };
+}
+
+export async function loadRegistry(
+  options: RegistryOptions = {},
+): Promise<Map<string, OperationCard>> {
+  return (await loadRegistrySnapshot(options)).operations;
 }
 
 export function readRegistryCache(options: RegistryOptions = {}): RegistryCache | null {
@@ -102,28 +119,35 @@ export function writeRegistryCache(
   provenance: SpecProvenance,
   options: RegistryOptions = {},
 ): string {
+  return persistRegistryCache(compiled, provenance, options).path;
+}
+
+/** Writes the cache and hands back the same object, so a compile needs no re-read. */
+function persistRegistryCache(
+  compiled: CompileSpecResult,
+  provenance: SpecProvenance,
+  options: RegistryOptions,
+): { path: string; cache: RegistryCache } {
   const path = registryCachePath(options);
   const sourceSelector = registrySourceSelector(options);
+  const cache: RegistryCache = {
+    schema: "elv.openapi.cache.v3",
+    version: packageVersion(options.version),
+    fingerprint: registryFingerprint(provenance.sha256, sourceSelector),
+    sourceSelector,
+    generated_at: new Date().toISOString(),
+    totalOperations: compiled.totalOperations,
+    skippedOperations: compiled.skippedOperations,
+    operations: compiled.operations,
+    bundledSpec: compiled.bundledSpec,
+    provenance,
+  };
   mkdirSync(dirname(path), { recursive: true });
   const temporaryPath = `${path}.tmp-${process.pid}-${randomUUID()}`;
-  writeFileSync(
-    temporaryPath,
-    `${JSON.stringify({
-      schema: "elv.openapi.cache.v3",
-      version: packageVersion(options.version),
-      fingerprint: registryFingerprint(provenance.sha256, sourceSelector),
-      sourceSelector,
-      generated_at: new Date().toISOString(),
-      totalOperations: compiled.totalOperations,
-      skippedOperations: compiled.skippedOperations,
-      operations: compiled.operations,
-      bundledSpec: compiled.bundledSpec,
-      provenance,
-    } satisfies RegistryCache)}\n`,
-  );
+  writeFileSync(temporaryPath, `${JSON.stringify(cache)}\n`);
   options.beforeCacheRename?.(temporaryPath, path);
   renameSync(temporaryPath, path);
-  return path;
+  return { path, cache };
 }
 
 export function specProvenance(
@@ -167,7 +191,8 @@ function versionedCacheDir(options: RegistryOptions = {}): string {
 }
 
 function resolveCacheRoot(cacheDir?: string): string {
-  return resolve(cacheDir ?? process.env.ELV_CACHE_DIR ?? join(homedir(), ".cache", "elv"));
+  // An explicit option still wins; defaultCacheDir() owns ELV_CACHE_DIR, XDG, and HOME.
+  return resolve(cacheDir ?? defaultCacheDir());
 }
 
 function packageVersion(override?: string, moduleUrl: string | URL = import.meta.url): string {

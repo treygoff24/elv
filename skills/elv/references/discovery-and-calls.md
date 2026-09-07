@@ -119,3 +119,23 @@ elv spec status
 Profiles can supply base URL, output directory, default model, and maximum
 credits. Environment and command flags may override them. Diagnose the resolved
 state with the CLI rather than guessing cache or config paths.
+
+Defaults follow the XDG base directories, falling back to the historical
+home-relative path when the XDG variable is unset or relative. An `ELV_*`
+override always wins:
+
+| What | Override | Default |
+| --- | --- | --- |
+| Config | `ELV_CONFIG` (an exact file) | `$XDG_CONFIG_HOME/elv/config.json`, else `~/.config/elv/config.json` |
+| Registry cache | `ELV_CACHE_DIR` | `$XDG_CACHE_HOME/elv`, else `~/.cache/elv` |
+| Output | `--out` per job, then `ELV_OUTPUT_DIR`, then a profile's `output_dir` | `$XDG_DATA_HOME/elv/out`, else `~/.local/share/elv/out` |
+
+Output defaults to a data directory because results are durable; clearing a
+cache never removes them. Files written under the older `~/.cache/elv/out`
+default stay where they are.
+
+A `.elv/config.json` found implicitly in the working directory supplies ordinary
+workflow options, and its `base_url` and `api_key_env` are ignored. To select an
+endpoint or key variable, use user config or point `ELV_CONFIG` at the file
+deliberately. When a call reaches an unexpected host or fails auth inside an
+unfamiliar checkout, that rule is the first thing to check.

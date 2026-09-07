@@ -1,10 +1,16 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync, rmSync } from "node:fs";
-import { homedir } from "node:os";
-import { isAbsolute, join, resolve } from "node:path";
+import { join } from "node:path";
 import { success, failure } from "./envelope";
 import { ExitCode } from "./types";
 import { errorMessage } from "../util/error";
 import { isRecord, parseJson } from "../util/json";
+import {
+  absolutePath,
+  defaultCacheDir,
+  defaultConfigDir,
+  defaultDataDir,
+  legacyConfigDir,
+} from "../util/paths";
 import type { CommandResult } from "./types";
 import type { JsonValue } from "../util/json";
 
@@ -55,9 +61,9 @@ interface DoctorOptions extends ConfigOverrides {
 export class ConfigFileError extends Error {
   constructor(
     public readonly path: string,
-    cause: unknown,
+    message: string,
   ) {
-    super(`Invalid JSON in config file ${path}: ${errorMessage(cause)}`);
+    super(message);
     this.name = "ConfigFileError";
   }
 }
@@ -84,7 +90,7 @@ export function loadConfig(overrides: ConfigOverrides = {}): ResolvedConfig {
   return {
     baseUrl: configuredBaseUrl(activeProfile, residency, overrides),
     apiKeyPresent: Boolean(process.env[apiKeyEnv]),
-    outputDir: configuredOutputDir(activeProfile, cacheDir),
+    outputDir: configuredOutputDir(activeProfile),
     defaultTtsModelId: activeProfile.default_model_id,
     maxCredits: configuredMaxCredits(activeProfile, overrides),
     profile,
@@ -122,12 +128,12 @@ function configuredMaxCredits(
 }
 
 function configuredCacheDir(): string {
-  return absolutePath(process.env.ELV_CACHE_DIR ?? join(homedir(), ".cache", "elv"));
+  return defaultCacheDir();
 }
 
-function configuredOutputDir(profile: ProfileConfig, cacheDir: string): string {
+function configuredOutputDir(profile: ProfileConfig): string {
   const outputOverride = process.env.ELV_OUTPUT_DIR || profile.output_dir;
-  return outputOverride ? absolutePath(outputOverride) : join(cacheDir, "out");
+  return outputOverride ? absolutePath(outputOverride) : join(defaultDataDir(), "out");
 }
 
 function configuredBaseUrl(
@@ -194,32 +200,85 @@ export async function configDoctor(options: DoctorOptions = {}): Promise<DoctorR
 }
 
 function readConfigFile(): FileConfig {
-  const path = findConfigPath();
-  if (!path) return {};
+  const source = findConfigSource();
+  if (!source) return {};
   let parsed: JsonValue;
   try {
-    parsed = parseJson(readFileSync(path, "utf8"), path);
+    parsed = parseJson(readFileSync(source.path, "utf8"), source.path);
   } catch (error) {
-    throw new ConfigFileError(path, error);
+    throw new ConfigFileError(
+      source.path,
+      `Invalid JSON in config file ${source.path}: ${errorMessage(error)}`,
+    );
   }
   if (!parsed || typeof parsed !== "object") return {};
+  if (!source.trusted) rejectPrivilegedFields(source.path, parsed);
   return parsed as FileConfig;
 }
 
-function findConfigPath(): string | undefined {
+interface ConfigSource {
+  path: string;
+  /**
+   * True when the user pointed at this file (ELV_CONFIG) or it lives in their
+   * own config directory. A `.elv/config.json` discovered in the current
+   * directory is whatever checkout the agent happens to be standing in, so it
+   * is untrusted.
+   */
+  trusted: boolean;
+}
+
+function findConfigSource(): ConfigSource | undefined {
   const envPath = process.env.ELV_CONFIG;
-  const candidates = [
-    envPath,
-    join(process.cwd(), ".elv", "config.json"),
-    join(homedir(), ".config", "elv", "config.json"),
-  ];
-  return candidates.find((candidate): candidate is string =>
-    Boolean(candidate && existsSync(candidate)),
+  if (envPath) {
+    if (!existsSync(envPath)) {
+      throw new ConfigFileError(
+        envPath,
+        `ELV_CONFIG points at ${envPath}, which does not exist. Create that file or unset ELV_CONFIG; elv will not silently fall back to another config.`,
+      );
+    }
+    return { path: envPath, trusted: true };
+  }
+  const projectPath = join(process.cwd(), ".elv", "config.json");
+  if (existsSync(projectPath)) return { path: projectPath, trusted: false };
+  const userPath = userConfigPaths().find((candidate) => existsSync(candidate));
+  return userPath ? { path: userPath, trusted: true } : undefined;
+}
+
+/** XDG location first, then a preexisting pre-XDG file so upgrades keep working. */
+function userConfigPaths(): string[] {
+  const paths = [join(defaultConfigDir(), "config.json"), join(legacyConfigDir(), "config.json")];
+  return [...new Set(paths)];
+}
+
+/**
+ * Fields that choose where credentials are sent or which credential is used.
+ * An untrusted project config may set ordinary workflow options, but selecting
+ * an endpoint or a key environment variable needs the user's own say-so.
+ */
+const PRIVILEGED_CONFIG_FIELDS = new Set(["base_url", "api_key_env"]);
+
+function rejectPrivilegedFields(path: string, parsed: JsonValue): void {
+  const found = privilegedFieldPaths(parsed, []);
+  if (found.length === 0) return;
+  throw new ConfigFileError(
+    path,
+    `Untrusted project config ${path} sets ${found.join(", ")}. Those fields choose the endpoint that receives your API key and which environment variable holds it, so elv honors them only from a trusted config. Move them to ${join(defaultConfigDir(), "config.json")}, run with ELV_CONFIG=${path} to trust this file, or pass --base-url on the command line.`,
   );
 }
 
-function absolutePath(path: string): string {
-  return isAbsolute(path) ? path : resolve(process.cwd(), path);
+/** Scans the whole document, so a later schema cannot reopen this quietly. */
+function privilegedFieldPaths(value: JsonValue, trail: string[]): string[] {
+  if (Array.isArray(value)) {
+    return value.flatMap((item, index) => privilegedFieldPaths(item, [...trail, String(index)]));
+  }
+  if (!isRecord(value)) return [];
+  const found: string[] = [];
+  for (const [key, child] of Object.entries(value)) {
+    const here = [...trail, key];
+    if (PRIVILEGED_CONFIG_FIELDS.has(key)) found.push(here.join("."));
+    else found.push(...privilegedFieldPaths(child, here));
+  }
+  return found;
 }
 
 function numberFromEnv(name: string): number | undefined {

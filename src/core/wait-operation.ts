@@ -6,6 +6,7 @@ import { ExitCode } from "./types";
 import { errorMessage } from "../util/error";
 import { parseJson, parseJsonRecord } from "../util/json";
 import { readPath } from "../util/jsonpath";
+import type { ChildProcess } from "node:child_process";
 import type { AgentInput, CommandResult, Envelope, Hint, RunOpts } from "./types";
 import type { JsonInputValue, JsonObject } from "../util/json";
 
@@ -22,19 +23,82 @@ export interface WaitOptions extends Pick<RunOpts, "baseUrl" | "profile"> {
   timeoutHints?: Hint[];
 }
 
+/** A delay that can be abandoned; `cancel` leaves the promise permanently pending. */
+export interface CancellableDelay {
+  promise: Promise<void>;
+  cancel: () => void;
+}
+
+export interface WaitTimers {
+  delay: (ms: number) => CancellableDelay;
+}
+
+type WaitSignal = "SIGINT" | "SIGTERM";
+
+export interface SignalSource {
+  on: (signal: WaitSignal, handler: () => void) => void;
+  off: (signal: WaitSignal, handler: () => void) => void;
+}
+
+/** Watches for termination so an owned child is reaped instead of orphaned. */
+export interface Interrupt {
+  readonly signal?: WaitSignal;
+  readonly promise: Promise<void>;
+  onFire: (listener: () => void) => void;
+  offFire: (listener: () => void) => void;
+  dispose: () => void;
+}
+
+/** One poll attempt's slice of the overall deadline. */
+export interface PollAttempt {
+  budgetMs: number;
+  /**
+   * False on the first attempt. An operation poll cannot be cancelled (the HTTP client
+   * exposes no abort seam), so abandoning one only discards information: a wait that
+   * followed a paid create would report a timeout with no observed status at all. The
+   * first attempt is therefore awaited, and every later one is bounded. A `--cmd` child
+   * is different — this process owns it, so it is bounded and reaped from the first run.
+   */
+  abandonable: boolean;
+}
+
+export interface ChildRunContext {
+  budgetMs: number;
+  interrupt: Interrupt;
+  timers: WaitTimers;
+}
+
+/**
+ * One poll attempt. `expired` means the runtime ended the attempt itself because the
+ * overall deadline passed, so the envelope (when present) is a diagnostic, not a result.
+ */
+export type RunOutcome =
+  | { expired?: undefined; env: Envelope }
+  | { expired: "child_terminated" | "poll_abandoned"; env?: Envelope };
+
 interface WaitDeps {
   runOperation?: (
     operationId: string,
     input: AgentInput,
     opts?: Pick<RunOpts, "baseUrl" | "profile">,
   ) => Promise<Envelope>;
-  runCommand?: (argv: string[]) => Promise<Envelope>;
+  runCommand?: (argv: string[], ctx: ChildRunContext) => Promise<RunOutcome>;
   sleep?: (ms: number) => Promise<void>;
   now?: () => number;
+  timers?: WaitTimers;
+  signals?: SignalSource;
 }
 
 const DEFAULT_INTERVAL_MS = 2_000;
 const DEFAULT_TIMEOUT_MS = 10 * 60_000;
+/** SIGTERM -> SIGKILL escalation window for an owned child that ignores termination. */
+const CHILD_TERM_GRACE_MS = 250;
+/** Hard bound on waiting for a signalled child to close, so the wait always returns. */
+const CHILD_REAP_BUDGET_MS = 2 * CHILD_TERM_GRACE_MS;
+/** Envelopes are small by contract (large payloads spill to files), so cap what we retain. */
+const MAX_STDOUT_BYTES = 1024 * 1024;
+const MAX_STDERR_BYTES = 64 * 1024;
+const WAIT_SIGNALS: WaitSignal[] = ["SIGINT", "SIGTERM"];
 
 type ParsedCommon = {
   statusPath: string;
@@ -58,10 +122,23 @@ type ParsedWait =
       cmd: string[];
     });
 
-interface CommandRunState {
-  stdout: string;
-  stderr: string;
-  resolve: (env: Envelope) => void;
+interface CappedOutput {
+  text: string;
+  bytes: number;
+  truncated: boolean;
+}
+
+interface ChildRun {
+  child: ChildProcess;
+  ctx: ChildRunContext;
+  stdout: CappedOutput;
+  stderr: CappedOutput;
+  pending: CancellableDelay[];
+  settled: boolean;
+  reaped: boolean;
+  terminated?: "deadline" | "interrupt";
+  resolve: (outcome: RunOutcome) => void;
+  onInterrupt: () => void;
 }
 
 export function waitForOperation(
@@ -76,10 +153,11 @@ export function waitForOperation(
 }
 
 interface WaitRuntime {
-  run: () => Promise<Envelope>;
+  run: (attempt: PollAttempt, interrupt: Interrupt) => Promise<RunOutcome>;
   sleep: (ms: number) => Promise<void>;
   now: () => number;
   deadline: number;
+  signals: SignalSource;
 }
 
 interface PollObservation {
@@ -87,39 +165,174 @@ interface PollObservation {
   status: unknown;
 }
 
-function waitRuntime(parsed: ParsedWait, deps: WaitDeps): WaitRuntime {
-  const now = deps.now ?? (() => Date.now());
+function realDelay(ms: number): CancellableDelay {
+  let settle: () => void = () => {};
+  const promise = new Promise<void>((resolve) => {
+    settle = resolve;
+  });
+  // unref: a deadline bound must never be the reason this process stays alive.
+  const handle = setTimeout(settle, Math.max(0, ms));
+  handle.unref?.();
+  return { promise, cancel: () => clearTimeout(handle) };
+}
+
+const processSignals: SignalSource = {
+  on: (signal, handler) => {
+    process.on(signal, handler);
+  },
+  off: (signal, handler) => {
+    process.off(signal, handler);
+  },
+};
+
+/**
+ * Installs SIGINT/SIGTERM listeners for the life of one wait. The first signal is
+ * handled here (so the command still emits exactly one envelope) and the listeners are
+ * removed immediately, restoring default termination for an impatient second signal.
+ */
+function watchInterrupt(source: SignalSource): Interrupt {
+  const listeners = new Set<() => void>();
+  const handlers = new Map<WaitSignal, () => void>();
+  let signal: WaitSignal | undefined;
+  let fire: () => void = () => {};
+  const promise = new Promise<void>((resolve) => {
+    fire = resolve;
+  });
+
+  const dispose = (): void => {
+    for (const [name, handler] of handlers) source.off(name, handler);
+    handlers.clear();
+  };
+
+  for (const name of WAIT_SIGNALS) {
+    const handler = (): void => {
+      if (signal) return;
+      signal = name;
+      dispose();
+      // One-shot: drain before firing so a listener cannot re-enter this set.
+      const firing = Array.from(listeners);
+      listeners.clear();
+      for (const listener of firing) listener();
+      fire();
+    };
+    handlers.set(name, handler);
+    source.on(name, handler);
+  }
+
   return {
-    run: waitRunner(parsed, deps),
-    sleep: deps.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))),
-    now,
-    deadline: now() + parsed.timeoutMs,
+    get signal() {
+      return signal;
+    },
+    promise,
+    onFire: (listener) => {
+      listeners.add(listener);
+    },
+    offFire: (listener) => {
+      listeners.delete(listener);
+    },
+    dispose,
   };
 }
 
-function waitRunner(parsed: ParsedWait, deps: WaitDeps): () => Promise<Envelope> {
-  if (parsed.mode === "cmd") return () => (deps.runCommand ?? runCommand)(parsed.cmd);
-  return () =>
-    (deps.runOperation ?? runOperation)(parsed.operation, parsed.input, {
-      baseUrl: parsed.baseUrl,
-      profile: parsed.profile,
-    });
+function waitRuntime(parsed: ParsedWait, deps: WaitDeps): WaitRuntime {
+  const now = deps.now ?? (() => Date.now());
+  const timers = deps.timers ?? { delay: realDelay };
+  return {
+    run: waitRunner(parsed, deps, timers),
+    sleep: deps.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))),
+    now,
+    deadline: now() + parsed.timeoutMs,
+    signals: deps.signals ?? processSignals,
+  };
+}
+
+function waitRunner(
+  parsed: ParsedWait,
+  deps: WaitDeps,
+  timers: WaitTimers,
+): (attempt: PollAttempt, interrupt: Interrupt) => Promise<RunOutcome> {
+  if (parsed.mode === "cmd") {
+    const run = deps.runCommand ?? runCommand;
+    return (attempt, interrupt) =>
+      run(parsed.cmd, { budgetMs: attempt.budgetMs, interrupt, timers });
+  }
+  const run = deps.runOperation ?? runOperation;
+  return (attempt, interrupt) =>
+    raceDeadline(
+      run(parsed.operation, parsed.input, { baseUrl: parsed.baseUrl, profile: parsed.profile }),
+      attempt,
+      interrupt,
+      timers,
+    );
+}
+
+/**
+ * Operation mode has no cancellation seam into the HTTP client, so a poll that outlives
+ * the deadline is abandoned rather than cancelled: the wait returns and the request is
+ * left to settle unread. `Promise.race` keeps a late rejection handled.
+ */
+async function raceDeadline(
+  pending: Promise<Envelope>,
+  attempt: PollAttempt,
+  interrupt: Interrupt,
+  timers: WaitTimers,
+): Promise<RunOutcome> {
+  const bound = attempt.abandonable ? timers.delay(attempt.budgetMs) : undefined;
+  const abandoned: RunOutcome = { expired: "poll_abandoned" };
+  try {
+    return await Promise.race<RunOutcome>([
+      pending.then((env) => ({ env })),
+      ...(bound ? [bound.promise.then(() => abandoned)] : []),
+      interrupt.promise.then(() => abandoned),
+    ]);
+  } finally {
+    bound?.cancel();
+  }
 }
 
 async function pollUntilComplete(parsed: ParsedWait, runtime: WaitRuntime): Promise<CommandResult> {
+  const interrupt = watchInterrupt(runtime.signals);
+  try {
+    return await pollLoop(parsed, runtime, interrupt);
+  } finally {
+    interrupt.dispose();
+  }
+}
+
+async function pollLoop(
+  parsed: ParsedWait,
+  runtime: WaitRuntime,
+  interrupt: Interrupt,
+): Promise<CommandResult> {
   let last: PollObservation | undefined;
   for (;;) {
     if (last && remainingMs(runtime) <= 0) {
       return waitTimeout(parsed, last.status, last.env);
     }
-    const poll = await runPoll(parsed, runtime);
+    const attempt: PollAttempt = {
+      budgetMs: Math.max(remainingMs(runtime), 1),
+      abandonable: last !== undefined,
+    };
+    const outcome = await safeRun(runtime.run, attempt, interrupt);
+    if (interrupt.signal) {
+      return waitInterrupted(parsed, interrupt.signal, outcome.env ?? last?.env);
+    }
+    if (outcome.expired) {
+      // Prefer the child's termination diagnostic; otherwise report the last real poll.
+      return waitTimeout(parsed, last?.status, outcome.env ?? last?.env, {
+        [outcome.expired]: true,
+      });
+    }
+
+    const poll = runPoll(parsed, runtime, outcome.env);
     if ("result" in poll) return poll.result;
     last = poll;
     const remaining = remainingMs(runtime);
     if (remaining <= 0) {
       return waitTimeout(parsed, poll.status, poll.env);
     }
-    await runtime.sleep(Math.min(parsed.intervalMs, remaining));
+    await Promise.race([runtime.sleep(Math.min(parsed.intervalMs, remaining)), interrupt.promise]);
+    if (interrupt.signal) return waitInterrupted(parsed, interrupt.signal, last.env);
   }
 }
 
@@ -127,34 +340,39 @@ function remainingMs(runtime: WaitRuntime): number {
   return runtime.deadline - runtime.now();
 }
 
-async function runPoll(
+function runPoll(
   parsed: ParsedWait,
   runtime: WaitRuntime,
-): Promise<PollObservation | { result: CommandResult }> {
-  const env = await safeRun(runtime.run);
+  env: Envelope,
+): PollObservation | { result: CommandResult } {
   if (!env.ok) {
     return {
       result: { env, exitCode: exitCodeForError(env.error, env.http?.status) },
     };
   }
-  return statusObservation(parsed, env);
+  return statusObservation(parsed, env, remainingMs(runtime) <= 0);
 }
 
-async function safeRun(run: () => Promise<Envelope>): Promise<Envelope> {
+async function safeRun(
+  run: WaitRuntime["run"],
+  attempt: PollAttempt,
+  interrupt: Interrupt,
+): Promise<RunOutcome> {
   try {
-    return await run();
+    return await run(attempt, interrupt);
   } catch (error) {
-    return commandEnvelopeError(errorMessage(error));
+    return { env: commandEnvelopeError(errorMessage(error)) };
   }
 }
 
 function statusObservation(
   parsed: ParsedWait,
   env: Envelope,
+  expired: boolean,
 ): PollObservation | { result: CommandResult } {
   try {
     const status = readPath(env, parsed.statusPath);
-    const result = terminalStatusResult(parsed, env, status);
+    const result = terminalStatusResult(parsed, env, status, expired);
     return result ? { result } : { env, status };
   } catch (error) {
     return {
@@ -170,10 +388,18 @@ function terminalStatusResult(
   parsed: ParsedWait,
   env: Envelope,
   status: unknown,
+  expired: boolean,
 ): CommandResult | undefined {
   if (!isScalar(status)) return undefined;
   const value = String(status);
-  if (parsed.success.has(value)) return { env, exitCode: ExitCode.Success };
+  if (parsed.success.has(value)) {
+    // A success observed after the deadline is not a success this wait can report:
+    // the caller's budget already expired. Failures stay reportable — they are
+    // definitive and more useful than a generic timeout.
+    return expired
+      ? waitTimeout(parsed, status, env, { late_success: true })
+      : { env, exitCode: ExitCode.Success };
+  }
   if (parsed.failure.has(value)) return waitFailure(value, env);
   return undefined;
 }
@@ -273,19 +499,48 @@ function waitFailure(status: string, env: Envelope): CommandResult {
   };
 }
 
-function waitTimeout(parsed: ParsedCommon, status: unknown, env: Envelope): CommandResult {
+function waitTimeout(
+  parsed: ParsedCommon,
+  status: unknown,
+  env?: Envelope,
+  extra?: JsonObject,
+): CommandResult {
   return {
     env: failure({
       cmd: "elv wait",
-      operation_id: env.operation_id,
+      operation_id: env?.operation_id,
       error: {
         type: "wait_timeout",
         code: "wait_timeout",
         message: `Timed out waiting for ${parsed.statusPath} after ${parsed.timeoutMs}ms`,
-        raw: { status, envelope: env },
+        raw: { status: (status ?? null) as JsonInputValue, envelope: env ?? null, ...extra },
       },
       retry: { recommended: true, after_ms: null },
       ...(parsed.timeoutHints.length ? { hints: parsed.timeoutHints } : {}),
+    }),
+    exitCode: ExitCode.TransientExhausted,
+  };
+}
+
+/**
+ * Exit 7 (transient/retryable) rather than 128+signal: the documented exit-code
+ * dictionary in AGENTS.md is the contract agents branch on, and the command still
+ * emits exactly one envelope. Any child this wait owned has already been terminated.
+ */
+function waitInterrupted(parsed: ParsedCommon, signal: WaitSignal, env?: Envelope): CommandResult {
+  return {
+    env: failure({
+      cmd: "elv wait",
+      operation_id: env?.operation_id,
+      error: {
+        type: "wait_interrupted",
+        code: "wait_interrupted",
+        message:
+          `Interrupted by ${signal} before ${parsed.statusPath} resolved; ` +
+          `any child command started by this wait was terminated`,
+        raw: { signal, envelope: env ?? null },
+      },
+      retry: { recommended: true, after_ms: null },
     }),
     exitCode: ExitCode.TransientExhausted,
   };
@@ -327,49 +582,170 @@ function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((item) => typeof item === "string");
 }
 
-function runCommand(argv: string[]): Promise<Envelope> {
-  return new Promise(runCommandExecutor.bind(null, argv));
+function runCommand(argv: string[], ctx: ChildRunContext): Promise<RunOutcome> {
+  const [command, ...args] = argv;
+  if (!command) return Promise.reject(new Error("--cmd must not be empty"));
+  return new Promise<RunOutcome>((resolve, reject) => {
+    startChild(command, args, ctx, resolve, reject);
+  });
 }
 
-function runCommandExecutor(
-  argv: string[],
-  resolve: (env: Envelope) => void,
+function startChild(
+  command: string,
+  args: string[],
+  ctx: ChildRunContext,
+  resolve: (outcome: RunOutcome) => void,
   reject: (reason?: unknown) => void,
 ): void {
-  const [command, ...args] = argv;
-  if (!command) {
-    reject(new Error("--cmd must not be empty"));
+  const child = spawn(command, args, {
+    stdio: ["ignore", "pipe", "pipe"],
+    // Its own process group, so a stalled child's own children are reaped with it and
+    // nothing outside this wait is ever signalled.
+    detached: process.platform !== "win32",
+  });
+  const run: ChildRun = {
+    child,
+    ctx,
+    stdout: emptyOutput(),
+    stderr: emptyOutput(),
+    pending: [],
+    settled: false,
+    reaped: false,
+    resolve,
+    onInterrupt: () => {},
+  };
+
+  run.onInterrupt = () => terminateChild(run, "interrupt");
+  ctx.interrupt.onFire(run.onInterrupt);
+  const deadline = ctx.timers.delay(ctx.budgetMs);
+  void deadline.promise.then(() => terminateChild(run, "deadline"));
+  run.pending.push(deadline);
+
+  // Keep draining after the cap so the child never blocks on a full pipe.
+  child.stdout.on("data", (chunk: Buffer | string) =>
+    appendOutput(run.stdout, chunk, MAX_STDOUT_BYTES),
+  );
+  child.stderr.on("data", (chunk: Buffer | string) =>
+    appendOutput(run.stderr, chunk, MAX_STDERR_BYTES),
+  );
+  child.on("error", (error: Error) => {
+    if (run.settled) return;
+    run.settled = true;
+    cleanupChild(run);
+    reject(error);
+  });
+  child.on("close", (code: number | null, signal: NodeJS.Signals | null) => {
+    run.reaped = true;
+    settleChild(run, code, signal);
+  });
+}
+
+function emptyOutput(): CappedOutput {
+  return { text: "", bytes: 0, truncated: false };
+}
+
+function appendOutput(out: CappedOutput, chunk: Buffer | string, cap: number): void {
+  if (out.bytes >= cap) {
+    out.truncated = true;
     return;
   }
-
-  const child = spawn(command, args, { stdio: ["ignore", "pipe", "pipe"] });
-  const state: CommandRunState = { stdout: "", stderr: "", resolve };
-  child.stdout.on("data", appendStdout.bind(null, state));
-  child.stderr.on("data", appendStderr.bind(null, state));
-  child.on("error", reject);
-  child.on("close", finishCommand.bind(null, state));
-}
-
-function appendStdout(state: CommandRunState, chunk: Buffer | string): void {
-  state.stdout += chunk.toString();
-}
-
-function appendStderr(state: CommandRunState, chunk: Buffer | string): void {
-  state.stderr += chunk.toString();
-}
-
-function finishCommand(state: CommandRunState, code: number | null): void {
-  try {
-    state.resolve(parseJson(state.stdout.trim(), "command stdout") as unknown as Envelope);
-  } catch {
-    state.resolve(
-      commandEnvelopeError("Command did not emit a JSON envelope", {
-        exit_code: code,
-        stdout: preview(state.stdout),
-        stderr: preview(state.stderr),
-      }),
-    );
+  const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+  const room = cap - out.bytes;
+  if (buffer.length <= room) {
+    out.text += buffer.toString();
+    out.bytes += buffer.length;
+    return;
   }
+  out.text += buffer.subarray(0, room).toString();
+  out.bytes = cap;
+  out.truncated = true;
+}
+
+/** Terminates only the process group this wait created, then escalates on a fixed grace. */
+function terminateChild(run: ChildRun, reason: "deadline" | "interrupt"): void {
+  if (run.settled || run.terminated) return;
+  run.terminated = reason;
+  signalOwned(run.child, "SIGTERM");
+  const escalate = run.ctx.timers.delay(CHILD_TERM_GRACE_MS);
+  void escalate.promise.then(() => signalOwned(run.child, "SIGKILL"));
+  const abandon = run.ctx.timers.delay(CHILD_REAP_BUDGET_MS);
+  void abandon.promise.then(() => settleChild(run, null, null));
+  run.pending.push(escalate, abandon);
+}
+
+function signalOwned(child: ChildProcess, signal: "SIGTERM" | "SIGKILL"): void {
+  const pid = child.pid;
+  if (pid === undefined || pid <= 0) return;
+  if (child.exitCode !== null || child.signalCode !== null) return;
+  try {
+    // Negative pid addresses exactly the group spawned above — never a broader sweep.
+    if (process.platform === "win32") child.kill(signal);
+    else process.kill(-pid, signal);
+  } catch {
+    try {
+      child.kill(signal);
+    } catch {
+      /* already exited */
+    }
+  }
+}
+
+function cleanupChild(run: ChildRun): void {
+  for (const delay of run.pending) delay.cancel();
+  run.pending = [];
+  run.ctx.interrupt.offFire(run.onInterrupt);
+}
+
+function settleChild(run: ChildRun, code: number | null, signal: NodeJS.Signals | null): void {
+  if (run.settled) return;
+  run.settled = true;
+  cleanupChild(run);
+  run.resolve(childOutcome(run, code, signal));
+}
+
+function childOutcome(
+  run: ChildRun,
+  code: number | null,
+  signal: NodeJS.Signals | null,
+): RunOutcome {
+  if (run.terminated) {
+    return {
+      expired: "child_terminated",
+      env: commandEnvelopeError(
+        run.terminated === "deadline"
+          ? "Child command exceeded the remaining --timeout-ms and was terminated"
+          : "Child command was terminated because the wait was interrupted",
+        childDiagnostics(run, code, signal),
+      ),
+    };
+  }
+  try {
+    return { env: parseJson(run.stdout.text.trim(), "command stdout") as unknown as Envelope };
+  } catch {
+    return {
+      env: commandEnvelopeError(
+        "Command did not emit a JSON envelope",
+        childDiagnostics(run, code, signal),
+      ),
+    };
+  }
+}
+
+function childDiagnostics(
+  run: ChildRun,
+  code: number | null,
+  signal: NodeJS.Signals | null,
+): JsonObject {
+  return {
+    exit_code: code,
+    signal: signal ?? null,
+    terminated: run.terminated ?? null,
+    reaped: run.reaped,
+    stdout: preview(run.stdout.text),
+    stderr: preview(run.stderr.text),
+    stdout_truncated: run.stdout.truncated,
+    stderr_truncated: run.stderr.truncated,
+  };
 }
 
 function commandEnvelopeError(message: string, raw?: JsonInputValue): Envelope {

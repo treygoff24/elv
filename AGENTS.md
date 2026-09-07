@@ -17,11 +17,15 @@ npm run test           # vitest run
 npm run smoke          # offline envelope matrix against the built dist/cli.js
 ```
 
-Run `npm run gate` before and after a change. Never reach for `npx prettier` or `npx eslint`: they are not installed here and will fetch a foreign formatter that rewrites touched TypeScript with incompatible wrapping. `npm run format` (no `--check`) is the only rewriter. Lint one path with `npx oxlint src/cli.ts`; oxlint has no `--no-cache`.
+Run `npm run gate` before and after a change. Never reach for `npx prettier` or `npx eslint`: they are not installed here and will fetch a foreign formatter that rewrites touched TypeScript with incompatible wrapping. `npm run format` (no `--check`) is the only rewriter. Lint one path with `npx oxlint src/cli.ts`; oxlint has no `--no-cache`. The test run holds itself to a small worker ceiling so it can share a machine; raise or lower it for one run with `ELV_TEST_MAX_WORKERS=<n>`.
 
-`npm run smoke` runs the offline JSON-envelope matrix in `scripts/smoke-matrix.tsv` — a fast contract check that every listed command still prints one `v:1` envelope with the documented exit code, no network and no credits. Point it at any build with `ELV_BIN="$(command -v elv)" npm run smoke`. `npm run smoke:pack` does the same against an unpacked `npm pack` tarball, staging the repo's `node_modules` so no network install is needed.
+`npm run smoke` runs the offline JSON-envelope matrix in `scripts/smoke-matrix.tsv` — a fast contract check that every listed command still prints one `v:1` envelope with the documented exit code. Offline is enforced rather than assumed: the run preloads `scripts/no-egress.mjs`, which refuses non-loopback TCP, TLS, DNS, and `fetch` in the CLI process and every process it spawns, so a credential-injecting wrapper cannot quietly turn a smoke row into a billed API call. Point it at any build with `ELV_BIN="$(command -v elv)" npm run smoke`; when that binary is a launcher that reaches a broker on a non-loopback address, name that one host in `ELV_NO_EGRESS_ALLOW`.
 
-`dist/cli.js` is what an installed `elv` actually executes (`npm link` symlinks the global bin at it), so **a source fix is not live until you rebuild**. `npm run build` is the reinstall. Verify the installed runtime, not just the source tree: `elv --version`, then `ELV_BIN="$(command -v elv)" npm run smoke`.
+`npm run smoke:pack` runs the same matrix against an `npm pack` tarball installed offline into a throwaway prefix. That path also proves the tarball is reproducible, that `dependencies` is complete (the install resolves production dependencies only), and that the npm-created bin symlink works.
+
+`dist/cli.js` is what an installed `elv` executes, so **a source fix is not live until you rebuild** — and a rebuild alone is enough only for a *linked* install, where `npm link` points the global bin back into this checkout. A *packed* install (`npm install -g <tarball>`, which is how the devbox global is installed) copied `dist/cli.js` at install time and needs a fresh pack and install to change.
+
+`npm run verify:install` tells you which case you are in and what else has drifted: it compares built against installed bytes, compares the repo, packaged, and active skill trees file by file, checks that every command the skill's Route map advertises still exists in the installed CLI, and smokes the installed binary. It writes nothing. `npm run verify:install -- --install` does the pack-and-install; `-- --sync-skill` copies the repo skill into the skill-library pool, deleting nothing and committing nothing.
 
 Searching: `spec/openapi.snapshot.json` is one ~1.8 MB line, so a broad `rg` or `git grep` that hits it floods and truncates the output you wanted. A checked-in `.ignore` keeps ripgrep out of it and `.gitattributes` marks it binary for git. Search it on purpose with `rg --no-ignore <pattern> spec/openapi.snapshot.json`, or better, use `elv ops search` / `elv ops get` / `elv ops schema`. `src/commands/aliases/README.md` maps that directory; the shared helper is `shared.ts`.
 
@@ -112,7 +116,19 @@ elv spec status     # -> cache_path: the exact compiled-registry file
 
 `config doctor` is offline by default; `--online` explicitly probes connectivity and account credits. Inspect the individual checks: credential presence and successful provider authentication are separate facts.
 
-Do not guess where the compiled registry lives. `elv spec status` prints the resolved `cache_path` (`$ELV_CACHE_DIR`, else `~/.cache/elv`, then the package version, then `openapi.compact.json`) and whether an active registry is present. A repo-local `.elv/` directory is **not** a registry cache: it holds an optional `config.json` for profiles and, if you point `output_dir` there, response artifacts. When no active registry is compiled, commands fall back to the vendored `spec/openapi.snapshot.json`.
+Do not guess where anything lives — `elv config get` and `elv spec status` print the resolved paths, and `spec status` also reports whether an active registry is present. Defaults follow the XDG base directories; an `ELV_*` override always wins, and the historical home-relative path is the fallback when the XDG variable is unset or relative.
+
+| What | Override | Default |
+| ---- | -------- | ------- |
+| User config | `ELV_CONFIG` (an exact file) | `$XDG_CONFIG_HOME/elv/config.json`, else `~/.config/elv/config.json` |
+| Compiled registry cache | `ELV_CACHE_DIR` | `$XDG_CACHE_HOME/elv`, else `~/.cache/elv` |
+| Output directory | `--out` per job, then `ELV_OUTPUT_DIR`, then a profile's `output_dir` | `$XDG_DATA_HOME/elv/out`, else `~/.local/share/elv/out` |
+
+Generated results are durable, so output defaults to a data directory rather than a cache directory: clearing a cache must never take generated audio with it. Files already written under the older `~/.cache/elv/out` default stay exactly where they are — nothing is relocated for you. Pass `--out <file-or-directory>` per job whenever the destination matters, which is most of the time.
+
+A repo-local `.elv/` directory is **not** a registry cache: it holds an optional `config.json` for profiles and, if you point `output_dir` there, response artifacts. A `.elv/config.json` discovered implicitly in the current directory may set ordinary workflow options, but not `base_url` or `api_key_env`: a checkout you have not vetted must not be able to aim your credentials at an endpoint of its choosing. Select an endpoint or key variable deliberately — put it in your user config, or point `ELV_CONFIG` at the exact file you mean.
+
+When no active registry is compiled, commands fall back to the vendored `spec/openapi.snapshot.json`.
 
 ## Issue tracking — beads (house rules)
 

@@ -51,7 +51,8 @@
     "prepack": "npm run build",
     "gate": "sh scripts/gate.sh",
     "smoke": "sh scripts/smoke.sh",
-    "smoke:pack": "sh scripts/pack-smoke.sh"
+    "smoke:pack": "sh scripts/pack-smoke.sh",
+    "verify:install": "node scripts/install-verify.mjs"
   },
   "dependencies": {
     "@apidevtools/json-schema-ref-parser": "^11",

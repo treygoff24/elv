@@ -1,4 +1,4 @@
-import { loadRegistry, readRegistryCache } from "../openapi/registry";
+import { loadRegistrySnapshot } from "../openapi/registry";
 import { resolveRef as resolveOpenApiRef } from "../openapi/compile-spec";
 import { errorMessage } from "../util/error";
 import { isRecord } from "../util/json";
@@ -70,8 +70,7 @@ export async function runOperation(
 ): Promise<Envelope> {
   const cmd = opts.cmd ?? `elv call ${operationId}`;
   try {
-    const registry = await loadRegistry();
-    const cached = readRegistryCache();
+    const { operations: registry, cache: cached } = await loadRegistrySnapshot();
     const baseOp = registry.get(operationId);
     if (!baseOp)
       return unknownOperation(operationId, suggestIds(operationId, [...registry.keys()]));
