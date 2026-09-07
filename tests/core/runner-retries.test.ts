@@ -300,3 +300,88 @@ function listen(handler: RequestListener): Promise<string> {
     });
   });
 }
+
+it("bounds a slow-drip error body by one total deadline", async () => {
+  let count = 0;
+  let timer: ReturnType<typeof setInterval>;
+  const body = new ReadableStream({
+    start(controller) {
+      timer = setInterval(() => {
+        controller.enqueue(new Uint8Array([32]));
+        if (++count === 20) {
+          clearInterval(timer);
+          controller.close();
+        }
+      }, 15);
+    },
+    cancel() {
+      clearInterval(timer);
+    },
+  });
+  vi.stubGlobal(
+    "fetch",
+    vi
+      .fn()
+      .mockResolvedValueOnce(new Response(body, { status: 429 }))
+      .mockResolvedValueOnce(new Response("done")),
+  );
+  try {
+    const start = Date.now();
+    const result = await sendWithRetry(req(), op, {
+      errorBodyTimeoutMs: 30,
+      sleep: async () => {},
+      maxAttempts: 2,
+    });
+    expect(Date.now() - start).toBeLessThan(200);
+    expect(await result.text()).toBe("done");
+  } finally {
+    clearInterval(timer!);
+    vi.unstubAllGlobals();
+  }
+});
+
+it("cancels retry backoff without issuing another request", async () => {
+  const controller = new AbortController();
+  const fetch = vi
+    .fn()
+    .mockImplementation(
+      async () => new Response("retry", { status: 503, headers: { "retry-after": "60" } }),
+    );
+  vi.stubGlobal("fetch", fetch);
+  const timer = setTimeout(() => controller.abort(), 30);
+  try {
+    await expect(sendWithRetry(req(), op, { signal: controller.signal })).rejects.toMatchObject({
+      name: "AbortError",
+    });
+    expect(fetch).toHaveBeenCalledTimes(1);
+  } finally {
+    clearTimeout(timer);
+    vi.unstubAllGlobals();
+  }
+});
+it("bounds cleanup of a stalled discarded stream", async () => {
+  const body = new ReadableStream({
+    cancel() {
+      return new Promise<void>(() => {});
+    },
+  });
+  vi.stubGlobal(
+    "fetch",
+    vi
+      .fn()
+      .mockResolvedValueOnce(new Response(body, { status: 429 }))
+      .mockResolvedValueOnce(new Response("done")),
+  );
+  try {
+    const start = Date.now();
+    const result = await sendWithRetry(req(), op, {
+      errorBodyTimeoutMs: 30,
+      sleep: async () => {},
+      maxAttempts: 2,
+    });
+    expect(await result.text()).toBe("done");
+    expect(Date.now() - start).toBeLessThan(200);
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});

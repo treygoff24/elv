@@ -1,3 +1,4 @@
+import { StringDecoder } from "node:string_decoder";
 import { spawn } from "node:child_process";
 import { failure } from "./envelope";
 import { exitCodeForError, validationError } from "./errors";
@@ -24,24 +25,24 @@ export interface WaitOptions extends Pick<RunOpts, "baseUrl" | "profile"> {
 }
 
 /** A delay that can be abandoned; `cancel` leaves the promise permanently pending. */
-export interface CancellableDelay {
+interface CancellableDelay {
   promise: Promise<void>;
   cancel: () => void;
 }
 
-export interface WaitTimers {
+interface WaitTimers {
   delay: (ms: number) => CancellableDelay;
 }
 
 type WaitSignal = "SIGINT" | "SIGTERM";
 
-export interface SignalSource {
+interface SignalSource {
   on: (signal: WaitSignal, handler: () => void) => void;
   off: (signal: WaitSignal, handler: () => void) => void;
 }
 
 /** Watches for termination so an owned child is reaped instead of orphaned. */
-export interface Interrupt {
+interface Interrupt {
   readonly signal?: WaitSignal;
   readonly promise: Promise<void>;
   onFire: (listener: () => void) => void;
@@ -49,20 +50,11 @@ export interface Interrupt {
   dispose: () => void;
 }
 
-/** One poll attempt's slice of the overall deadline. */
-export interface PollAttempt {
+interface PollAttempt {
   budgetMs: number;
-  /**
-   * False on the first attempt. An operation poll cannot be cancelled (the HTTP client
-   * exposes no abort seam), so abandoning one only discards information: a wait that
-   * followed a paid create would report a timeout with no observed status at all. The
-   * first attempt is therefore awaited, and every later one is bounded. A `--cmd` child
-   * is different — this process owns it, so it is bounded and reaped from the first run.
-   */
-  abandonable: boolean;
 }
 
-export interface ChildRunContext {
+interface ChildRunContext {
   budgetMs: number;
   interrupt: Interrupt;
   timers: WaitTimers;
@@ -72,7 +64,7 @@ export interface ChildRunContext {
  * One poll attempt. `expired` means the runtime ended the attempt itself because the
  * overall deadline passed, so the envelope (when present) is a diagnostic, not a result.
  */
-export type RunOutcome =
+type RunOutcome =
   | { expired?: undefined; env: Envelope }
   | { expired: "child_terminated" | "poll_abandoned"; env?: Envelope };
 
@@ -80,7 +72,7 @@ interface WaitDeps {
   runOperation?: (
     operationId: string,
     input: AgentInput,
-    opts?: Pick<RunOpts, "baseUrl" | "profile">,
+    opts?: Pick<RunOpts, "baseUrl" | "profile" | "signal">,
   ) => Promise<Envelope>;
   runCommand?: (argv: string[], ctx: ChildRunContext) => Promise<RunOutcome>;
   sleep?: (ms: number) => Promise<void>;
@@ -124,6 +116,7 @@ type ParsedWait =
 
 interface CappedOutput {
   text: string;
+  decoder: StringDecoder;
   bytes: number;
   truncated: boolean;
 }
@@ -136,6 +129,8 @@ interface ChildRun {
   pending: CancellableDelay[];
   settled: boolean;
   reaped: boolean;
+  escalated?: boolean;
+  cleaning?: boolean;
   terminated?: "deadline" | "interrupt";
   resolve: (outcome: RunOutcome) => void;
   onInterrupt: () => void;
@@ -170,9 +165,7 @@ function realDelay(ms: number): CancellableDelay {
   const promise = new Promise<void>((resolve) => {
     settle = resolve;
   });
-  // unref: a deadline bound must never be the reason this process stays alive.
   const handle = setTimeout(settle, Math.max(0, ms));
-  handle.unref?.();
   return { promise, cancel: () => clearTimeout(handle) };
 }
 
@@ -257,37 +250,30 @@ function waitRunner(
       run(parsed.cmd, { budgetMs: attempt.budgetMs, interrupt, timers });
   }
   const run = deps.runOperation ?? runOperation;
-  return (attempt, interrupt) =>
-    raceDeadline(
-      run(parsed.operation, parsed.input, { baseUrl: parsed.baseUrl, profile: parsed.profile }),
-      attempt,
-      interrupt,
-      timers,
-    );
-}
-
-/**
- * Operation mode has no cancellation seam into the HTTP client, so a poll that outlives
- * the deadline is abandoned rather than cancelled: the wait returns and the request is
- * left to settle unread. `Promise.race` keeps a late rejection handled.
- */
-async function raceDeadline(
-  pending: Promise<Envelope>,
-  attempt: PollAttempt,
-  interrupt: Interrupt,
-  timers: WaitTimers,
-): Promise<RunOutcome> {
-  const bound = attempt.abandonable ? timers.delay(attempt.budgetMs) : undefined;
-  const abandoned: RunOutcome = { expired: "poll_abandoned" };
-  try {
-    return await Promise.race<RunOutcome>([
-      pending.then((env) => ({ env })),
-      ...(bound ? [bound.promise.then(() => abandoned)] : []),
-      interrupt.promise.then(() => abandoned),
-    ]);
-  } finally {
-    bound?.cancel();
-  }
+  return async (attempt, interrupt) => {
+    const controller = new AbortController();
+    const bound = timers.delay(attempt.budgetMs);
+    const abort = () => controller.abort();
+    interrupt.onFire(abort);
+    const expired: RunOutcome = { expired: "poll_abandoned" };
+    try {
+      return await Promise.race<RunOutcome>([
+        run(parsed.operation, parsed.input, {
+          baseUrl: parsed.baseUrl,
+          profile: parsed.profile,
+          signal: controller.signal,
+        }).then((env) => ({ env })),
+        bound.promise.then(() => {
+          abort();
+          return expired;
+        }),
+        interrupt.promise.then(() => expired),
+      ]);
+    } finally {
+      bound.cancel();
+      interrupt.offFire(abort);
+    }
+  };
 }
 
 async function pollUntilComplete(parsed: ParsedWait, runtime: WaitRuntime): Promise<CommandResult> {
@@ -311,7 +297,6 @@ async function pollLoop(
     }
     const attempt: PollAttempt = {
       budgetMs: Math.max(remainingMs(runtime), 1),
-      abandonable: last !== undefined,
     };
     const outcome = await safeRun(runtime.run, attempt, interrupt);
     if (interrupt.signal) {
@@ -527,7 +512,7 @@ function waitTimeout(
  * dictionary in AGENTS.md is the contract agents branch on, and the command still
  * emits exactly one envelope. Any child this wait owned has already been terminated.
  */
-function waitInterrupted(parsed: ParsedCommon, signal: WaitSignal, env?: Envelope): CommandResult {
+function waitInterrupted(parsed: ParsedWait, signal: WaitSignal, env?: Envelope): CommandResult {
   return {
     env: failure({
       cmd: "elv wait",
@@ -536,11 +521,12 @@ function waitInterrupted(parsed: ParsedCommon, signal: WaitSignal, env?: Envelop
         type: "wait_interrupted",
         code: "wait_interrupted",
         message:
-          `Interrupted by ${signal} before ${parsed.statusPath} resolved; ` +
-          `any child command started by this wait was terminated`,
+          `Interrupted by ${signal} before ${parsed.statusPath} resolved` +
+          (parsed.mode === "cmd" ? "; any child command started by this wait was terminated" : ""),
         raw: { signal, envelope: env ?? null },
       },
-      retry: { recommended: true, after_ms: null },
+      retry: { recommended: false, after_ms: null },
+      ...(parsed.timeoutHints.length ? { hints: parsed.timeoutHints } : {}),
     }),
     exitCode: ExitCode.TransientExhausted,
   };
@@ -634,14 +620,26 @@ function startChild(
     cleanupChild(run);
     reject(error);
   });
+  child.on("exit", () => {
+    if (process.platform !== "win32" && child.pid) {
+      try {
+        process.kill(-child.pid, 0);
+        beginGroupCleanup(run);
+      } catch {
+        /* The owned group is already gone. */
+      }
+    }
+  });
   child.on("close", (code: number | null, signal: NodeJS.Signals | null) => {
     run.reaped = true;
+    run.stdout.text += run.stdout.decoder.end();
+    run.stderr.text += run.stderr.decoder.end();
     settleChild(run, code, signal);
   });
 }
 
 function emptyOutput(): CappedOutput {
-  return { text: "", bytes: 0, truncated: false };
+  return { text: "", decoder: new StringDecoder("utf8"), bytes: 0, truncated: false };
 }
 
 function appendOutput(out: CappedOutput, chunk: Buffer | string, cap: number): void {
@@ -652,11 +650,11 @@ function appendOutput(out: CappedOutput, chunk: Buffer | string, cap: number): v
   const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
   const room = cap - out.bytes;
   if (buffer.length <= room) {
-    out.text += buffer.toString();
+    out.text += out.decoder.write(buffer);
     out.bytes += buffer.length;
     return;
   }
-  out.text += buffer.subarray(0, room).toString();
+  out.text += out.decoder.write(buffer.subarray(0, room));
   out.bytes = cap;
   out.truncated = true;
 }
@@ -665,9 +663,19 @@ function appendOutput(out: CappedOutput, chunk: Buffer | string, cap: number): v
 function terminateChild(run: ChildRun, reason: "deadline" | "interrupt"): void {
   if (run.settled || run.terminated) return;
   run.terminated = reason;
+  beginGroupCleanup(run);
+}
+
+function beginGroupCleanup(run: ChildRun): void {
+  if (run.cleaning || run.settled) return;
+  run.cleaning = true;
   signalOwned(run.child, "SIGTERM");
   const escalate = run.ctx.timers.delay(CHILD_TERM_GRACE_MS);
-  void escalate.promise.then(() => signalOwned(run.child, "SIGKILL"));
+  void escalate.promise.then(() => {
+    signalOwned(run.child, "SIGKILL");
+    run.escalated = true;
+    if (run.reaped) settleChild(run, run.child.exitCode, run.child.signalCode);
+  });
   const abandon = run.ctx.timers.delay(CHILD_REAP_BUDGET_MS);
   void abandon.promise.then(() => settleChild(run, null, null));
   run.pending.push(escalate, abandon);
@@ -676,17 +684,12 @@ function terminateChild(run: ChildRun, reason: "deadline" | "interrupt"): void {
 function signalOwned(child: ChildProcess, signal: "SIGTERM" | "SIGKILL"): void {
   const pid = child.pid;
   if (pid === undefined || pid <= 0) return;
-  if (child.exitCode !== null || child.signalCode !== null) return;
   try {
     // Negative pid addresses exactly the group spawned above — never a broader sweep.
     if (process.platform === "win32") child.kill(signal);
     else process.kill(-pid, signal);
   } catch {
-    try {
-      child.kill(signal);
-    } catch {
-      /* already exited */
-    }
+    /* The owned group is already gone; never fall back to a potentially reused PID. */
   }
 }
 
@@ -697,7 +700,7 @@ function cleanupChild(run: ChildRun): void {
 }
 
 function settleChild(run: ChildRun, code: number | null, signal: NodeJS.Signals | null): void {
-  if (run.settled) return;
+  if (run.settled || (run.cleaning && !run.escalated)) return;
   run.settled = true;
   cleanupChild(run);
   run.resolve(childOutcome(run, code, signal));
@@ -720,6 +723,7 @@ function childOutcome(
     };
   }
   try {
+    if (run.stdout.truncated) throw new Error("Truncated stdout");
     return { env: parseJson(run.stdout.text.trim(), "command stdout") as unknown as Envelope };
   } catch {
     return {

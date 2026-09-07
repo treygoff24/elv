@@ -1,3 +1,4 @@
+import { setTimeout as delay } from "node:timers/promises";
 import { normalizeProviderError } from "./error-normalizer";
 import type { HttpRequest } from "./request-builder";
 import type { JsonValue } from "../util/json";
@@ -5,6 +6,7 @@ import type { NormalizedError, RetryInfo } from "./types";
 import type { OperationCard } from "../openapi/types";
 
 interface RetryContext {
+  signal?: AbortSignal;
   retryPost?: boolean;
   maxAttempts?: number;
   sleep?: (ms: number) => Promise<void>;
@@ -55,13 +57,14 @@ export async function sendWithRetry(
   ctx: RetryContext = {},
 ): Promise<Response> {
   const maxAttempts = ctx.maxAttempts ?? DEFAULT_RETRY_ATTEMPTS;
-  const sleep = ctx.sleep ?? defaultSleep;
+  const sleep = ctx.sleep ?? ((ms: number) => delay(ms, undefined, { signal: ctx.signal }));
   const jitter = ctx.jitter ?? (() => Math.floor(Math.random() * 100));
   let lastNetworkError: unknown;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     try {
-      const res = await fetchSameOrigin(req);
+      ctx.signal?.throwIfAborted();
+      const res = await fetchSameOrigin(req, ctx.signal);
       const decision = await retryDecision(res, req, ctx, attempt, maxAttempts, jitter);
       // The returned response is the caller's to read; only an abandoned one is disposed,
       // and it is disposed before the backoff so the socket is not held across the sleep.
@@ -69,6 +72,7 @@ export async function sendWithRetry(
       await disposeBody(res);
       await sleep(decision.afterMs);
     } catch (error) {
+      ctx.signal?.throwIfAborted();
       lastNetworkError = error;
       if (!methodCanRetry(req, ctx) || attempt >= maxAttempts) break;
       await sleep(backoffMs(attempt, undefined, jitter));
@@ -78,7 +82,7 @@ export async function sendWithRetry(
   throw new NetworkRetryError(lastNetworkError);
 }
 
-async function fetchSameOrigin(req: HttpRequest): Promise<Response> {
+async function fetchSameOrigin(req: HttpRequest, signal?: AbortSignal): Promise<Response> {
   const origin = new URL(req.url).origin;
   let url = req.url;
   let method = req.method;
@@ -91,6 +95,7 @@ async function fetchSameOrigin(req: HttpRequest): Promise<Response> {
       headers,
       body,
       redirect: "manual",
+      signal,
       ...(req.duplex ? { duplex: req.duplex } : {}),
     } as RequestInit & { duplex?: "half" });
     if (!REDIRECT_HTTP.has(res.status)) return res;
@@ -98,16 +103,16 @@ async function fetchSameOrigin(req: HttpRequest): Promise<Response> {
     const location = res.headers.get("location");
     if (!location) return res;
     if (redirects >= MAX_REDIRECTS) {
-      await res.body?.cancel();
+      await disposeBody(res);
       throw new Error(`Too many redirects from ${req.url}`);
     }
 
     const next = new URL(location, url);
     if (next.origin !== origin) {
-      await res.body?.cancel();
+      await disposeBody(res);
       throw new Error(`Refusing cross-origin redirect from ${origin} to ${next.origin}`);
     }
-    await res.body?.cancel();
+    await disposeBody(res);
 
     if (res.status === 303 || ((res.status === 301 || res.status === 302) && method === "POST")) {
       method = "GET";
@@ -171,8 +176,8 @@ async function responseCode(res: Response, ctx: RetryContext): Promise<string> {
 }
 
 /**
- * Reads at most `maxBytes` of a body, giving up if any single chunk takes longer than
- * `timeoutMs`, and always cancels the stream afterwards. Returns null when the body is
+ * Reads at most `maxBytes` of a body within one total `timeoutMs` deadline,
+ * and always cancels the stream afterwards. Returns null when the body is
  * absent, oversized, stalled, or errored — every one of which means "no usable error
  * code", not "wait".
  */
@@ -187,9 +192,12 @@ async function readBoundedBody(
   const chunks: Uint8Array[] = [];
   let bytes = 0;
   let complete = false;
+  const deadline = Date.now() + timeoutMs;
   try {
     for (;;) {
-      const chunk = await withTimeout(reader.read(), timeoutMs);
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) break;
+      const chunk = await withTimeout(reader.read(), remaining);
       if (chunk === null || chunk.done) {
         complete = chunk !== null;
         break;
@@ -201,7 +209,7 @@ async function readBoundedBody(
   } catch {
     return null;
   } finally {
-    await cancelReader(reader);
+    await cancelReader(reader, Math.max(0, deadline - Date.now()));
   }
   return complete ? Buffer.concat(chunks).toString("utf8") : null;
 }
@@ -220,9 +228,12 @@ async function withTimeout<T>(work: Promise<T>, timeoutMs: number): Promise<T | 
   }
 }
 
-async function cancelReader(reader: ReadableStreamDefaultReader<Uint8Array>): Promise<void> {
+async function cancelReader(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  budgetMs: number,
+): Promise<void> {
   try {
-    await reader.cancel();
+    await withTimeout(reader.cancel(), budgetMs);
   } catch {
     // Already closed or errored; the stream needs no further disposal.
   }
@@ -238,7 +249,7 @@ async function disposeBody(res: Response): Promise<void> {
   const body = res.body;
   if (!body || res.bodyUsed || body.locked) return;
   try {
-    await body.cancel();
+    await withTimeout(body.cancel(), ERROR_BODY_TIMEOUT_MS);
   } catch {
     // A body that cannot be cancelled is already finished with.
   }
@@ -259,8 +270,4 @@ export function retryAfterMs(headers: Headers): number | null {
   if (Number.isFinite(seconds)) return Math.max(0, seconds * 1000);
   const dateMs = Date.parse(value);
   return Number.isFinite(dateMs) ? Math.max(0, dateMs - Date.now()) : null;
-}
-
-function defaultSleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }

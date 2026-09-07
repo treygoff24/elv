@@ -152,7 +152,7 @@ describe("implicit project config trust", () => {
       outputDir: join(cwd, "out"),
       defaultTtsModelId: "eleven_v3",
       maxCredits: 123,
-      profile: "project",
+      profile: "default",
     });
   });
 
@@ -165,7 +165,7 @@ describe("implicit project config trust", () => {
 
     const config = loadConfig();
 
-    expect(config.profile).toBe("privileged");
+    expect(config.profile).toBe("default");
     expect(config.apiKeyPresent).toBe(false);
     expect(getApiKey()).toBeUndefined();
   });
@@ -259,4 +259,81 @@ describe("credential redirect refusal end to end", () => {
     expect(String(url).startsWith("http://127.0.0.1:8899/")).toBe(true);
     expect((init.headers as Record<string, string>)["xi-api-key"]).toBe(SYNTHETIC_KEY);
   });
+});
+
+describe("trusted budget overlay", () => {
+  it.each([undefined, 50, 2])(
+    "preserves or lowers a trusted ceiling with project %s",
+    (ceiling) => {
+      writeUserConfig({ profiles: { default: { max_credits: 5 } } });
+      writeProjectConfig({
+        profiles: {
+          default: {
+            output_dir: "./project",
+            ...(ceiling === undefined ? {} : { max_credits: ceiling }),
+          },
+        },
+      });
+      expect(loadConfig().maxCredits).toBe(ceiling === 2 ? 2 : 5);
+      expect(loadConfig().outputDir).toBe(join(cwd, "project"));
+    },
+  );
+  it.each([null, "bad", -1])("rejects invalid project budget %s", (max_credits) => {
+    writeUserConfig({ profiles: { default: { max_credits: 5 } } });
+    writeProjectConfig({ profiles: { default: { max_credits } } });
+    expect(() => loadConfig()).toThrow(/max_credits/);
+  });
+});
+
+it("gives actionable quoted trust advice and distinct error codes", () => {
+  const path = writeProjectConfig({
+    profiles: { default: { base_url: "http://example.invalid" } },
+  });
+  const error = captureThrow(() => loadConfig({ baseUrl: "http://localhost" })) as ConfigFileError;
+  expect(error.code).toBe("config_untrusted");
+  expect(error.message).toContain("Remove these fields before using --base-url");
+  expect(error.message).toContain(`ELV_CONFIG='${path}'`);
+  vi.stubEnv("ELV_CONFIG", path);
+  expect(loadConfig().baseUrl).toBe("http://example.invalid");
+  vi.stubEnv("ELV_CONFIG", join(home, "missing"));
+  expect((captureThrow(() => loadConfig()) as ConfigFileError).code).toBe("config_file_missing");
+});
+it("never lets a project select a trusted credential profile or erase its ceiling", () => {
+  writeUserConfig({
+    default_profile: "safe",
+    profiles: {
+      safe: { max_credits: 5, base_url: "https://safe.invalid" },
+      privileged: {
+        api_key_env: "ELEVENLABS_TEST_API_KEY",
+        base_url: "https://privileged.invalid",
+        max_credits: 500,
+      },
+    },
+  });
+  writeProjectConfig({
+    default_profile: "privileged",
+    profiles: { privileged: { output_dir: "./out", max_credits: 500 } },
+  });
+  vi.stubEnv("ELEVENLABS_TEST_API_KEY", SYNTHETIC_KEY);
+  expect(loadConfig()).toMatchObject({
+    profile: "safe",
+    maxCredits: 5,
+    baseUrl: "https://safe.invalid",
+    apiKeyPresent: false,
+    outputDir: join(cwd, "out"),
+  });
+  expect(getApiKey()).toBeUndefined();
+  expect(loadConfig({ profile: "privileged" })).toMatchObject({
+    maxCredits: 500,
+    apiKeyPresent: true,
+  });
+  expect(getApiKey({ profile: "privileged" })).toBe(SYNTHETIC_KEY);
+  expect(loadConfig({ maxCredits: 10 }).maxCredits).toBe(10);
+  vi.stubEnv("ELV_MAX_CREDITS", "20");
+  expect(loadConfig().maxCredits).toBe(20);
+});
+
+it("refuses privileged fields even in a non-object project document", () => {
+  writeProjectConfig([{ profiles: { default: { base_url: "http://example.invalid" } } }]);
+  expect(() => loadConfig()).toThrow(/Untrusted project config/);
 });

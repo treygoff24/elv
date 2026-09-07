@@ -87,7 +87,9 @@ If you need more than one configuration (for example, separate accounts or resid
 
 Note what the config file stores: `api_key_env` is the name of the environment variable that holds the key, not the key itself. The secret value still lives only in the environment. The `output_dir` above is an explicit override; omit it and `elv` writes to the default output directory. Select a profile at runtime with `--profile main` or by setting `ELV_PROFILE=main`.
 
-The `base_url` and `api_key_env` fields in that example need a trusted home. When `elv` picks up `.elv/config.json` implicitly from the current directory, it honours the ordinary workflow options and ignores those two: a checkout you have not read must not be able to point your credentials at an endpoint of its choosing. Put endpoint and key selection in `~/.config/elv/config.json`, or set `ELV_CONFIG` to the exact file you mean, which is an explicit choice rather than an accident of your working directory.
+The `base_url` and `api_key_env` fields in that example need a trusted home. When `elv` picks up `.elv/config.json` implicitly from the current directory, it honours ordinary workflow options but refuses the whole file if either field is present: a checkout you have not read must not be able to point your credentials at an endpoint of its choosing. Put endpoint and key selection in `~/.config/elv/config.json`, or set `ELV_CONFIG` to the exact file you mean, which is an explicit choice rather than an accident of your working directory. Remove privileged fields before relying on `--base-url`.
+
+Project workflow settings overlay the trusted user profile. Project `max_credits` may lower a trusted ceiling, but cannot raise or erase it; invalid project ceilings are refused. The project default profile selects its own workflow settings only, never a trusted endpoint or key. `--profile` and `ELV_PROFILE` deliberately select the trusted profile; `--max-credits` and `ELV_MAX_CREDITS` deliberately override the ceiling. Project `output_dir` remains allowed. Explicit `ELV_CONFIG` trusts that one file instead of applying this overlay.
 
 ### Where files go
 

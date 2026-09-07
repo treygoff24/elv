@@ -1,7 +1,8 @@
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import * as normalizer from "../../src/core/response-normalizer";
 import { buildViewResult } from "../../src/commands/view";
 import { ExitCode } from "../../src/core/types";
 import type { CommandResult, SuccessEnvelope } from "../../src/core/types";
@@ -253,4 +254,23 @@ describe("view streams NDJSON without loading the whole file", () => {
     expect(result.exitCode).toBe(ExitCode.NotFound);
     expect(result.env.ok ? "" : result.env.error.code).toBe("not_found");
   });
+});
+
+it("preserves numeric suffix array projection", () => {
+  for (const path of ["0[].name", "0[].children[].name", "2[].name"]) {
+    expectSameAsWholeFile([[{ name: "a", children: [{ name: "b" }] }]], { path });
+  }
+});
+
+it("summarizes a million rows without constructing a million-slot array", () => {
+  const file = ndjson("million.ndjson", ["0\n".repeat(1_000_000)]);
+  const summarize = vi.spyOn(normalizer, "summarizeData");
+  try {
+    const result = successEnv(buildViewResult(file));
+    expect(result.data_summary).toMatchObject({ count: 1_000_000 });
+    expect(summarize).toHaveBeenCalledTimes(1);
+    expect((summarize.mock.calls[0]![0] as unknown[]).length).toBeLessThan(100_000);
+  } finally {
+    summarize.mockRestore();
+  }
 });

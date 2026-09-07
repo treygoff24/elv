@@ -127,6 +127,8 @@ describe("Flows and assets CLI against offline/mock transport", () => {
     });
   }
 
+  let hangingPollClosed = false;
+  let hangingPollDuration = Infinity;
   beforeAll(async () => {
     dir = mkdtempSync(join(tmpdir(), "elv-flows-assets-"));
     writeFileSync(join(dir, "reference.png"), "mock-image-bytes");
@@ -153,6 +155,16 @@ describe("Flows and assets CLI against offline/mock transport", () => {
       res.setHeader("Content-Type", "application/json");
       if (req.method === "POST" && url.pathname.startsWith("/v1/flows/")) {
         res.end(JSON.stringify({ id: nextGenerationId, status: "pending" }));
+        return;
+      }
+      if (url.pathname === "/v1/flows/image/g_hang") {
+        const started = Date.now();
+        const fallback = setTimeout(() => res.destroy(), 5000);
+        res.on("close", () => {
+          clearTimeout(fallback);
+          hangingPollClosed = true;
+          hangingPollDuration = Date.now() - started;
+        });
         return;
       }
       if (url.pathname === "/v1/flows/image/g_complete") {
@@ -375,6 +387,35 @@ describe("Flows and assets CLI against offline/mock transport", () => {
     expect(calls[0]).toBe("POST /v1/flows/video");
     expect(calls.slice(1).every((call) => call === "GET /v1/flows/video/g1")).toBe(true);
     expect(calls.length).toBeGreaterThan(1);
+  });
+
+  it("cancels an unresponsive first alias poll and retains the created job hint", async () => {
+    nextGenerationId = "g_hang";
+    hangingPollClosed = false;
+    hangingPollDuration = Infinity;
+    try {
+      const result = await run([
+        "flows",
+        "image",
+        "create",
+        "--model",
+        "gpt-image-1",
+        "--prompt",
+        "fixture",
+        "--wait",
+        "--timeout-ms",
+        "300",
+      ]);
+      expect(result.code, result.stdout).toBe(7);
+      const envelope = parseEnvelope(result.stdout);
+      expect(errorRecord(envelope).code).toBe("wait_timeout");
+      expect(recordValue(errorRecord(envelope).raw).status).toBe(null);
+      expect(JSON.stringify(envelope.hints)).toContain("g_hang");
+      expect(hangingPollClosed).toBe(true);
+      expect(hangingPollDuration).toBeLessThan(1500);
+    } finally {
+      nextGenerationId = "g1";
+    }
   });
 
   it("rejects a non-positive --timeout-ms before submitting a paid generation", async () => {

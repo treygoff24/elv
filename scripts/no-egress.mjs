@@ -21,6 +21,8 @@
 //             separated). An allowlisted host is explicitly outside the
 //             guarantee; it exists so a broker or launcher that needs a
 //             non-loopback local address can still run.
+//   DNS resolve/reverse methods send packets even for localhost: these require
+//             an explicit allowlisted host. lookup maps local names to literals.
 //   NOT covered: raw dgram/UDP, ICMP, non-Node child processes, and anything
 //             reaching the network through a native addon. This is a strong
 //             check on the CLI's own network primitives, not a sandbox. Pair it
@@ -30,6 +32,7 @@
 // A blocked attempt throws an Error whose message starts with the marker below,
 // so callers can distinguish "we stopped it" from an ordinary network failure.
 
+import { syncBuiltinESMExports } from "node:module";
 import dns from "node:dns";
 import dnsPromises from "node:dns/promises";
 import net from "node:net";
@@ -119,7 +122,7 @@ function guardResolvers(target, names) {
     if (typeof original !== "function") continue;
     target[name] = function guarded(/** @type {unknown[]} */ ...args) {
       const host = typeof args[0] === "string" ? args[0] : "";
-      if (!isAllowed(host)) {
+      if (!isAllowed(host) || (name !== "lookup" && !extraAllowed.has(host.toLowerCase()))) {
         const error = blocked(`DNS ${name}`, host);
         const callback = args[args.length - 1];
         if (typeof callback === "function") {
@@ -127,6 +130,13 @@ function guardResolvers(target, names) {
           return undefined;
         }
         throw error;
+      }
+      // lookup delegates names to the system resolver. Use a literal for local
+      // aliases so even a missing /etc/hosts entry cannot emit a DNS packet.
+      if (name === "lookup" && LOOPBACK_NAMES.has(host.toLowerCase())) {
+        const options = args[1];
+        const family = typeof options === "number" ? options : options?.family;
+        args[0] = family === 6 || host.toLowerCase() === "ip6-localhost" ? "::1" : "127.0.0.1";
       }
       return original.apply(this, args);
     };
@@ -144,6 +154,13 @@ const RESOLVER_METHODS = [
   "resolveNs",
   "resolveSrv",
   "resolveTxt",
+  "resolveSoa",
+  "resolveNaptr",
+  "resolvePtr",
+  "resolveCaa",
+  "resolveTlsa",
+  "reverse",
+  "lookupService",
 ];
 
 guardResolvers(/** @type {never} */ (dns), RESOLVER_METHODS);
@@ -173,3 +190,5 @@ if (typeof realFetch === "function") {
     return realFetch(input, init);
   };
 }
+
+syncBuiltinESMExports();

@@ -1,7 +1,8 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { runHttp } from "../../src/commands/http";
 import { handleCapabilities } from "../../src/commands/capabilities";
 import { handleOpsSchema } from "../../src/commands/ops";
 import { runOperation } from "../../src/core/client";
@@ -69,15 +70,27 @@ describe("registry snapshot", () => {
     });
   });
 
-  it("still recompiles a source that changed under a forced snapshot", async () => {
+  it.each([false, true])("recompiles changed source (forced=%s)", async (forceRecompile) => {
     const cacheDir = temporaryDir("elv-snapshot-force-");
-    const options = { cacheDir, specPath: "fixtures/fake-openapi.json" };
+    const specPath = join(cacheDir, "source.json");
+    const spec = JSON.parse(readFileSync("fixtures/fake-openapi.json", "utf8"));
+    writeFileSync(specPath, JSON.stringify(spec));
+    const first = await registry.loadRegistrySnapshot({ cacheDir, specPath });
+    const operation = Object.values(spec.paths)[0] as { get: { operationId: string } };
+    operation.get.operationId = "changed_operation";
+    writeFileSync(specPath, JSON.stringify(spec));
+    const changed = await registry.loadRegistrySnapshot({ cacheDir, specPath, forceRecompile });
+    expect(changed.cache?.fingerprint).not.toBe(first.cache?.fingerprint);
+    expect(changed.operations.has("changed_operation")).toBe(true);
+  });
 
-    const first = await registry.loadRegistrySnapshot(options);
-    const forced = await registry.loadRegistrySnapshot({ ...options, forceRecompile: true });
-
-    expect([...forced.operations.keys()].sort()).toEqual([...first.operations.keys()].sort());
-    expect(forced.cache?.fingerprint).toBe(first.cache?.fingerprint);
+  it("raw HTTP reuses the schema snapshot", async () => {
+    const readCache = vi.spyOn(registry, "readRegistryCache");
+    const snapshot = vi.spyOn(registry, "loadRegistrySnapshot");
+    const env = await runHttp("GET", "/v1/voices", { dryRun: true });
+    expect(env.ok).toBe(true);
+    expect(snapshot).toHaveBeenCalledTimes(1);
+    expect(readCache).not.toHaveBeenCalled();
   });
 
   it("serves ops schema without a second registry read", async () => {

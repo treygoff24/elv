@@ -695,7 +695,10 @@ function errorEnvelope(error: unknown): CommandResult {
   if (error instanceof ScriptValidationError) return inputError(error.message, error.hints);
   if (error instanceof ConfigFileError) {
     return {
-      env: configFileError("elv ws", error.message, { raw: { path: error.path } }),
+      env: configFileError("elv ws", error.message, {
+        code: error.code,
+        raw: { path: error.path },
+      }),
       exitCode: ExitCode.InputValidation,
     };
   }

@@ -133,8 +133,8 @@ describe("STT wait completion and creation receipts", () => {
     postStatus = 202;
     pollBody = { transcription_id: "transcript_1", status: "processing" };
 
-    // A 1 ms deadline expires during the first poll, so exactly one GET is issued.
-    const result = await stt(["--wait", "--timeout-ms", "1", "--interval-ms", "1"]);
+    // Allow the first observation, then exhaust the budget before a second GET.
+    const result = await stt(["--wait", "--timeout-ms", "500", "--interval-ms", "1000"]);
 
     expect(result.code, result.stdout).toBe(7);
     const envelope = parseEnvelope(result.stdout);

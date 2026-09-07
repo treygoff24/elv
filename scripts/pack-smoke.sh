@@ -68,7 +68,7 @@ if [ -s "$WORK/duplicates.txt" ]; then
   cat "$WORK/duplicates.txt" >&2
   exit 1
 fi
-entry_count=$(command grep -c 'package/dist/cli.js' "$WORK/entries.txt" || true)
+entry_count=$(command grep -Fxc 'package/dist/cli.js' "$WORK/entries.txt" || true)
 test "$entry_count" = "1" || {
   echo "pack-smoke: expected exactly one package/dist/cli.js entry, found $entry_count" >&2
   echo "pack-smoke: check the 'files' array in package.json" >&2

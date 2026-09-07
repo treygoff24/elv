@@ -23,6 +23,12 @@ describe("wait operation runtime selection", () => {
       },
     );
 
-    expect(seen).toEqual([{ profile: "work", baseUrl: "https://api.eu.residency.elevenlabs.io" }]);
+    expect(seen).toEqual([
+      {
+        profile: "work",
+        baseUrl: "https://api.eu.residency.elevenlabs.io",
+        signal: expect.any(AbortSignal),
+      },
+    ]);
   });
 });

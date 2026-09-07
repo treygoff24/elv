@@ -6,6 +6,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Security
+
+- Implicit project config cannot select credential variables or redirect the endpoint. Project budgets may lower trusted ceilings, not raise them. Explicit `ELV_CONFIG`, environment, and flag overrides retain user authority.
+
+### Fixed
+
+- Polling deadlines cover the first HTTP request and cancel it. Child waits reject late success, cap output, preserve UTF8, and clean up owned process groups.
+- Retry response classification has a total body-read deadline and bounded disposal before backoff. Final response bodies remain available to callers.
+
+### Changed
+
+- Config and cache paths honor absolute XDG roots. New output defaults to the XDG data directory instead of the cache; existing files are not moved.
+- `spec status` verifies vendored metadata without recompiling the spec. Commands reuse one registry snapshot, including raw HTTP validation.
+- NDJSON `view` retains only the requested preview while scanning all records for malformed input and credentials. Paginated `--all` output streams to collision-safe files.
+- Tests default to two workers, configurable by environment. CI adds Linux Node 26; bin-symlink tests no longer rebuild shared output.
+
+### Added
+
+- Offline Node transport guards, production-only packed-install smoke, and local runtime/skill verification. Skill sync refuses dirty/unknown targets and symlink escapes, preserves foreign files, and verifies afterward.
+
 ## [0.4.0] - 2026-09-06
 
 ### Added

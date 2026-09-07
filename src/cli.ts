@@ -583,7 +583,7 @@ function envelopeForError(
   }
   if (error instanceof ConfigFileError) {
     return {
-      env: configFileError(cmd, error.message, { raw: { path: error.path } }),
+      env: configFileError(cmd, error.message, { code: error.code, raw: { path: error.path } }),
       exitCode: ExitCode.InputValidation,
     };
   }

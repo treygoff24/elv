@@ -72,7 +72,8 @@ test -f "$BLOCKER" || {
   echo "smoke: missing network blocker: $BLOCKER" >&2
   exit 1
 }
-NODE_OPTIONS="--import $BLOCKER${NODE_OPTIONS:+ $NODE_OPTIONS}"
+BLOCKER_URL=$(node -e 'process.stdout.write(require("node:url").pathToFileURL(process.argv[1]).href)' "$BLOCKER")
+NODE_OPTIONS="--import=$BLOCKER_URL${NODE_OPTIONS:+ $NODE_OPTIONS}"
 export NODE_OPTIONS
 
 run_elv() {

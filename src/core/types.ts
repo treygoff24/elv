@@ -33,6 +33,7 @@ export interface RunOpts {
   yes?: boolean;
   maxCredits?: number;
   retryPost?: boolean;
+  signal?: AbortSignal;
   /** dir or single file (single-file ops only). */
   out?: string;
   allowUnknown?: boolean;

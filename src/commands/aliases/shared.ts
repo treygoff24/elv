@@ -5,6 +5,7 @@ import { runOperation } from "../../core/client";
 import { emitAndExit, exitCodeForError, validationError } from "../../core/errors";
 import { ExitCode } from "../../core/types";
 import { parseWaitMs, waitForOperation } from "../../core/wait-operation";
+import { shellArg } from "../../util/shell";
 import { errorMessage } from "../../util/error";
 import { isRecord, parseJsonRecord } from "../../util/json";
 import type { JsonObject, JsonObjectInput } from "../../util/json";
@@ -259,9 +260,12 @@ export async function waitAfterCreate(
       timeoutHints: timeoutHints(config, id),
     },
     {
-      runOperation: async (operationId, input) => {
-        const result = await runOperation(operationId, input, opts);
-        if (result.ok && config.isComplete?.(result)) emit(result);
+      runOperation: async (operationId, input, pollOpts) => {
+        const result = await runOperation(operationId, input, {
+          ...opts,
+          signal: pollOpts?.signal,
+        });
+        if (!pollOpts?.signal?.aborted && result.ok && config.isComplete?.(result)) emit(result);
         return result;
       },
     },
@@ -269,16 +273,15 @@ export async function waitAfterCreate(
   emitAndExit(result.env, result.exitCode);
 }
 
-// A wait_timeout means the job is still running: name the exact re-poll command so
-// an agent resumes the existing id instead of resubmitting a paid create.
+// Preserve the created job ID without assuming its current provider status.
 function timeoutHints(config: WaitAfterCreateConfig, id: string): Hint[] {
   const repoll =
     config.repollCommand?.(id) ??
-    `elv call ${config.operation} --json '${JSON.stringify({ path: { [config.pathKey]: id } })}'`;
+    `elv call ${config.operation} --json ${shellArg(JSON.stringify({ path: { [config.pathKey]: id } }))}`;
   return [
     {
       cmd: repoll,
-      why: `The job is still running; poll ${id} instead of resubmitting ${config.commandName}.`,
+      why: `Check the created job ${id} instead of resubmitting ${config.commandName}.`,
     },
     {
       cmd: `${config.commandName} --wait --timeout-ms <ms>`,

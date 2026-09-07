@@ -191,6 +191,7 @@ describe("wait child deadline", () => {
       expect(result.env.ok).toBe(false);
       if (!result.env.ok) {
         expect(result.env.error.code).toBe("wait_interrupted");
+        expect(result.env.retry?.recommended).toBe(false);
         expect(result.env.error.raw).toMatchObject({ signal: fired });
       }
       await until(() => (alive(pids.child) ? undefined : true));
@@ -301,8 +302,9 @@ describe("wait child deadline", () => {
     expect(Date.now() - started).toBeLessThan(5_000);
   });
 
-  it("awaits the first operation poll instead of abandoning it", async () => {
+  it("cancels the first operation poll at the deadline", async () => {
     let polls = 0;
+    let pollSignal: AbortSignal | undefined;
     const result = await waitForOperation(
       {
         operation: "get_dubbing",
@@ -312,7 +314,8 @@ describe("wait child deadline", () => {
         timeoutMs: 1,
       },
       {
-        runOperation: async () => {
+        runOperation: async (_id, _input, opts) => {
+          pollSignal = opts?.signal;
           polls += 1;
           await new Promise((resolve) => setTimeout(resolve, 60));
           return env("processing");
@@ -320,10 +323,11 @@ describe("wait child deadline", () => {
       },
     );
 
-    // A create-then-wait caller must still learn the real status of a paid job.
+    // No status was observed before the deadline; never invent one.
     expect(polls).toBe(1);
+    expect(pollSignal?.aborted).toBe(true);
     expect(result.exitCode).toBe(ExitCode.TransientExhausted);
-    expect(errorRaw(result.env).status).toBe("processing");
+    expect(errorRaw(result.env).status).toBe(null);
   });
 
   it("rejects an operation success observed after the deadline", async () => {
@@ -351,3 +355,81 @@ describe("wait child deadline", () => {
     if (!result.env.ok) expect(result.env.error.code).toBe("wait_timeout");
   });
 });
+
+it("decodes split UTF8 child output without replacement characters", async () => {
+  const result = await waitForOperation({
+    cmd: JSON.stringify([
+      process.execPath,
+      "-e",
+      `
+    const bytes = Buffer.from(JSON.stringify({v:1,ok:true,data:{status:"done",name:"é"}}));
+    const split = bytes.indexOf(0xc3)+1;
+    process.stdout.write(bytes.subarray(0,split));
+    setTimeout(() => process.stdout.write(bytes.subarray(split)), 20);
+  `,
+    ]),
+    statusPath: "data.status",
+    success: "done",
+    timeoutMs: 5000,
+  });
+  expect(result.env).toMatchObject({ ok: true, data: { name: "é" } });
+});
+
+it("rejects a truncated stdout even if the retained prefix parses", async () => {
+  const result = await waitForOperation({
+    cmd: JSON.stringify([
+      process.execPath,
+      "-e",
+      `
+    process.stdout.write(JSON.stringify({v:1,ok:true,data:{status:"done"}}) + " ".repeat(2*1024*1024));
+  `,
+    ]),
+    statusPath: "data.status",
+    success: "done",
+    timeoutMs: 5000,
+  });
+  expect(result.env).toMatchObject({
+    ok: false,
+    error: { code: "command_output_invalid", raw: { stdout_truncated: true } },
+  });
+});
+
+it.each([true, false])(
+  "cleans TERM-ignoring grandchildren after leader exit (inherit pipes=%s)",
+  async (inherit) => {
+    const pidsFile = join(dir, `orphan-${inherit}.json`);
+    const readyFile = join(dir, `ready-${inherit}`);
+    const releaseFile = join(dir, `release-${inherit}`);
+    const grandchildScript = `
+    process.on('SIGTERM', () => {});
+    require('node:fs').writeFileSync(${JSON.stringify(readyFile)}, 'ready');
+    setTimeout(() => process.exit(0), 20000);
+  `;
+    const childScript = `
+    const {spawn} = require('node:child_process');
+    const {existsSync,writeFileSync} = require('node:fs');
+    const grandchild = spawn(process.execPath, ['-e', ${JSON.stringify(grandchildScript)}], {stdio: ${JSON.stringify(inherit ? "inherit" : "ignore")}});
+    writeFileSync(${JSON.stringify(pidsFile)}, JSON.stringify({child:process.pid,grandchild:grandchild.pid}));
+    const ticker = setInterval(() => { if (existsSync(${JSON.stringify(readyFile)}) && existsSync(${JSON.stringify(releaseFile)})) {clearInterval(ticker); process.exit(0);} }, 10);
+    setTimeout(() => process.exit(0), 20000);
+  `;
+    const pending = waitForOperation({
+      cmd: JSON.stringify([process.execPath, "-e", childScript]),
+      statusPath: "data.status",
+      success: "done",
+      timeoutMs: 1500,
+    });
+    const pids = await until(() => readPids(pidsFile));
+    expectRunning(pids);
+    writeFileSync(releaseFile, "go");
+    await pending;
+    // Zombies have exited and cannot hold sockets or execute; PID 1 owns their reap.
+    const running = () => {
+      if (!alive(pids.grandchild)) return false;
+      if (process.platform === "linux")
+        return !/\) Z /.test(readFileSync(`/proc/${pids.grandchild}/stat`, "utf8"));
+      return true;
+    };
+    await until(() => (running() ? undefined : true));
+  },
+);

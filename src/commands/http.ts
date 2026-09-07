@@ -12,7 +12,7 @@ import {
   type PaginatedRunOptions,
 } from "../core/pagination";
 import { estimateCredits } from "../core/budget";
-import { loadRegistry, readRegistryCache } from "../openapi/registry";
+import { loadRegistrySnapshot } from "../openapi/registry";
 import { classifyRisk } from "../openapi/risk";
 import { HTTP_METHODS } from "../openapi/types";
 import { errorMessage } from "../util/error";
@@ -65,10 +65,12 @@ export async function runHttp(
   }
 
   try {
-    const { op, metadataWarning, matchTemplate } = await httpOperation(
+    const snapshot = await loadRegistrySnapshot();
+    const { op, metadataWarning, matchTemplate } = httpOperation(
       parsed.method,
       parsed.path,
       parsed.input,
+      snapshot.operations,
     );
     if (opts.limit !== undefined && (!Number.isInteger(opts.limit) || opts.limit <= 0)) {
       return validationError(cmd, "--limit must be a positive integer", {
@@ -80,7 +82,7 @@ export async function runHttp(
     if (matchTemplate !== undefined) {
       const pathValues = matchPathValues(matchTemplate, parsed.path);
       if (Object.keys(pathValues).length) input.path = pathValues;
-      const paramError = await validateParameters(op, input, readRegistryCache()?.bundledSpec);
+      const paramError = await validateParameters(op, input, snapshot.cache?.bundledSpec);
       if (paramError) return paramValidationEnvelope(cmd, op.operationId, paramError);
     }
 
@@ -140,13 +142,14 @@ function parseHttpInput(
   }
 }
 
-async function httpOperation(
+function httpOperation(
   method: HttpMethod,
   path: string,
   input: AgentInput,
-): Promise<{ op: OperationCard; metadataWarning: Warning; matchTemplate: string | undefined }> {
+  registry: Map<string, OperationCard>,
+): { op: OperationCard; metadataWarning: Warning; matchTemplate: string | undefined } {
   const fileFields = Object.keys(input.files ?? {});
-  const registryOp = await matchingRegistryOperation(method, path);
+  const registryOp = matchingRegistryOperation(method, path, registry);
   if (registryOp) {
     return {
       op: {
@@ -234,12 +237,12 @@ function mergeUrlQuery(search: string, explicit: AgentInput["query"]): JsonObjec
   return Object.keys(query).length ? query : undefined;
 }
 
-async function matchingRegistryOperation(
+function matchingRegistryOperation(
   method: HttpMethod,
   path: string,
-): Promise<OperationCard | undefined> {
+  registry: Map<string, OperationCard>,
+): OperationCard | undefined {
   const requestPath = decodeRequestPath(path.replace(/\?.*$/u, ""));
-  const registry = await loadRegistry();
   const candidates = [...registry.values()]
     .filter((op) => op.method === method && pathMatchesTemplate(op.pathTemplate, requestPath))
     .map((op) => ({ op, rank: pathSpecificity(op.pathTemplate, requestPath) }))

@@ -299,6 +299,7 @@ async function runAllPages(
         hash: opts.hash,
         creditsEstimated,
         retryPost: opts.retryPost,
+        signal: opts.signal,
         requestPath,
         method,
         inline: true,
@@ -331,6 +332,7 @@ async function runSinglePage(
     hash: opts.hash,
     creditsEstimated,
     retryPost: opts.retryPost,
+    signal: opts.signal,
     requestPath: requestPath ?? req.path,
     method: method ?? req.method,
     // Normalize inline when downstream code needs data: pagination computes
@@ -458,6 +460,7 @@ function budgetEstimateUnavailable(cmd: string, op: OperationCard, maxCredits: n
 
 interface SendAndNormalizeContext extends ResponseContext {
   retryPost?: boolean;
+  signal?: AbortSignal;
 }
 
 async function sendAndNormalize(
@@ -465,7 +468,7 @@ async function sendAndNormalize(
   op: OperationCard,
   ctx: SendAndNormalizeContext,
 ): Promise<Envelope> {
-  const res = await sendWithRetry(req, op, { retryPost: ctx.retryPost });
+  const res = await sendWithRetry(req, op, { retryPost: ctx.retryPost, signal: ctx.signal });
   return normalizeResponse(op, res, {
     ...ctx,
     outputFormat: new URL(req.url).searchParams.get("output_format") ?? undefined,
@@ -733,6 +736,7 @@ export function envelopeForThrown(cmd: string, operationId: string, error: unkno
   if (error instanceof ConfigFileError) {
     return configFileError(cmd, error.message, {
       operationId,
+      code: error.code,
       raw: { path: error.path },
     });
   }

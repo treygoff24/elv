@@ -199,6 +199,9 @@ const ALIAS_FAMILIES = [
 ] as const;
 
 const ENVIRONMENT = [
+  ["XDG_CONFIG_HOME", "Absolute user configuration root; ELV_CONFIG wins."],
+  ["XDG_CACHE_HOME", "Absolute cache root; ELV_CACHE_DIR wins."],
+  ["XDG_DATA_HOME", "Absolute durable data root; ELV_OUTPUT_DIR wins."],
   ["ELEVENLABS_API_KEY", "Default API-key environment variable; profiles may name another."],
   ["ELEVENLABS_API_RESIDENCY", "Select a residency host: us, eu, in, or sg."],
   ["ELEVENLABS_BASE_URL", "Override the REST and derived WebSocket base URL."],
@@ -258,10 +261,12 @@ export async function handleCapabilities(options: CapabilitiesOptions): Promise<
           precedence: [
             "command flag",
             "environment variable",
-            "active profile",
+            "trusted profile with restricted project workflow overlay",
             "built-in default",
           ],
-          api_key: "Read only from the environment selected by the active profile; never argv.",
+          api_key: "Read only from the environment selected by the trusted profile; never argv.",
+          project_config:
+            "Workflow options may overlay user settings; budgets may only decrease. Endpoint/key fields are refused, and project defaults cannot select trusted credentials.",
         },
         safety: {
           risk_classes: ["read", "mutate", "generate", "external_side_effect", "destructive"],

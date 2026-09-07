@@ -14,9 +14,8 @@
 //
 // Default mode writes nothing. --install and --sync-skill are the only modes
 // that touch anything outside this repo, and neither commits, pushes, bumps a
-// version, or deletes a file. Verification runs before --sync-skill, so with
-// that flag the drift report describes the state going in; re-run without it to
-// confirm the result.
+// version, or deletes a file. Skill propagation precedes verification so the
+// final report describes the resulting state.
 //
 // Options:
 //   --prefix DIR       npm global prefix to check (default $ELV_INSTALL_PREFIX,
@@ -45,7 +44,7 @@ import {
 } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { pathToFileURL, fileURLToPath } from "node:url";
 
 const repoRoot = fileURLToPath(new URL("..", import.meta.url));
 const manifest = JSON.parse(readFileSync(join(repoRoot, "package.json"), "utf8"));
@@ -127,8 +126,17 @@ function treeManifest(root) {
       const full = join(dir, entry.name);
       if (entry.isDirectory()) walk(full);
       else if (entry.isFile()) files.set(relative(root, full), sha256(full));
+      else
+        files.set(
+          relative(root, full),
+          `unsupported:${entry.isSymbolicLink() ? "symlink" : "special"}`,
+        );
     }
   };
+  if (lstatSync(root).isSymbolicLink() || !lstatSync(root).isDirectory()) {
+    files.set(".", "unsupported:root");
+    return files;
+  }
   walk(root);
   return files;
 }
@@ -198,7 +206,15 @@ if (doInstall) {
     );
     if (!existsSync(tarball)) fail(`npm pack produced no ${tarball}`);
 
-    const installArgs = ["install", "--global", "--prefix", prefix, "--no-audit", "--no-fund"];
+    const installArgs = [
+      "install",
+      "--global",
+      "--prefix",
+      prefix,
+      "--no-audit",
+      "--no-fund",
+      "--ignore-scripts",
+    ];
     if (!flag("--allow-network")) installArgs.push("--offline");
     installArgs.push(tarball);
     const installed = spawnSync("npm", installArgs, { cwd: repoRoot, encoding: "utf8" });
@@ -237,17 +253,19 @@ if (!existsSync(repoDist)) {
 }
 
 section("Installed binary");
+let binVerified = false;
 const installedDist = join(packageDir, "dist", "cli.js");
 if (existsSync(installedBin)) {
   if (lstatSync(installedBin).isSymbolicLink()) {
     const target = resolve(dirname(installedBin), readlinkSync(installedBin));
     if (existsSync(installedDist) && realpathSync(target) === realpathSync(installedDist)) {
+      binVerified = true;
       ok(`bin symlink resolves into the installed package: ${target}`);
     } else {
       problem(`bin symlink points at ${target}, expected ${installedDist}`);
     }
   } else {
-    note(`${installedBin} is not a symlink; npm normally installs it as one`);
+    problem(`${installedBin} is not the expected npm bin symlink`);
   }
 }
 
@@ -257,6 +275,7 @@ if (existsSync(installedDist)) {
   if (repoHash === installedHash) {
     ok(`dist/cli.js bytes identical (sha256 ${repoHash.slice(0, 16)}…)`);
   } else {
+    binVerified = false;
     problem(
       `dist/cli.js differs: repo ${repoHash.slice(0, 16)}… vs installed ${installedHash.slice(0, 16)}…. ` +
         `Rebuilding does not update a packed install; re-run with --install.`,
@@ -268,8 +287,94 @@ if (existsSync(installedDist)) {
     problem(`version differs: repo ${manifest.version} vs installed ${installedManifest.version}`);
 }
 
-section("Skill trees");
+// Refuse symlink roots and children before any write, including broken links.
+function assertSafeDestination(path) {
+  let current = resolve(path);
+  for (;;) {
+    let stat;
+    try {
+      stat = lstatSync(current);
+    } catch (error) {
+      if (error.code !== "ENOENT") throw error;
+    }
+    if (stat?.isSymbolicLink()) fail(`refusing symlink destination ${current}`);
+    const parent = dirname(current);
+    if (parent === current) break;
+    current = parent;
+  }
+}
+function shellArg(value) {
+  return "'" + value.replaceAll("'", "'\\''") + "'";
+}
+
 const repoSkill = treeManifest(repoSkillDir);
+if (doSyncSkill) {
+  section("Skill propagation (copy only, never delete, never commit)");
+  assertSafeDestination(activeSkillDir);
+  const existing = existsSync(activeSkillDir);
+  const parent = dirname(activeSkillDir);
+  const gitRoot = spawnSync(
+    "git",
+    ["-C", existing ? activeSkillDir : parent, "rev-parse", "--show-toplevel"],
+    { encoding: "utf8" },
+  );
+  const libraryRoot = gitRoot.status === 0 ? gitRoot.stdout.trim() : parent;
+  const skillName = relative(libraryRoot, activeSkillDir);
+  const gitStatus =
+    gitRoot.status === 0
+      ? spawnSync(
+          "git",
+          [
+            "-C",
+            libraryRoot,
+            "status",
+            "--porcelain=v1",
+            "-z",
+            "--untracked-files=all",
+            "--ignored=matching",
+            "--",
+            `:(literal)${skillName}`,
+          ],
+          { encoding: "utf8" },
+        )
+      : null;
+  if (
+    existing &&
+    (!gitStatus || gitStatus.status !== 0 || gitStatus.stdout.length > 0) &&
+    !flag("--force-skill")
+  ) {
+    fail(
+      "active skill has uncommitted edits or unknown Git state; inspect it or explicitly use --force-skill",
+    );
+  }
+  const active = existing ? treeManifest(activeSkillDir) : new Map();
+  // Preflight every destination before copying any file. Force never permits escapes.
+  for (const [rel, hash] of repoSkill) {
+    if (hash.startsWith("unsupported:")) fail(`unsupported source skill entry ${rel}`);
+    const destination = join(activeSkillDir, rel);
+    assertSafeDestination(destination);
+    if (existsSync(destination) && !lstatSync(destination).isFile())
+      fail(`destination is not a file: ${destination}`);
+  }
+  const copied = [];
+  for (const [rel, hash] of repoSkill) {
+    if (active.get(rel) === hash) continue;
+    const destination = join(activeSkillDir, rel);
+    mkdirSync(dirname(destination), { recursive: true });
+    assertSafeDestination(destination);
+    copyFileSync(join(repoSkillDir, rel), destination);
+    copied.push(rel);
+  }
+  ok(`copied ${copied.length} file(s): ${copied.join(", ")}`);
+  const stale = [...active.keys()].filter((rel) => !repoSkill.has(rel));
+  if (stale.length) note(`foreign entries retained: ${stale.join(", ")}`);
+  if (copied.length)
+    process.stdout.write(
+      `\n  Review copied files, then deliberately stage:\n    git -C ${shellArg(libraryRoot)} add -- ${copied.map((rel) => shellArg(join(skillName, rel))).join(" ")}\n`,
+    );
+}
+
+section("Skill trees");
 ok(`repo skill tree: ${repoSkill.size} files under ${repoSkillDir}`);
 compareTrees("installed package skill", repoSkill, join(packageDir, "skills", "elv"));
 compareTrees("active skill", repoSkill, activeSkillDir);
@@ -279,14 +384,25 @@ section("Documented commands");
 // installed runtime. Checking the active copy as well as the repo's is the
 // point: the active copy is what an agent actually loads, and it is the one
 // that went stale.
-if (!existsSync(installedBin)) {
-  note("installed bin missing; cannot check documented commands against the runtime");
+if (!binVerified) {
+  note("installed bin unverified; refusing to execute it for documented commands");
 } else {
-  const capabilities = spawnSync(installedBin, ["capabilities"], {
-    encoding: "utf8",
-    maxBuffer: 32 * 1024 * 1024,
-    env: { ...process.env, ELEVENLABS_API_KEY: "" },
-  });
+  const cache = mkdtempSync(join(tmpdir(), "elv-verify-cache-"));
+  let capabilities;
+  try {
+    capabilities = spawnSync(installedBin, ["capabilities"], {
+      encoding: "utf8",
+      maxBuffer: 32 * 1024 * 1024,
+      env: {
+        ...process.env,
+        ELEVENLABS_API_KEY: "",
+        ELV_CACHE_DIR: cache,
+        NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ""} --import=${pathToFileURL(join(repoRoot, "scripts", "no-egress.mjs")).href}`,
+      },
+    });
+  } finally {
+    rmSync(cache, { recursive: true, force: true });
+  }
   if (capabilities.status !== 0) {
     problem(`\`elv capabilities\` exited ${capabilities.status}: ${capabilities.stderr?.trim()}`);
   } else {
@@ -302,6 +418,10 @@ if (!existsSync(installedBin)) {
     ]) {
       if (!existsSync(skillFile)) {
         problem(`${label} skill: no SKILL.md at ${skillFile}`);
+        continue;
+      }
+      if (lstatSync(skillFile).isSymbolicLink() || lstatSync(dirname(skillFile)).isSymbolicLink()) {
+        problem(`${label} skill: refusing symlink Route map at ${skillFile}`);
         continue;
       }
       const documented = routeMapCommands(skillFile);
@@ -321,70 +441,12 @@ if (!existsSync(installedBin)) {
   }
 }
 
-// ------------------------------------------------------------ skill sync ----
-
-if (doSyncSkill) {
-  section("Skill propagation (copy only, never delete, never commit)");
-  const libraryRoot = join(activeSkillDir, "..");
-  const gitStatus = spawnSync("git", ["-C", libraryRoot, "status", "--porcelain"], {
-    encoding: "utf8",
-  });
-  const dirty =
-    gitStatus.status === 0
-      ? gitStatus.stdout
-          .split("\n")
-          .filter(Boolean)
-          .map((line) => line.slice(3))
-      : [];
-  const skillName = relative(libraryRoot, activeSkillDir);
-  const dirtyHere = dirty.filter((path) => path.startsWith(`${skillName}/`));
-  const dirtyElsewhere = dirty.length - dirtyHere.length;
-  if (dirtyElsewhere > 0) {
-    note(`${dirtyElsewhere} unrelated uncommitted path(s) in the pool; leaving them untouched`);
-  }
-  if (dirtyHere.length && !flag("--force-skill")) {
-    process.stderr.write(
-      `install-verify: the active skill has uncommitted edits (${dirtyHere.join(", ")}). ` +
-        `Resolve them, or re-run with --force-skill to overwrite.\n`,
-    );
-    process.exit(1);
-  }
-
-  const active = existsSync(activeSkillDir) ? treeManifest(activeSkillDir) : new Map();
-  const copied = [];
-  for (const [rel, hash] of repoSkill) {
-    if (active.get(rel) === hash) continue;
-    const destination = join(activeSkillDir, rel);
-    mkdirSync(dirname(destination), { recursive: true });
-    copyFileSync(join(repoSkillDir, rel), destination);
-    copied.push(rel);
-  }
-  const stale = [...active.keys()].filter((rel) => !repoSkill.has(rel));
-
-  if (copied.length) ok(`copied ${copied.length} file(s): ${copied.join(", ")}`);
-  else ok("active skill already matched the repo; nothing copied");
-  if (stale.length) {
-    note(
-      `${stale.length} file(s) exist only in the pool and were NOT deleted: ${stale.join(", ")}. ` +
-        `Remove deliberately: git -C ${libraryRoot} rm ${stale.map((rel) => join(skillName, rel)).join(" ")}`,
-    );
-  }
-  if (copied.length || stale.length) {
-    process.stdout.write(
-      `\n  Next, deliberately and by hand:\n` +
-        `    git -C ${libraryRoot} add ${skillName}\n` +
-        `    git -C ${libraryRoot} commit -m "Sync the elv skill from the repo"\n` +
-        `    skill-library-sync\n`,
-    );
-  }
-}
-
 // ------------------------------------------------------------------ smoke ----
 
 if (!flag("--skip-smoke")) {
   section("Installed-binary smoke");
-  if (!existsSync(installedBin)) {
-    problem("no installed bin to smoke");
+  if (!binVerified) {
+    problem("no verified installed bin to smoke");
   } else {
     const smoke = spawnSync("sh", [join(repoRoot, "scripts", "smoke.sh")], {
       cwd: repoRoot,

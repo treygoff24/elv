@@ -8,6 +8,8 @@ const INPUT_CODES = new Set([
   "validation_error",
   "config_error",
   "config_json_invalid",
+  "config_untrusted",
+  "config_file_missing",
   "text_too_long",
   "max_character_limit_exceeded",
 ]);
@@ -156,14 +158,14 @@ export function validationError(
 export function configFileError(
   cmd: string,
   message: string,
-  options: PreflightOptions = {},
+  options: PreflightOptions & { code?: string } = {},
 ): ErrorEnvelope {
   return failure({
     cmd,
     operation_id: options.operationId,
     error: {
       type: "config_error",
-      code: "config_json_invalid",
+      code: options.code ?? "config_json_invalid",
       message,
       param: options.param ?? null,
       raw: options.raw,

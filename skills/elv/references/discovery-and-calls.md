@@ -135,7 +135,16 @@ cache never removes them. Files written under the older `~/.cache/elv/out`
 default stay where they are.
 
 A `.elv/config.json` found implicitly in the working directory supplies ordinary
-workflow options, and its `base_url` and `api_key_env` are ignored. To select an
+workflow options. Any `base_url` or `api_key_env` causes whole-file refusal;
+remove those fields before using `--base-url`. To select an
 endpoint or key variable, use user config or point `ELV_CONFIG` at the file
 deliberately. When a call reaches an unexpected host or fails auth inside an
 unfamiliar checkout, that rule is the first thing to check.
+
+Project workflow settings overlay trusted user settings. A project can lower
+`max_credits`, but cannot raise or remove a trusted ceiling; invalid project
+ceilings fail validation. `--max-credits` and `ELV_MAX_CREDITS` remain deliberate
+overrides. The trusted profile comes from `--profile`, then `ELV_PROFILE`, then
+the user config default. A project's `default_profile` selects only its own
+workflow options, not a trusted endpoint or credential profile. `output_dir`
+remains allowed. Explicit `ELV_CONFIG` selects and trusts that file alone.

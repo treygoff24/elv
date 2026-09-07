@@ -177,7 +177,10 @@ describe("central parameter validation", () => {
   it("validates pagination-generated page size before known HTTP execution", async () => {
     const op = parameterOperation({ type: "integer", minimum: 2 });
     op.queryParams[0]!.name = "page_size";
-    vi.spyOn(registry, "loadRegistry").mockResolvedValue(new Map([[op.operationId, op]]));
+    vi.spyOn(registry, "loadRegistrySnapshot").mockResolvedValue({
+      operations: new Map([[op.operationId, op]]),
+      cache: null,
+    });
     const fetch = vi
       .fn()
       .mockResolvedValue(new Response("{}", { headers: { "content-type": "application/json" } }));

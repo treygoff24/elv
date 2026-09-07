@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { success, failure } from "./envelope";
 import { ExitCode } from "./types";
 import { errorMessage } from "../util/error";
+import { shellArg } from "../util/shell";
 import { isRecord, parseJson } from "../util/json";
 import {
   absolutePath,
@@ -62,6 +63,7 @@ export class ConfigFileError extends Error {
   constructor(
     public readonly path: string,
     message: string,
+    public readonly code = "config_json_invalid",
   ) {
     super(message);
     this.name = "ConfigFileError";
@@ -80,7 +82,7 @@ const DEFAULT_BASE_URL = httpsUrl(DEFAULT_API_HOST);
 const DEFAULT_SPEC_URL = httpsUrl(DEFAULT_API_HOST, "/openapi.json");
 
 export function loadConfig(overrides: ConfigOverrides = {}): ResolvedConfig {
-  const file = readConfigFile();
+  const file = readConfigFile(overrides);
   const profile = resolveProfileName(file, overrides);
   const activeProfile = resolveProfileConfig(file, profile);
   const residency = process.env.ELEVENLABS_API_RESIDENCY;
@@ -102,7 +104,7 @@ export function loadConfig(overrides: ConfigOverrides = {}): ResolvedConfig {
 }
 
 export function getApiKey(overrides: ConfigOverrides = {}): string | undefined {
-  const file = readConfigFile();
+  const file = readConfigFile(overrides);
   const profile = overrides.profile ?? process.env.ELV_PROFILE ?? file.default_profile ?? "default";
   const apiKeyEnv = file.profiles?.[profile]?.api_key_env ?? "ELEVENLABS_API_KEY";
   return process.env[apiKeyEnv];
@@ -199,49 +201,68 @@ export async function configDoctor(options: DoctorOptions = {}): Promise<DoctorR
   return { env, exitCode: failed ? ExitCode.ProviderError : ExitCode.Success, checks };
 }
 
-function readConfigFile(): FileConfig {
-  const source = findConfigSource();
-  if (!source) return {};
+function readConfigFile(overrides: ConfigOverrides): FileConfig {
+  const explicit = process.env.ELV_CONFIG;
+  if (explicit) {
+    if (!existsSync(explicit))
+      throw new ConfigFileError(
+        explicit,
+        `ELV_CONFIG points at ${shellArg(explicit)}, which does not exist. Create that file or unset ELV_CONFIG.`,
+        "config_file_missing",
+      );
+    return parseConfigFile(explicit, true);
+  }
+  const userPath = userConfigPaths().find(existsSync);
+  const trusted = userPath ? parseConfigFile(userPath, true) : {};
+  const projectPath = join(process.cwd(), ".elv", "config.json");
+  if (!existsSync(projectPath)) return trusted;
+  const project = parseConfigFile(projectPath, false);
+  // The project selects workflow settings only. Credentials and endpoint always use
+  // the trusted profile selected by the user, never the project's default_profile.
+  const profile = resolveProfileName(trusted, overrides);
+  const base = resolveProfileConfig(trusted, profile);
+  const localName =
+    overrides.profile ?? process.env.ELV_PROFILE ?? project.default_profile ?? profile;
+  const local = resolveProfileConfig(project, localName);
+  return {
+    default_profile: profile,
+    profiles: {
+      [profile]: {
+        ...base,
+        ...local,
+        max_credits:
+          local.max_credits === undefined
+            ? base.max_credits
+            : Math.min(base.max_credits ?? Infinity, local.max_credits),
+      },
+    },
+  };
+}
+
+function parseConfigFile(path: string, trusted: boolean): FileConfig {
   let parsed: JsonValue;
   try {
-    parsed = parseJson(readFileSync(source.path, "utf8"), source.path);
-  } catch (error) {
-    throw new ConfigFileError(
-      source.path,
-      `Invalid JSON in config file ${source.path}: ${errorMessage(error)}`,
-    );
+    parsed = parseJson(readFileSync(path, "utf8"), path);
+  } catch {
+    throw new ConfigFileError(path, `Invalid JSON in config file ${shellArg(path)}`);
   }
-  if (!parsed || typeof parsed !== "object") return {};
-  if (!source.trusted) rejectPrivilegedFields(source.path, parsed);
-  return parsed as FileConfig;
-}
-
-interface ConfigSource {
-  path: string;
-  /**
-   * True when the user pointed at this file (ELV_CONFIG) or it lives in their
-   * own config directory. A `.elv/config.json` discovered in the current
-   * directory is whatever checkout the agent happens to be standing in, so it
-   * is untrusted.
-   */
-  trusted: boolean;
-}
-
-function findConfigSource(): ConfigSource | undefined {
-  const envPath = process.env.ELV_CONFIG;
-  if (envPath) {
-    if (!existsSync(envPath)) {
-      throw new ConfigFileError(
-        envPath,
-        `ELV_CONFIG points at ${envPath}, which does not exist. Create that file or unset ELV_CONFIG; elv will not silently fall back to another config.`,
-      );
+  if (!trusted) rejectPrivilegedFields(path, parsed);
+  if (!isRecord(parsed)) return {};
+  if (!trusted) {
+    const profiles = isRecord(parsed.profiles) ? parsed.profiles : {};
+    for (const profile of Object.values(profiles)) {
+      if (
+        isRecord(profile) &&
+        Object.hasOwn(profile, "max_credits") &&
+        (typeof profile.max_credits !== "number" ||
+          !Number.isFinite(profile.max_credits) ||
+          profile.max_credits < 0)
+      ) {
+        throw new ConfigFileError(path, `Invalid max_credits in project config ${shellArg(path)}`);
+      }
     }
-    return { path: envPath, trusted: true };
   }
-  const projectPath = join(process.cwd(), ".elv", "config.json");
-  if (existsSync(projectPath)) return { path: projectPath, trusted: false };
-  const userPath = userConfigPaths().find((candidate) => existsSync(candidate));
-  return userPath ? { path: userPath, trusted: true } : undefined;
+  return parsed as FileConfig;
 }
 
 /** XDG location first, then a preexisting pre-XDG file so upgrades keep working. */
@@ -262,7 +283,8 @@ function rejectPrivilegedFields(path: string, parsed: JsonValue): void {
   if (found.length === 0) return;
   throw new ConfigFileError(
     path,
-    `Untrusted project config ${path} sets ${found.join(", ")}. Those fields choose the endpoint that receives your API key and which environment variable holds it, so elv honors them only from a trusted config. Move them to ${join(defaultConfigDir(), "config.json")}, run with ELV_CONFIG=${path} to trust this file, or pass --base-url on the command line.`,
+    `Untrusted project config ${shellArg(path)} sets ${found.join(", ")}. Those fields choose the endpoint that receives your API key and which environment variable holds it, so elv honors them only from a trusted config. Remove these fields before using --base-url, move them to ${shellArg(join(defaultConfigDir(), "config.json"))}, or run with ELV_CONFIG=${shellArg(path)} to explicitly trust this file.`,
+    "config_untrusted",
   );
 }
 

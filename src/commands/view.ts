@@ -33,11 +33,7 @@ export function buildViewResult(path: string, options: ViewOptions = {}): Comman
     : viewJson(cmd, resolved, options, limit);
 }
 
-/**
- * Whole-document JSON stays a single read: the file is already bounded by the spill
- * limit that produced it, and a streaming parser for arbitrary JSON is a separate
- * decision (it needs either a dependency or a hand-rolled parser).
- */
+// Arbitrary JSON is read whole; NDJSON below bounds retention by record and preview.
 function viewJson(
   cmd: string,
   resolved: string,
@@ -163,8 +159,12 @@ function rowSelector(path: string | undefined): RowSelector {
   const head = segments[0] ?? "";
   const rest = segments.slice(1);
   if (head === "[]") return { kind: "project", rowPath: ["[]", ...rest].join(".") };
-  if (/^\d+$/u.test(head)) {
-    return { kind: "index", index: Number(head), rowPath: ["0", ...rest].join(".") };
+  if (/^\d+(?:\[\])?$/u.test(head)) {
+    return {
+      kind: "index",
+      index: Number.parseInt(head, 10),
+      rowPath: [head.endsWith("[]") ? "0[]" : "0", ...rest].join("."),
+    };
   }
   return { kind: "none" };
 }
@@ -220,13 +220,6 @@ class ArrayAccumulator {
   get inlineItems(): JsonValue {
     return this.kept as JsonValue;
   }
-
-  /** Retained prefix with the real length restored, for summary and hint shape only. */
-  summaryShape(): JsonValue {
-    const shape = this.kept.slice();
-    shape.length = this.shown;
-    return shape as JsonValue;
-  }
 }
 
 function renderAccumulated(
@@ -245,11 +238,11 @@ function renderAccumulated(
       exitCode: ExitCode.Success,
     };
   }
-  const shape = rows.summaryShape();
+  const shape = rows.inlineItems;
   return {
     env: success({
       cmd,
-      data_summary: summarizeData(shape),
+      data_summary: { ...summarizeData(shape), count: rows.shown },
       truncated: true,
       hints: [narrowHint(resolved, shape, jsonPath)],
     }),
