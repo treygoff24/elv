@@ -1,8 +1,8 @@
 # Linux optimization review and fix batch
 
 Implementation candidate: `7a97cd3`, against baseline `47b8710`.
-Status: CLI fixes reviewed, gates passed, runtime and active skill updated.
-The combined estate launcher passes fixture checks; its live merge is pending.
+Status: complete. CLI and launcher fixes are reviewed, verified, and installed;
+the active skill matches the installed package. Npm publication remains held.
 
 Six Claude Opus 5 high-effort Delegate lanes implemented the candidate. The
 coordinator integrated it and ran the gate: 843 tests passed, 3 live-API tests
@@ -368,3 +368,51 @@ The same local synthetic inputs used in the assessment now show:
 These are single-run observations on a shared Linux devbox, not performance
 guarantees. NDJSON still scans through EOF; one large record and general JSON
 can still require proportional memory. Receipt: `core-performance.txt`.
+
+## Estate integration and final close
+
+The Exa task handed off shared files at `caf8e08`. The parent merged the elv
+changes additively and committed `6abda82` in linux-devbox, preserving Exa's
+physical PATH resolution, literal PATH fields, offline guard, and clean-exec
+rules. Both pre-existing dirty files, `.beads/interactions.jsonl` and
+`40-cells/user-env/sanitize-agent-dev.py`, remain untouched.
+
+The combined source passed ShellCheck, elv grammar tests, Exa's dash/bash-as-sh
+suite, and portability/XDG tests against both broker source and its installed
+runtime. The first post-Exa-commit history scan flagged a deliberate fake-realm
+key in the new Exa regression test. The parent verified its fixture origin and
+added only that exact historical fingerprint to `.gitleaksignore`. No rule or
+path was excluded. The complete post-commit devbox gate then passed with
+ShellCheck 0.11.0 and gitleaks 8.30.1.
+
+Only `~/.local/bin/estate-shims/elv` was installed, after backup and an idle
+launcher check. It is byte-identical to the combined template, SHA-256
+`e69366fdee6c88677df179be3b9f89fd4b24cd68ce3eb3c5a248766bef77be73`.
+The real PATH runtime passed all 30 smoke cases. An additional fake-HOME probe
+ran the actual installed CLI and launcher through the actual broker: selected
+XDG config and synthetic credential presence matched the direct CLI exactly.
+Exa received the final template/commit handoff for its separate installation.
+
+Eight measured warm runs per command, after one discarded warmup:
+
+| Command | Before, through shim | After, direct | After, through shim |
+| --- | ---: | ---: | ---: |
+| `--version` | 132.8 ms | 73.5 ms | 73.8 ms |
+| `config get` | 137.1 ms | 74.2 ms | 139.5 ms |
+| `ops get text_to_speech_full` | 167.3 ms | 98.6 ms | 102.5 ms |
+
+Credential-sensitive config reads deliberately retain broker overhead.
+These are local observations, not latency guarantees. The final RSS repeat
+measured 73.8 MiB for the 32 MiB NDJSON input, consistent with the earlier run.
+
+Receipts: `final-devbox-gate-committed.log`, `final-shim-*.log`,
+`final-path-smoke.log`, `installed-xdg-canary.json`, and
+`final-performance.json` under the same scratch directory. The source review
+inputs were archived there before removing the temporary repo copies.
+
+CLI commits are pushed to Forgejo main; the active skill update is `29bca5f`.
+The shared launcher is pushed to `codex/elv-linux-offline-20260907`. Its local
+worktree contains unrelated dirty files and origin/main advanced, so neither
+was reset, stashed, or overwritten to force an in-place merge. No GitHub push,
+tag, npm publication, broad estate deployment, or retained-worktree deletion
+was performed. The publish decision remains `elv-w9t`.
