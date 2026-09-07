@@ -6,7 +6,7 @@ This file provides instructions and context for AI coding agents working on this
 
 This project uses **bd (beads)** as the work ledger. `bd prime` for commands; `bd ready` on arrival.
 
-- **Beads is the work graph only** — tasks, bugs, dependencies, close-reasons. **`model-performance-journal.md` (delegated-model invocation history) and `CHANGELOG.md` are the narrative and continuity layer and we use them heavily.** Beads never replaces them; a close-reason should point at the journal entry or commit that holds the story.
+- **Beads is the work graph only**: tasks, bugs, dependencies, and close reasons. Keep durable behavior and release context in `CHANGELOG.md` and commits; close reasons should cite the relevant commit. Local model-run transcripts and review scratch can be removed at cleanup.
 - Model decisions-needed-from-Trey as blocker beads (human-checkpoint-as-blocker-edge), so dependent work can't be picked up by mistake.
 - Create the bead before starting substantial work; close with `--reason`.
 - `bd remember` is welcome *alongside* memory files, not instead of them.

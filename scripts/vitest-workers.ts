@@ -2,9 +2,8 @@
 //
 // The devbox is a shared 24-core machine with no cgroup CPU quota, so an
 // unbounded pool lets one test run claim every core from whatever else is
-// running. The ceiling buys a predictable resource budget; see
-// docs/reviews/2026-09-06-linux-devbox-assessment.md for the measurements
-// behind the default.
+// running. The ceiling buys a predictable resource budget; measurements below
+// explain the default.
 //
 // Override per run with ELV_TEST_MAX_WORKERS=<n>. A value above the machine's
 // actual parallelism is capped rather than honoured, and anything that is not a
