@@ -335,7 +335,7 @@ Both complete gates passed on Linux: Node 22.23.2 and Node 26.5.0 each ran
 884 passing tests, three live-API skips, and 30 passing smoke cases. The
 production-only offline pack check passed with seven runtime dependencies,
 no development dependencies, original executable archive mode, and two
-byte-identical 403,702-byte packs.
+byte-identical 403,699-byte packs after the final skill whitespace correction.
 
 The parent verified that no installed elv process was active and preserved a
 backup before local installation. The installed CLI now matches the repo's
@@ -345,5 +345,26 @@ families exist, and installed-bin smoke passed 30 cases. No npm publication,
 GitHub push, or tag was performed.
 
 Receipts are under `/var/tmp/elv-linux-opt-20260907/`:
-`final-gate-node22-r2.log`, `final-gate-node26.log`, `final-pack.log`, and
-`final-install-verify.log`. Mac CI is configured, but was not executed here.
+`final-gate-node22-r2.log`, `final-gate-node26.log`, `final-pack-r2.log`, and
+`final-install-verify-r2.log`. Mac CI is configured, but was not executed here.
+
+Installed-binary canaries also passed: implicit cwd endpoint selection returned
+`config_untrusted` with zero local-server requests; explicit trust sent exactly
+one request with a synthetic key. A 150 ms child deadline rejected a child
+scheduled to succeed after 1,200 ms, returned in 492 ms including CLI startup
+and cleanup grace, and left no live child. These probes allowed only loopback
+through the Node guard. Receipt: `installed-canaries.json`.
+
+### Measured CLI changes
+
+The same local synthetic inputs used in the assessment now show:
+
+| Command | Before | After |
+| --- | --- | --- |
+| Direct `spec status` | 0.40 s / 118.3 MiB peak RSS | 0.11 s / 72.4 MiB |
+| NDJSON `view --limit 1`, 1 MiB | 0.09 s / 63.3 MiB | 0.09 s / 64.3 MiB |
+| NDJSON `view --limit 1`, 32 MiB | 0.16 s / 165.3 MiB | 0.14 s / 74.4 MiB |
+
+These are single-run observations on a shared Linux devbox, not performance
+guarantees. NDJSON still scans through EOF; one large record and general JSON
+can still require proportional memory. Receipt: `core-performance.txt`.

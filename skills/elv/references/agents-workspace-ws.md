@@ -98,4 +98,3 @@ same message validation as finite scripts. Send protocol flush/end controls
 and wait for final output before EOF; closing stdin does not guarantee that
 queued audio is flushed. A configured credit ceiling blocks dynamic speech,
 dialogue, transcription, and conversation sessions.
-
