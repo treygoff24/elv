@@ -1,5 +1,6 @@
 import { resolveMaybeRef, resolveRef, schemaNameFromRef } from "./compile-spec";
 import type { OpenApiDocument } from "./compile-spec";
+import { invariantExampleFileField } from "./input-invariants";
 import type { JsonObject, JsonValue } from "../util/json";
 import { shellArg } from "../util/shell";
 import type { OperationCard, ParamCard } from "./types";
@@ -52,15 +53,20 @@ export function buildExampleCommand(op: OperationCard, spec: OpenApiDocument): E
     input.body = placeholderFor("body", compactValue(rawInputSchemaForOperation(op, spec), spec));
   }
   const fileFields = op.requestBody?.fileFields ?? [];
+  const invariantFile = invariantExampleFileField(op.operationId);
+  const defaultFile =
+    invariantFile && fileFields.includes(invariantFile)
+      ? invariantFile
+      : fileFields.find((name) => schema.required.body[name] !== undefined);
   const body = input.body;
   if (
-    op.requestBody?.required &&
-    op.requestBody.multipart &&
-    isJsonObject(body) &&
-    fileFields.length > 0 &&
-    !fileFields.some((name) => name in body)
+    op.requestBody?.multipart &&
+    defaultFile &&
+    (!isJsonObject(body) || !fileFields.some((name) => name in body))
   ) {
-    body[fileFields[0]!] = "<file>";
+    const fileBody = isJsonObject(body) ? body : {};
+    fileBody[defaultFile] = "<file>";
+    input.body = fileBody;
   }
   const files = fileArguments(input, fileFields);
   const out = op.returnsBinary || op.streamKind !== "none" ? " --out ./out" : "";

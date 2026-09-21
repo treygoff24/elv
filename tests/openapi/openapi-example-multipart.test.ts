@@ -45,6 +45,23 @@ describe("multipart operation examples", () => {
   });
 
   it.each([
+    ["edit_voice", '{"path":{"voice_id":"<voice_id>"},"body":{"name":"<name>"}}'],
+    ["add_project", '{"body":{"name":"<name>"}}'],
+  ] as const)("does not invent an optional file for %s", (operationId, expectedJson) => {
+    const operation = compiled.operations.find(
+      (candidate) => candidate.operationId === operationId,
+    );
+    expect(operation).toBeDefined();
+
+    expect(exampleArgs(buildExampleCommand(operation!, compiled.bundledSpec).cmd)).toEqual([
+      "call",
+      operationId,
+      "--json",
+      expectedJson,
+    ]);
+  });
+
+  it.each([
     ["create_image_generation", { prompt: "<prompt>", model_id: "gpt-image-1" }],
     ["create_environment_variable", { type: "string", label: "<label>", values: {} }],
   ] as const)("keeps the existing %s union example valid", (operationId, expectedBody) => {
