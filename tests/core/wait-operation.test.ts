@@ -55,4 +55,39 @@ describe("core wait operation", () => {
     expect(polls).toBe(1);
     expect(sleeps).toEqual([100]);
   });
+
+  it("treats a sleep that consumed the whole budget as the deadline even if the clock lags", async () => {
+    // Node timers can settle up to a millisecond before Date.now() crosses the
+    // deadline; that rounding must not buy one more (wasted) poll.
+    let now = 0;
+    let polls = 0;
+    const sleeps: number[] = [];
+
+    const result = await waitForOperation(
+      {
+        operation: "get_dubbing",
+        json: "{}",
+        statusPath: "data.status",
+        success: "done",
+        intervalMs: 1_000,
+        timeoutMs: 100,
+      },
+      {
+        now: () => now,
+        sleep: async (ms) => {
+          sleeps.push(ms);
+          now += sleeps.length === 1 ? ms - 1 : ms;
+        },
+        runOperation: async () => {
+          polls += 1;
+          return env("queued");
+        },
+      },
+    );
+
+    expect(result.exitCode).toBe(ExitCode.TransientExhausted);
+    if (!result.env.ok) expect(result.env.error.code).toBe("wait_timeout");
+    expect(polls).toBe(1);
+    expect(sleeps).toEqual([100]);
+  });
 });

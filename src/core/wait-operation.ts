@@ -316,8 +316,15 @@ async function pollLoop(
     if (remaining <= 0) {
       return waitTimeout(parsed, poll.status, poll.env);
     }
-    await Promise.race([runtime.sleep(Math.min(parsed.intervalMs, remaining)), interrupt.promise]);
+    const sleepMs = Math.min(parsed.intervalMs, remaining);
+    await Promise.race([runtime.sleep(sleepMs), interrupt.promise]);
     if (interrupt.signal) return waitInterrupted(parsed, interrupt.signal, last.env);
+    // Sleeping the whole remaining budget is the deadline by construction. Timers can
+    // settle a millisecond before Date.now() agrees, and that rounding must not buy
+    // one more poll that the deadline would only expire anyway.
+    if (sleepMs === remaining) {
+      return waitTimeout(parsed, poll.status, poll.env);
+    }
   }
 }
 
