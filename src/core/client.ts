@@ -87,6 +87,15 @@ export async function runOperation(
 
     const rawInput = normalizeInput(op, input, { allowUnknown: opts.allowUnknown });
     const normalized = applyPaginationDefaults(op, rawInput, opts.limit ?? 20);
+    const invariant = validateInputInvariants(op.operationId, normalized);
+    if (invariant) {
+      return validationError(cmd, invariant.message, {
+        operationId: op.operationId,
+        param: invariant.param,
+        raw: invariant.raw,
+        hints: invariant.hints,
+      });
+    }
     const validation = await validateInput(op, normalized, cached?.bundledSpec);
     if (validation) return paramValidationEnvelope(cmd, operationId, validation);
 
@@ -130,15 +139,6 @@ export async function runPreparedOperation({
   requestPath,
   method,
 }: PreparedOperationRun): Promise<Envelope> {
-  const invariant = validateInputInvariants(op.operationId, input);
-  if (invariant) {
-    return validationError(cmd, invariant.message, {
-      operationId: op.operationId,
-      param: invariant.param,
-      raw: invariant.raw,
-      hints: invariant.hints,
-    });
-  }
   const config = loadConfig({
     profile: opts.profile,
     baseUrl: opts.baseUrl,
