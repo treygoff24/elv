@@ -70,17 +70,23 @@ and 2 MiB per metadata part. Missing boundaries cannot yield reliable split file
 | Realtime dialogue | `eleven_v3_conversational`, `eleven_v3` |
 | Text to Voice | `eleven_ttv_v3`, `eleven_multilingual_ttv_v2` |
 | Speech to Speech | `eleven_multilingual_sts_v2`, `eleven_english_sts_v2` |
-| Speech to Text | `scribe_v2`, `scribe_v2_realtime` |
+| Speech to Text | `scribe_v2`, `scribe_v2_medical` (batch only), `scribe_v2_realtime` |
 | Sound Effects | `eleven_text_to_sound_v2` |
-| Music | `music_v2`, `music_v1` |
+| Music | `music_v2_5`, `music_v2`, `music_v1` |
+| Image generation (flows) | `gpt-image-2.5-flare`, `gpt-image-2.5-sunburst` |
+| Agent LLMs (examples) | `gemini-3.8-flash`, `gpt-6-astra` |
 
 ElevenLabs marks `eleven_turbo_v2_5`, `eleven_turbo_v2`, and `scribe_v1` deprecated and recommends `eleven_flash_v2_5`, `eleven_flash_v2`, and `scribe_v2` respectively.
+
+`music_v2_5` is the current product default, but the API's `MusicModelID` default remains `music_v1`; select `music_v2_5` explicitly. The agent LLM enum is longer than the two September additions shown above.
 
 `elv models list` returns the models visible to the authenticated account from `GET /v1/models`. That endpoint is not a complete product catalog: it may omit STT, realtime STT, Sound Effects, Text to Voice, Music, and other service-specific IDs. Model availability also varies by account, region, plan, entitlement, and rollout. Alias model arguments therefore pass through as strings rather than enforcing a stale global allowlist. A profile's `default_model_id` applies only to TTS REST and named TTS WebSocket calls when no model is supplied.
 
 ## Recent workflow coverage
 
 The September 6 snapshot adds 24 operations relative to August 11: nine Flows generation operations, four Assets operations, ten Agents triage-ticket operations, and conversation summaries. No operation was removed. The runner compiles every non-skipped operation, and every request-body schema can be compiled by the local validator. This checks the published contract, not account entitlements or live execution of every operation.
+
+The September 21 snapshot adds three operations and removes none: hold-audio upload and delete plus a paged phone-number list. `agents hold-audio upload|delete` exposes the first two; `elv call list_phone_numbers_page_route --all --save-json phone-numbers.json` reaches the third through the generic paginator, whose page size is clamped to the published maximum of 1,000. The same upstream revision removed `convai_coaching_proposals` from `WorkspaceResourceType`, added `dubbing_project`, and deprecated crawl `max_depth` as a no-op.
 
 `flows image|video|speech` supports create, list, and get; `create --wait` polls until completion, failure, or the `--timeout-ms` deadline (default 600000 ms; `--interval-ms` sets the poll interval). A timeout exits 7 with hints naming the `get` command for the created id. `assets` supports upload, list, get, and delete. `agents tickets` supports both agent and workspace lists, creation from conversations or manual creation, assignment discovery, updates, deletion, and ticket/turn comments. `agents conversations summary` reads summaries. Model-specific generation options remain available through alias body JSON or generic calls.
 

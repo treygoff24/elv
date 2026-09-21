@@ -14,6 +14,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - Polling deadlines cover the first HTTP request and cancel it. Child waits reject late success, cap output, preserve UTF8, and clean up owned process groups.
 - Retry response classification has a total body-read deadline and bounded disposal before backoff. Final response bodies remain available to callers.
+- `--wait` no longer issues one extra poll when sleeping consumes the whole deadline budget, including timer/clock millisecond rounding at the boundary. Timeout envelopes are unchanged.
+- Stream fixtures pass on Node 26.9. This is a test-only compatibility fix with no runtime behavior change.
 
 ### Changed
 
@@ -21,10 +23,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - `spec status` verifies vendored metadata without recompiling the spec. Commands reuse one registry snapshot, including raw HTTP validation.
 - NDJSON `view` retains only the requested preview while scanning all records for malformed input and credentials. Paginated `--all` output streams to collision-safe files.
 - Tests default to two workers, configurable by environment. CI adds Linux Node 26; bin-symlink tests no longer rebuild shared output.
+- Upstream removed `convai_coaching_proposals` from `WorkspaceResourceType` and added `dubbing_project` without notice. The CLI passes this enum through, so callers using the removed value now fail validation.
+- Upstream deprecated crawl `max_depth`; it is now a no-op and will be removed in a future provider revision.
+- Published conversation-history filters no longer document `neq`, `in`, `exists`, or `missing`. The server still accepted them in a September 21, 2026 probe, but callers should treat them as unsupported going forward.
+- New model IDs remain passthrough strings: batch-only `scribe_v2_medical` for `POST /v1/speech-to-text` at the Scribe v2 price, `music_v2_5` as the product default, `gpt-image-2.5-flare` and `gpt-image-2.5-sunburst` for `flows image`, and agent LLMs `gemini-3.8-flash` and `gpt-6-astra`. The API's `MusicModelID` default remains `music_v1`, so select `music_v2_5` explicitly.
 
 ### Added
 
 - Offline Node transport guards, production-only packed-install smoke, and local runtime/skill verification. Skill sync refuses dirty/unknown targets and symlink escapes, preserves foreign files, and verifies afterward.
+- Refreshed the September 21, 2026 public API snapshot to 302 paths, 391 documented operations, 390 callable operations, one skipped operation, and 1,524 schemas. The three new operations are `post_agent_hold_audio_route`, `delete_agent_hold_audio_route`, and `list_phone_numbers_page_route`; the paged phone-number list is available through `elv call` and its generic paginator clamps page size to 1,000.
+- Added `agents hold-audio upload|delete`. Upload accepts MP3 or WAV clips up to 40 MB and 180 seconds and replaces the existing clip; delete restores the default tone and, as a destructive action, requires `--yes`.
+- Added `--search` to `agents test-runs list`; `agents tests list --search` now matches folders as well as tests.
+- Added `--max-documents-length` (1-50000) and `--max-retrieved-rag-chunks-count` (1-20) to `agents rag-query`.
+- The `ws convai` catalog documents `queue_status` values `waiting`, `admitted`, and `timed_out`, plus `agent_response.attachments`. Session envelopes and manifests include `close_code` and, when the catalog names it, `close_reason`; close code 4300 is reported as `queue_timeout`.
+- `ops search` resolves intent phrases such as "make speech," "synthesize speech," "transcribe," "isolate vocals," and "dub" toward their canonical operations, ranks current operations ahead of deprecated ties, and hints `elv voices clone-instant` for "clone voice."
+- `capabilities` reports `spec.spec_age_days` and emits `spec_check_stale` with an `elv spec diff` hint when the pinned snapshot is more than seven days old.
+- `spec status` includes `active_differs_from_vendored_description` to clarify that the flag compares the active local cache with the vendored snapshot, not with the provider's current spec.
 
 ## [0.4.0] - 2026-09-06
 
