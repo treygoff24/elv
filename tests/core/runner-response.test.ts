@@ -268,14 +268,12 @@ describe("response normalization", () => {
 
     expect(env.ok).toBe(false);
     if (env.ok) throw new Error("expected failure");
-    expect(env.hints).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          cmd: "elv config doctor",
-          why: expect.stringContaining("ELEVENLABS_API_KEY"),
-        }),
-      ]),
-    );
+    expect(env.hints).toEqual([
+      {
+        cmd: "elv config doctor --online",
+        why: "Verify the configured API key; profiles select its source with api_key_env.",
+      },
+    ]);
   });
 
   it("preserves provider HTTP errors when the JSON body is malformed", async () => {

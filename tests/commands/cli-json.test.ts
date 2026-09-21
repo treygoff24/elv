@@ -270,10 +270,12 @@ describe("did-you-mean suggestions", () => {
     expect(hints[0]?.cmd).toBe("elv tts --text hello --voice-id x");
   });
 
-  it("emits no suggestion when nothing is close", () => {
+  it("falls back to top-level help when nothing is close", () => {
     const { stdout, code } = runCli(["zzzzzzzz"]);
     expect(code).toBe(9);
-    expect(parseEnvelope(stdout).hints).toBeUndefined();
+    expect(parseEnvelope(stdout).hints).toEqual([
+      { cmd: "elv --help", why: "List available top-level commands." },
+    ]);
   });
 
   it("suggests nearest operation ids for an unknown call id", () => {
@@ -289,10 +291,12 @@ describe("did-you-mean suggestions", () => {
     expect(hints[0]?.cmd).toBe("elv ops search text to speech");
   });
 
-  it("does not suggest for a genuine excess argument on a leaf command", () => {
+  it("falls back to parent help for a genuine excess argument on a leaf command", () => {
     const { stdout, code } = runCli(["ops", "get", "some_op", "extra_arg"]);
     expect(code).toBe(2);
-    expect(parseEnvelope(stdout).hints).toBeUndefined();
+    expect(parseEnvelope(stdout).hints).toEqual([
+      { cmd: "elv ops --help", why: "Inspect valid commands and flags." },
+    ]);
   });
 
   it("names --dry-run when a destructive op needs confirmation", () => {
