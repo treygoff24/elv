@@ -16,6 +16,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Retry response classification has a total body-read deadline and bounded disposal before backoff. Final response bodies remain available to callers.
 - `--wait` no longer issues one extra poll when sleeping consumes the whole deadline budget, including timer/clock millisecond rounding at the boundary. Timeout envelopes are unchanged.
 - Stream fixtures pass on Node 26.9. This is a test-only compatibility fix with no runtime behavior change.
+- File-emitting operations now check `--out`, `--save-json`, or the configured default output directory before dry-run, confirmation, budget checks, or network access. An unwritable target returns `invalid_out_target`, exit 2, no retry, and a runnable replacement-target hint instead of completing a paid call and then losing its output with exit 7.
+- Error envelopes now carry runnable recovery hints for every exit code from 2 through 9. Raw HTTP errors use `elv http --help`; confirmation hints replay a body-only alias or build a canonical `elv call ... --dry-run` with path and query input; auth hints use `elv config doctor --online` and honor profile `api_key_env`; budget and credit errors point to `elv usage`; unknown commands fall back to the nearest applicable `--help`.
+- `speech_to_text`, whether invoked through `stt` or `elv call`, now requires exactly one media source: a local file (`stt --file PATH` or `--file file=PATH`), `body.source_url`, or `body.cloud_storage_url`. Invalid combinations fail during dry-run with exit 2 and runnable hints before network access, and multipart `ops schema --example` output includes the required `--file <field>=./path/to/file` argument.
 
 ### Changed
 
@@ -35,9 +38,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Added `agents hold-audio upload|delete`. Upload accepts MP3 or WAV clips up to 40 MB and 180 seconds and replaces the existing clip; delete restores the default tone and, as a destructive action, requires `--yes`.
 - Added `--search` to `agents test-runs list`; `agents tests list --search` now matches folders as well as tests.
 - Added `--max-documents-length` (1-50000) and `--max-retrieved-rag-chunks-count` (1-20) to `agents rag-query`.
-- The `ws convai` catalog documents `queue_status` values `waiting`, `admitted`, and `timed_out`, plus `agent_response.attachments`. Session envelopes and manifests include `close_code` and, when the catalog names it, `close_reason`; close code 4300 is reported as `queue_timeout`.
+- The `ws convai` catalog documents `queue_status` values `waiting`, `admitted`, and `timed_out`, plus `agent_response.attachments`.
 - `ops search` resolves intent phrases such as "make speech," "synthesize speech," "transcribe," "isolate vocals," and "dub" toward their canonical operations, ranks current operations ahead of deprecated ties, and hints `elv voices clone-instant` for "clone voice."
-- `capabilities` reports `spec.spec_age_days` and emits `spec_check_stale` with an `elv spec diff` hint when the pinned snapshot is more than seven days old.
+- `capabilities` reports `spec.spec_age_days` and emits `spec_check_stale` when the pinned snapshot reaches 90 days old. The warning says to upgrade the package; hints name `npm install -g eleven-agent-cli@latest` first and the network-dependent `elv spec diff` second.
+- `elv spec update --from <file>` records the local file's modification time as `retrieved_at` instead of the time the command ran.
 - `spec status` includes `active_differs_from_vendored_description` to clarify that the flag compares the active local cache with the vendored snapshot, not with the provider's current spec.
 
 ## [0.4.0] - 2026-09-06

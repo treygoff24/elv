@@ -44,6 +44,10 @@ environment variable, not in an argument. `scribe_v2_medical` is for medical
 and clinical batch transcription through `POST /v1/speech-to-text`; it is not a
 realtime model.
 
+Use `stt --file PATH` for a local upload; the equivalent generic call uses
+`--file file=PATH`. Supply exactly one media source: that file, `body.source_url`,
+or `body.cloud_storage_url`.
+
 `--timestamps` accepts `none`, `word`, or `character`, not `segment`.
 Rebuild speaker turns from `words[].speaker_id` when needed. Plain STT calls
 return the completed transcript synchronously. In 0.4.0, `--wait` preserves that

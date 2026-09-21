@@ -148,10 +148,12 @@ elv ops list --group text_to_speech --limit 20
 elv ops search "text to speech"
 elv ops get text_to_speech_full
 elv ops schema text_to_speech_full --example
+elv call speech_to_text --json '{"body":{"model_id":"scribe_v2"}}' \
+  --file file=./note.m4a --dry-run
 elv spec status
 ```
 
-The `--example` output is a ready-to-run `elv call` skeleton; required arrays include one placeholder item when the schema provides an item shape. Sixteen common workflow aliases include `tts`, `stt`, `music`, `dubbing-project`, `agents`, and `workspace`; they build input and call the same runner. For the rest of the pinned REST surface, use `elv call <operation_id> --json '{...}'`. Use `http` for a published REST path newer than the snapshot, `ws` for the named client-side realtime protocols, and `wait` for polling.
+The `--example` output is a ready-to-run `elv call` skeleton; required arrays include one placeholder item when the schema provides an item shape, and multipart examples include `--file <field>=./path/to/file`. `speech_to_text` requires exactly one media source: `--file file=PATH`, `body.source_url`, or `body.cloud_storage_url`. Sixteen common workflow aliases include `tts`, `stt`, `music`, `dubbing-project`, `agents`, and `workspace`; they build input and call the same runner. For the rest of the pinned REST surface, use `elv call <operation_id> --json '{...}'`. Use `http` for a published REST path newer than the snapshot, `ws` for the named client-side realtime protocols, and `wait` for polling.
 
 `elv models list` is account-visible state from `/v1/models`, not a complete cross-product model catalog. Use documented model IDs for each service; current STT examples should use `scribe_v2` rather than deprecated `scribe_v1`, or `scribe_v2_medical` for medical and clinical batch transcription. Select `music_v2_5` explicitly when you want the current Music product default because the API schema still defaults `MusicModelID` to `music_v1`.
 
