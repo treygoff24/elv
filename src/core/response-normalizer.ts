@@ -75,9 +75,7 @@ export async function normalizeResponse(
         after_ms: retryAfterMs(res.headers),
       },
       hints: mergeErrorHints(
-        error.type === "validation_error"
-          ? [{ cmd: `elv ops schema ${op.operationId}`, why: "Inspect required params." }]
-          : [],
+        error.type === "validation_error" ? providerValidationHints(op) : [],
         error,
         op.operationId,
         ctx.cmd,
@@ -150,6 +148,12 @@ async function normalizeSuccessResponse(
         files: error.files,
         retry: { recommended: false, after_ms: null },
         warnings: optional(warnings),
+        hints: mergeErrorHints(
+          undefined,
+          { type: "provider_error", code: error.code, message: error.message },
+          op.operationId,
+          ctx.cmd,
+        ),
       });
     }
   }
@@ -291,7 +295,16 @@ async function invalidJsonSuccess(
     cost: base.cost,
     files: [{ ...file, partial: true }],
     warnings: optional(warnings),
-    hints: [],
+    hints: mergeErrorHints(
+      undefined,
+      {
+        type: "provider_error",
+        code: "invalid_json_response",
+        message: "Provider returned invalid JSON response",
+      },
+      op.operationId,
+      ctx.cmd,
+    ),
   });
 }
 
@@ -631,7 +644,7 @@ async function streamFailure(
     cost: base.cost,
     files: files.length > 0 ? files : undefined,
     warnings: optional(warnings),
-    hints:
+    hints: mergeErrorHints(
       files.length > 0
         ? [
             {
@@ -640,7 +653,26 @@ async function streamFailure(
             },
           ]
         : options.noFilesHints,
+      {
+        type: interrupted ? "network_error" : "provider_error",
+        code: interrupted ? "stream_interrupted" : options.code,
+        message: interrupted ? "Provider stream was interrupted" : options.message,
+      },
+      op.operationId,
+      ctx.cmd,
+    ),
   });
+}
+
+function providerValidationHints(op: OperationCard): Hint[] {
+  return op.operationId === "http"
+    ? [{ cmd: "elv http --help", why: "Inspect raw HTTP input and output options." }]
+    : [
+        {
+          cmd: `elv ops schema ${op.operationId} --example`,
+          why: "Inspect required inputs and generate a valid request skeleton.",
+        },
+      ];
 }
 
 function feedSse(state: SseParserState, text: string, final: boolean): SseFrame[] {

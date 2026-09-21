@@ -12,7 +12,7 @@ import {
   type Stats,
   type WriteStream,
 } from "node:fs";
-import { chmod, link, lstat, open, rm } from "node:fs/promises";
+import { chmod, link, lstat, mkdir, open, rm } from "node:fs/promises";
 import { basename, dirname, extname, isAbsolute, join, resolve } from "node:path";
 import { Readable } from "node:stream";
 import { finished, pipeline } from "node:stream/promises";
@@ -168,6 +168,34 @@ export function resolveOutTarget(
     existing?.isDirectory() || (!existing && (out?.endsWith("/") || !fileLooking));
   if (looksLikeDirectory) return { dir: target };
   return { dir: dirname(target), file: basename(target) };
+}
+
+const OUT_TARGET_ERROR_CODES = new Set(["EACCES", "EEXIST", "ENOENT", "ENOTDIR", "EROFS"]);
+
+/** Prove that the directory used by atomic publication accepts a fresh file. */
+export async function preflightOutTarget(
+  out: string,
+  multiFile: boolean,
+  flag: "--out" | "--save-json" = "--out",
+): Promise<void> {
+  const target = resolveOutTarget(out, multiFile);
+  const probe = join(target.dir, `.elv-output-probe-${process.pid}-${randomUUID()}`);
+  let handle;
+  try {
+    await mkdir(target.dir, { recursive: true });
+    handle = await open(probe, "wx");
+    await handle.close();
+    handle = undefined;
+  } catch (error) {
+    if (!OUT_TARGET_ERROR_CODES.has(errorCode(error))) throw error;
+    throw new OutTargetError(
+      `Cannot create output files in ${target.dir} (${errorCode(error)})`,
+      `Choose a writable replacement target, for example ${flag} ${flag === "--out" ? "./output" : "./output.json"}.`,
+    );
+  } finally {
+    await handle?.close().catch(() => undefined);
+    await rm(probe, { force: true }).catch(() => undefined);
+  }
 }
 
 export async function streamToFile(

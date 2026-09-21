@@ -1,6 +1,7 @@
 import { failure, writeEnvelope } from "./envelope";
 import type { OutTargetError } from "./files";
 import { ExitCode } from "./types";
+import { shellArg } from "../util/shell";
 import type { Envelope, ErrorEnvelope, Hint, NormalizedError } from "./types";
 
 const INPUT_CODES = new Set([
@@ -10,6 +11,7 @@ const INPUT_CODES = new Set([
   "config_json_invalid",
   "config_untrusted",
   "config_file_missing",
+  "invalid_out_target",
   "text_too_long",
   "max_character_limit_exceeded",
 ]);
@@ -76,26 +78,41 @@ const HINT_RULES: HintRule[] = [
   {
     codes: new Set(["not_found", "not-found"]),
     hints: ({ operationId }) =>
-      operationId
+      operationId && operationId !== "http"
         ? [{ cmd: `elv ops get ${operationId}`, why: "Confirm the operation and required ids." }]
-        : [],
+        : [{ cmd: "elv http --help", why: "Inspect raw HTTP input and output options." }],
   },
   {
     codes: new Set(["invalid_api_key", "missing_api_key"]),
-    hints: () => [{ cmd: "elv config doctor", why: "Verify ELEVENLABS_API_KEY is set and valid." }],
-  },
-  {
-    codes: new Set(["forbidden", "insufficient_permissions", "feature_not_available"]),
     hints: () => [
       {
-        cmd: "elv config doctor",
-        why: "Your key lacks permission or the feature isn't on your plan.",
+        cmd: "elv config doctor --online",
+        why: "Verify the configured API key; profiles select its source with api_key_env.",
+      },
+    ],
+  },
+  {
+    codes: new Set([
+      "forbidden",
+      "insufficient_permissions",
+      "feature_not_available",
+      "detected_unusual_activity",
+    ]),
+    hints: () => [
+      {
+        cmd: "elv config doctor --online",
+        why: "Check the configured API key, its permissions, and plan access.",
       },
     ],
   },
   {
     codes: new Set(["insufficient_credits", "quota_exceeded"]),
-    hints: () => [{ cmd: "elv usage", why: "Check remaining credits/quota." }],
+    hints: () => [
+      {
+        cmd: "elv usage",
+        why: "Check remaining credits/quota.",
+      },
+    ],
   },
   {
     codes: new Set([
@@ -151,7 +168,16 @@ export function validationError(
       raw: options.raw,
     },
     retry: { recommended: false, after_ms: null },
-    hints: options.hints,
+    hints: ensureHints(
+      options.hints,
+      {
+        type: "validation_error",
+        code: "validation_error",
+        message,
+      },
+      options.operationId,
+      cmd,
+    ),
   });
 }
 
@@ -180,6 +206,10 @@ export function outTargetError(
   error: OutTargetError,
   options: Pick<PreflightOptions, "operationId"> & { hintCmd?: string } = {},
 ): ErrorEnvelope {
+  const replacementFlag = error.hint.includes("--save-json") ? "--save-json" : "--out";
+  const replacement = replacementFlag === "--save-json" ? "./output.json" : "./output";
+  const baseCommand =
+    options.operationId && options.operationId !== "http" ? `elv call ${options.operationId}` : cmd;
   return failure({
     cmd,
     operation_id: options.operationId,
@@ -190,7 +220,12 @@ export function outTargetError(
       raw: { hint: error.hint },
     },
     retry: { recommended: false, after_ms: null },
-    hints: [{ cmd: options.hintCmd ?? cmd, why: error.hint }],
+    hints: [
+      {
+        cmd: options.hintCmd ?? `${baseCommand} ${replacementFlag} ${replacement} --dry-run`,
+        why: error.hint,
+      },
+    ],
   });
 }
 
@@ -209,7 +244,16 @@ export function confirmationRequired(
       raw: options.raw,
     },
     retry: { recommended: false, after_ms: null },
-    hints: options.hints,
+    hints: ensureHints(
+      options.hints,
+      {
+        type: "confirmation_required",
+        code: "confirmation",
+        message,
+      },
+      options.operationId,
+      cmd,
+    ),
   });
 }
 
@@ -237,13 +281,62 @@ export function budgetExceeded(
       credits_source: estimated === null ? "none" : "estimate",
     },
     retry: { recommended: false, after_ms: null },
-    hints: options.hints,
+    hints: ensureHints(
+      options.hints,
+      {
+        type: "budget_exceeded",
+        code: "budget",
+        message:
+          estimated === null
+            ? `Budget cap ${max} would be exceeded`
+            : `Estimated credits ${estimated} exceed cap ${max}`,
+      },
+      options.operationId,
+      cmd,
+    ),
   });
 }
 
 export function hintsForError(err: NormalizedError, operationId?: string, cmd?: string): Hint[] {
   const code = err.code.toLowerCase();
-  return HINT_RULES.find((rule) => rule.codes.has(code))?.hints({ operationId, cmd }) ?? [];
+  const matched = HINT_RULES.find((rule) => rule.codes.has(code))?.hints({ operationId, cmd });
+  if (matched?.length) return matched;
+  if (err.type === "validation_error" || INPUT_CODES.has(code)) {
+    return [inputRecoveryHint(operationId, cmd)];
+  }
+  if (err.type === "authentication_error" || err.type === "permission_error") {
+    return [
+      {
+        cmd: "elv config doctor --online",
+        why: "Verify the configured API key; profiles select its source with api_key_env.",
+      },
+    ];
+  }
+  if (code === "budget" || code === "budget_estimate_unavailable") {
+    return [
+      {
+        cmd: "elv usage",
+        why: "Inspect current usage before raising --max-credits or reducing the requested work.",
+      },
+    ];
+  }
+  if (operationId === "http" && (code === "unknown_operation" || NOT_FOUND_CODES.has(code))) {
+    return [{ cmd: "elv http --help", why: "Inspect raw HTTP input and output options." }];
+  }
+  if (
+    err.type === "provider_error" ||
+    err.type === "server_error" ||
+    err.type === "network_error" ||
+    TRANSIENT_CODES.has(code)
+  ) {
+    return [
+      {
+        cmd: "elv config doctor --online",
+        why: "Check provider connectivity and authentication before retrying.",
+      },
+    ];
+  }
+  return [inputRecoveryHint(operationId, cmd)];
 }
 
 export function mergeErrorHints(
@@ -258,7 +351,34 @@ export function mergeErrorHints(
       merged.push(hint);
     }
   }
-  return merged;
+  return ensureHints(merged, err, operationId, cmd);
+}
+
+function ensureHints(
+  base: Hint[] | undefined,
+  err: NormalizedError,
+  operationId?: string,
+  cmd?: string,
+): Hint[] {
+  return base?.length ? base : hintsForError(err, operationId, cmd);
+}
+
+function inputRecoveryHint(operationId?: string, cmd?: string): Hint {
+  if (operationId && operationId !== "http") {
+    return {
+      cmd: `elv ops schema ${operationId} --example`,
+      why: "Inspect required inputs and generate a valid request skeleton.",
+    };
+  }
+  if (operationId === "http" || cmd?.startsWith("elv http")) {
+    return { cmd: "elv http --help", why: "Inspect raw HTTP input and output options." };
+  }
+  return { cmd: commandHelp(cmd), why: "Inspect valid commands and flags." };
+}
+
+function commandHelp(cmd?: string): string {
+  const command = cmd?.trim().split(/\s+/u)[1];
+  return command ? `elv ${command} --help` : "elv --help";
 }
 
 export function unknownOperation(id: string, suggestions: string[] = []): ErrorEnvelope {
@@ -277,7 +397,7 @@ export function unknownOperation(id: string, suggestions: string[] = []): ErrorE
     retry: { recommended: false, after_ms: null },
     hints: [
       ...suggestionHints,
-      { cmd: "elv ops search <query>", why: "Find a valid operation_id." },
+      { cmd: `elv ops search ${shellArg(id)}`, why: "Find a valid operation_id." },
     ],
   });
 }

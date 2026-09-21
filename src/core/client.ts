@@ -2,6 +2,7 @@ import { loadRegistrySnapshot } from "../openapi/registry";
 import { resolveRef as resolveOpenApiRef } from "../openapi/compile-spec";
 import { errorMessage } from "../util/error";
 import { isRecord } from "../util/json";
+import { shellArg } from "../util/shell";
 import { suggestIds } from "../util/suggest";
 import { budgetDecision, estimateDetail } from "./budget";
 import { ConfigFileError, loadConfig, getApiKey } from "./config";
@@ -30,7 +31,8 @@ import {
   type PaginatedRunOptions,
 } from "./pagination";
 import { requiresYes } from "./safety";
-import { OutTargetError, resolveOutTarget } from "./files";
+import { OutTargetError, preflightOutTarget } from "./files";
+import { containsCredential } from "./redaction";
 import type { ErrorObject, ValidateFunction } from "ajv";
 import type Ajv2020 from "ajv/dist/2020.js";
 import type { OpenApiDocument } from "../openapi/compile-spec";
@@ -115,7 +117,7 @@ export async function runOperation(
   }
 }
 
-export function runPreparedOperation({
+export async function runPreparedOperation({
   cmd,
   op,
   input,
@@ -133,16 +135,18 @@ export function runPreparedOperation({
     maxCredits: opts.maxCredits,
   });
   const effectiveOpts = { ...opts, maxCredits: config.maxCredits };
-  if (
+  const multiFileOutput =
     op.streamKind === "json_events" ||
     op.streamKind === "sse_events" ||
     op.responses.some(
       (response) =>
         response.status.startsWith("2") &&
         response.contentType?.toLowerCase() === "multipart/mixed",
-    )
-  ) {
-    resolveOutTarget(opts.out ?? config.outputDir, true);
+    );
+  if (opts.out !== undefined) await preflightOutTarget(opts.out, multiFileOutput, "--out");
+  if (opts.saveJson !== undefined) await preflightOutTarget(opts.saveJson, false, "--save-json");
+  if (opts.out === undefined && opts.saveJson === undefined && operationEmitsFiles(op, opts)) {
+    await preflightOutTarget(config.outputDir, multiFileOutput, "--out");
   }
   const budget = budgetDecision(op, creditsEstimated, effectiveOpts);
   const effectiveWarnings = [
@@ -204,7 +208,9 @@ export function runPreparedOperation({
 function preparedOperationPreflight({
   cmd,
   op,
+  input,
   opts,
+  command,
   dryRunRequest,
   creditsEstimated,
   warnings = [],
@@ -242,12 +248,7 @@ function preparedOperationPreflight({
     return withWarnings(
       confirmationRequired(cmd, `${op.operationId} (${op.risk}) requires --yes`, {
         operationId: op.operationId,
-        hints: [
-          {
-            cmd: `${cmd} --dry-run`,
-            why: "Preview the request without calling the API or mutating anything.",
-          },
-        ],
+        hints: [confirmationPreviewHint(op, input, command)],
       }),
       warnings,
     );
@@ -264,6 +265,73 @@ function preparedOperationPreflight({
     );
   }
   return null;
+}
+
+function operationEmitsFiles(op: OperationCard, opts: OperationRunOpts): boolean {
+  return Boolean(
+    op.secretResult ||
+    op.returnsBinary ||
+    (op.returnsJson && !opts.inline) ||
+    op.streamKind !== "none" ||
+    op.responses.some(
+      (response) =>
+        response.status.startsWith("2") &&
+        response.contentType !== undefined &&
+        !response.contentType.toLowerCase().includes("json"),
+    ),
+  );
+}
+
+function confirmationPreviewHint(
+  op: OperationCard,
+  input: AgentInput,
+  command: PaginationCommand,
+): Hint {
+  const replay = confirmationReplay(op, input, command);
+  return replay
+    ? {
+        cmd: `${replay} --dry-run`,
+        why: "Preview the normalized request without calling the API or mutating anything.",
+      }
+    : op.operationId === "http"
+      ? { cmd: "elv http --help", why: "Inspect raw HTTP input before retrying with --dry-run." }
+      : {
+          cmd: `elv ops schema ${op.operationId} --example`,
+          why: "Build a safe preview from the operation schema; the current input cannot be replayed safely.",
+        };
+}
+
+function confirmationReplay(
+  op: OperationCard,
+  input: AgentInput,
+  command: PaginationCommand,
+): string | undefined {
+  if (
+    containsCredential(input) ||
+    input.body !== undefined ||
+    Object.keys(input.headers ?? {}).length > 0 ||
+    Object.keys(input.files ?? {}).length > 0
+  ) {
+    return undefined;
+  }
+  if (command.kind === "call") {
+    const replayInput = {
+      ...(input.path ? { path: input.path } : {}),
+      ...(input.query ? { query: input.query } : {}),
+    };
+    const serialized = JSON.stringify(replayInput);
+    return `elv call ${op.operationId}${serialized === "{}" ? "" : ` --json ${shellArg(serialized)}`}`;
+  }
+  if (!command.method || !command.path) {
+    return undefined;
+  }
+  let replay = `elv http ${command.method} ${shellArg(command.path)}`;
+  for (const [key, value] of Object.entries(input.query ?? {})) {
+    for (const item of Array.isArray(value) ? value : [value]) {
+      replay += ` --query ${shellArg(`${key}=${String(item)}`)}`;
+    }
+  }
+  return replay;
 }
 
 type RequestFactory = (nextInput: AgentInput) => Promise<HttpRequest>;
@@ -425,6 +493,10 @@ function unboundedBudgetConsentRequired(
         cmd: `${cmd} --yes`,
         why: "Proceed only when you explicitly accept that the configured ceiling cannot bound this operation's cost.",
       },
+      {
+        cmd: "elv usage",
+        why: "Inspect current usage before accepting an unbounded-cost request.",
+      },
     ],
   });
 }
@@ -451,8 +523,8 @@ function budgetEstimateUnavailable(cmd: string, op: OperationCard, maxCredits: n
     retry: { recommended: false, after_ms: null },
     hints: [
       {
-        cmd,
-        why: "Remove the configured ceiling deliberately, provide a smaller bounded input, or choose an operation with a documented estimator.",
+        cmd: "elv usage",
+        why: "Inspect current usage, then remove the configured ceiling deliberately, reduce the input, or choose an operation with a documented estimator.",
       },
     ],
   });
@@ -747,10 +819,12 @@ export function envelopeForThrown(cmd: string, operationId: string, error: unkno
       error: error.toNormalizedError(),
       retry: { recommended: false, after_ms: null },
       hints: [
-        {
-          cmd: `elv ops schema ${operationId}`,
-          why: "Inspect required buckets.",
-        },
+        operationId === "http"
+          ? { cmd: "elv http --help", why: "Inspect raw HTTP input and output options." }
+          : {
+              cmd: `elv ops schema ${operationId} --example`,
+              why: "Inspect required buckets and generate a valid input skeleton.",
+            },
       ],
     });
   }
