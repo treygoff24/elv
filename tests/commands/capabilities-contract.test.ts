@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { handleCapabilities } from "../../src/commands/capabilities";
 import { loadRegistry } from "../../src/openapi/registry";
 import { arrayValue as array, recordValue as record } from "../helpers/cli-result";
+import type { VendoredMetadata } from "../../src/openapi/fetch-spec";
 
 function aliasFamilies(data: ReturnType<typeof record>) {
   return array(data.alias_families).map((entry) => record(entry));
@@ -139,6 +140,42 @@ describe("capabilities machine contract", () => {
     expect(spec.retrieved_at).toBe(meta.retrieved_at);
     expect(spec.sha256).toBe(meta.sha256);
     expect(String(spec.source)).not.toContain("openapi.snapshot.json");
+  });
+
+  it("warns when pinned provenance is older than seven days", async () => {
+    const metadata = JSON.parse(
+      readFileSync("spec/openapi.snapshot.meta.json", "utf8"),
+    ) as VendoredMetadata;
+    const now = new Date("2026-09-21T12:00:00Z");
+
+    const old = await handleCapabilities(
+      { version: "9.8.7" },
+      {
+        now: () => now,
+        readMetadata: () => ({ ...metadata, retrieved_at: "2026-09-13T11:59:59Z" }),
+      },
+    );
+
+    expect(record(record(old.env.ok ? old.env.data : undefined).spec).spec_age_days).toBe(8);
+    expect(old.env.warnings).toEqual([expect.objectContaining({ code: "spec_check_stale" })]);
+    expect(old.env.hints).toEqual([
+      {
+        cmd: "elv spec diff",
+        why: "Compare the active registry with the current provider spec.",
+      },
+    ]);
+
+    const recent = await handleCapabilities(
+      { version: "9.8.7" },
+      {
+        now: () => now,
+        readMetadata: () => ({ ...metadata, retrieved_at: "2026-09-15T12:00:00Z" }),
+      },
+    );
+
+    expect(record(record(recent.env.ok ? recent.env.data : undefined).spec).spec_age_days).toBe(6);
+    expect(recent.env.warnings).toBeUndefined();
+    expect(recent.env.hints).toBeUndefined();
   });
 
   it("advertises only operation ids the compiled registry can resolve", async () => {

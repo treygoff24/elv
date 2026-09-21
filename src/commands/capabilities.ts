@@ -4,6 +4,7 @@ import { readVendoredMetadata } from "../openapi/fetch-spec";
 import { loadRegistrySnapshot, vendoredSpecPath } from "../openapi/registry";
 import { listWsCatalog } from "../ws/catalog";
 import type { CommandResult } from "../core/types";
+import type { VendoredMetadata } from "../openapi/fetch-spec";
 import type { RegistryCache } from "../openapi/registry";
 import type { OperationCard } from "../openapi/types";
 
@@ -11,10 +12,18 @@ interface CapabilitiesOptions {
   version: string;
 }
 
+interface CapabilitiesDependencies {
+  now?: () => Date;
+  readMetadata?: () => VendoredMetadata;
+}
+
 interface VendoredOrigin {
   source: string;
   retrieved_at: string;
 }
+
+const MILLISECONDS_PER_DAY = 24 * 60 * 60 * 1000;
+const SPEC_STALE_AFTER_DAYS = 7;
 
 const COMMAND_FAMILIES = [
   ["capabilities", "Describe the bounded machine contract and discovery entry points."],
@@ -227,14 +236,25 @@ const EXIT_CODES = [
   [9, "not_found"],
 ] as const;
 
-export async function handleCapabilities(options: CapabilitiesOptions): Promise<CommandResult> {
+export async function handleCapabilities(
+  options: CapabilitiesOptions,
+  dependencies: CapabilitiesDependencies = {},
+): Promise<CommandResult> {
   const { operations: registry, cache } = await loadRegistrySnapshot();
+  const now = dependencies.now?.() ?? new Date();
+  const spec = specSummary(
+    cache,
+    registry.size,
+    now,
+    dependencies.readMetadata ?? readVendoredMetadata,
+  );
+  const stale = specIsStale(spec.retrieved_at, now);
   return {
     env: success({
       cmd: "elv capabilities",
       data: {
         cli: { name: "elv", version: options.version, envelope_version: ENVELOPE_VERSION },
-        spec: specSummary(cache, registry.size),
+        spec,
         command_families: COMMAND_FAMILIES.map(([name, description]) => ({ name, description })),
         service_groups: serviceGroups(registry),
         alias_families: ALIAS_FAMILIES,
@@ -294,6 +314,22 @@ export async function handleCapabilities(options: CapabilitiesOptions): Promise<
           { cmd: "elv config doctor", why: "Check local runtime and credentials." },
         ],
       },
+      warnings: stale
+        ? [
+            {
+              code: "spec_check_stale",
+              message: `The active OpenAPI spec was retrieved ${spec.spec_age_days} days ago; check for provider drift.`,
+            },
+          ]
+        : undefined,
+      hints: stale
+        ? [
+            {
+              cmd: "elv spec diff",
+              why: "Compare the active registry with the current provider spec.",
+            },
+          ]
+        : undefined,
     }),
     exitCode: ExitCode.Success,
   };
@@ -304,10 +340,13 @@ export async function handleCapabilities(options: CapabilitiesOptions): Promise<
  * the time it compiled, not where the document came from. `elv spec status` reports
  * the pinned source URL and retrieval date; report the same thing here.
  */
-function pinnedOrigin(cache: RegistryCache | null): VendoredOrigin | null {
+function pinnedOrigin(
+  cache: RegistryCache | null,
+  readMetadata: () => VendoredMetadata,
+): VendoredOrigin | null {
   if (!cache || cache.sourceSelector !== vendoredSpecPath()) return null;
   try {
-    const metadata = readVendoredMetadata();
+    const metadata = readMetadata();
     return metadata.sha256 === cache.provenance.sha256
       ? { source: metadata.source, retrieved_at: metadata.retrieved_at }
       : null;
@@ -329,12 +368,19 @@ function serviceGroups(
     .map(([name, operations]) => ({ name, operations }));
 }
 
-function specSummary(cache: RegistryCache | null, operations: number) {
+function specSummary(
+  cache: RegistryCache | null,
+  operations: number,
+  now: Date,
+  readMetadata: () => VendoredMetadata,
+) {
   const provenance = cache?.provenance;
-  const pinned = pinnedOrigin(cache);
+  const pinned = pinnedOrigin(cache, readMetadata);
+  const retrievedAt = pinned?.retrieved_at ?? provenance?.retrieved_at ?? null;
   return {
     source: pinned?.source ?? provenance?.source ?? "registry_cache",
-    retrieved_at: pinned?.retrieved_at ?? provenance?.retrieved_at ?? null,
+    retrieved_at: retrievedAt,
+    spec_age_days: specAgeDays(retrievedAt, now),
     sha256: provenance?.sha256 ?? null,
     paths: provenance?.paths ?? null,
     total_operations: provenance?.total_operations ?? operations,
@@ -343,4 +389,22 @@ function specSummary(cache: RegistryCache | null, operations: number) {
     schemas: provenance?.schemas ?? null,
     generated_at: cache?.generated_at ?? null,
   };
+}
+
+function specAgeDays(retrievedAt: string | null, now: Date): number | null {
+  const ageMs = specAgeMilliseconds(retrievedAt, now);
+  return ageMs === null ? null : Math.floor(ageMs / MILLISECONDS_PER_DAY);
+}
+
+function specIsStale(retrievedAt: string | null, now: Date): boolean {
+  const ageMs = specAgeMilliseconds(retrievedAt, now);
+  return ageMs !== null && ageMs > SPEC_STALE_AFTER_DAYS * MILLISECONDS_PER_DAY;
+}
+
+function specAgeMilliseconds(retrievedAt: string | null, now: Date): number | null {
+  if (retrievedAt === null) return null;
+  const retrievedAtMs = Date.parse(retrievedAt);
+  const nowMs = now.getTime();
+  if (!Number.isFinite(retrievedAtMs) || !Number.isFinite(nowMs)) return null;
+  return Math.max(0, nowMs - retrievedAtMs);
 }
