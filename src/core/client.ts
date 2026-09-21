@@ -1,5 +1,6 @@
 import { loadRegistrySnapshot } from "../openapi/registry";
 import { resolveRef as resolveOpenApiRef } from "../openapi/compile-spec";
+import { validateInputInvariants } from "../openapi/input-invariants";
 import { errorMessage } from "../util/error";
 import { isRecord } from "../util/json";
 import { shellArg } from "../util/shell";
@@ -129,6 +130,15 @@ export async function runPreparedOperation({
   requestPath,
   method,
 }: PreparedOperationRun): Promise<Envelope> {
+  const invariant = validateInputInvariants(op.operationId, input);
+  if (invariant) {
+    return validationError(cmd, invariant.message, {
+      operationId: op.operationId,
+      param: invariant.param,
+      raw: invariant.raw,
+      hints: invariant.hints,
+    });
+  }
   const config = loadConfig({
     profile: opts.profile,
     baseUrl: opts.baseUrl,

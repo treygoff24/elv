@@ -51,7 +51,18 @@ export function buildExampleCommand(op: OperationCard, spec: OpenApiDocument): E
   if (op.requestBody?.required) {
     input.body = placeholderFor("body", compactValue(rawInputSchemaForOperation(op, spec), spec));
   }
-  const files = fileArguments(input, op.requestBody?.fileFields ?? []);
+  const fileFields = op.requestBody?.fileFields ?? [];
+  const body = input.body;
+  if (
+    op.requestBody?.required &&
+    op.requestBody.multipart &&
+    isJsonObject(body) &&
+    fileFields.length > 0 &&
+    !fileFields.some((name) => name in body)
+  ) {
+    body[fileFields[0]!] = "<file>";
+  }
+  const files = fileArguments(input, fileFields);
   const out = op.returnsBinary || op.streamKind !== "none" ? " --out ./out" : "";
   const operationId = /^[\w.-]+$/u.test(op.operationId) ? op.operationId : shellArg(op.operationId);
   return { cmd: `elv call ${operationId} --json ${shellArg(JSON.stringify(input))}${files}${out}` };
