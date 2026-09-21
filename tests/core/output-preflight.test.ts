@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -38,7 +38,7 @@ describe("multi-file output preflight", () => {
         );
         expect(valid.ok).toBe(true);
         expect(fetch).not.toHaveBeenCalled();
-        expect(readdirSync(join(dir, "output"))).toEqual([]);
+        expect(existsSync(join(dir, "output"))).toBe(false);
       } finally {
         rmSync(dir, { recursive: true, force: true });
       }
@@ -92,6 +92,22 @@ describe("single-file output preflight", () => {
     }
   });
 
+  it("rejects an existing directory where --save-json names a file", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "elv-output-preflight-"));
+    const target = join(dir, "response.json");
+    mkdirSync(target);
+    vi.stubEnv("ELV_CACHE_DIR", join(dir, "cache"));
+    try {
+      const result = await runOperation("get_models", {}, { dryRun: true, saveJson: target });
+      expect(result).toMatchObject({
+        ok: false,
+        error: { type: "validation_error", code: "invalid_out_target" },
+      });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("preflights the default output directory for a file-producing operation", async () => {
     const dir = mkdtempSync(join(tmpdir(), "elv-output-preflight-"));
     const blocked = join(dir, "not-a-directory");
@@ -110,7 +126,52 @@ describe("single-file output preflight", () => {
         ok: false,
         error: { type: "validation_error", code: "invalid_out_target" },
       });
+      if (result.ok) throw new Error("Expected invalid output target");
+      expect(result.hints?.[0]).toEqual({
+        cmd: "elv config get",
+        why: "Show the output_dir / ELV_OUTPUT_DIR that failed the writability check.",
+      });
+      expect(result.hints?.[1]?.cmd).toBe(
+        `elv call text_to_speech_full --json '${JSON.stringify({
+          path: { voice_id: "voice_1" },
+          body: { text: "hello" },
+        })}' --out ./output --dry-run`,
+      );
       expect(fetch).not.toHaveBeenCalled();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("does not preflight the default output directory for a non-spending JSON read", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "elv-output-preflight-"));
+    const blocked = join(dir, "not-a-directory");
+    writeFileSync(blocked, "occupied");
+    vi.stubEnv("ELV_CACHE_DIR", join(dir, "cache"));
+    vi.stubEnv("ELV_OUTPUT_DIR", join(blocked, "output"));
+    const fetch = vi.fn();
+    vi.stubGlobal("fetch", fetch);
+    try {
+      const result = await runOperation("get_models", {}, { dryRun: true });
+      expect(result.ok).toBe(true);
+      expect(fetch).not.toHaveBeenCalled();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("does not create nested --out directories before an exit 4 rejection", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "elv-output-preflight-"));
+    const target = join(dir, "new", "nested", "response.json");
+    vi.stubEnv("ELV_CACHE_DIR", join(dir, "cache"));
+    try {
+      const result = await runOperation(
+        "delete_voice",
+        { path: { voice_id: "voice_1" } },
+        { out: target },
+      );
+      expect(result).toMatchObject({ ok: false, error: { code: "confirmation" } });
+      expect(existsSync(join(dir, "new"))).toBe(false);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

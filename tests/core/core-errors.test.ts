@@ -61,6 +61,10 @@ describe("errors", () => {
     expect(
       hintsForError({ type: "x", code: "not_found", message: "missing" }, "get_voice"),
     ).toEqual([{ cmd: "elv ops get get_voice", why: "Confirm the operation and required ids." }]);
+    expect(hintsForError({ type: "x", code: "not_found", message: "missing" })).toEqual([]);
+    expect(hintsForError({ type: "x", code: "not_found", message: "missing" }, "http")).toEqual([
+      { cmd: "elv http --help", why: "Inspect raw HTTP input and output options." },
+    ]);
     expect(hintsForError({ type: "x", code: "quota_exceeded", message: "pay" })).toEqual([
       { cmd: "elv usage", why: "Check remaining credits/quota." },
     ]);

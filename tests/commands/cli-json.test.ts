@@ -134,6 +134,27 @@ describe("CLI JSON output contract", () => {
     const envelope = parseEnvelope(stdout);
     expect(envelope.ok).toBe(false);
     expect(envelope.cmd).toBe("elv agents create");
+    expect(envelope.hints).toEqual([
+      { cmd: "elv agents create --help", why: "Inspect valid commands and flags." },
+    ]);
+  });
+
+  it("points nested alias validation at the leaf command help", () => {
+    const { stdout, code } = runCli([
+      "agents",
+      "hold-audio",
+      "upload",
+      "--file",
+      "/nonexistent.mp3",
+      "--dry-run",
+    ]);
+    expect(code).toBe(2);
+    expect(parseEnvelope(stdout).hints).toEqual([
+      {
+        cmd: "elv agents hold-audio upload --help",
+        why: "Inspect valid commands and flags.",
+      },
+    ]);
   });
 
   it("tts validates local text input before resolving --voice by network lookup", () => {
@@ -295,7 +316,7 @@ describe("did-you-mean suggestions", () => {
     const { stdout, code } = runCli(["ops", "get", "some_op", "extra_arg"]);
     expect(code).toBe(2);
     expect(parseEnvelope(stdout).hints).toEqual([
-      { cmd: "elv ops --help", why: "Inspect valid commands and flags." },
+      { cmd: "elv ops get --help", why: "Inspect valid commands and flags." },
     ]);
   });
 

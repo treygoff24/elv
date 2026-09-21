@@ -12,7 +12,7 @@ import {
   type Stats,
   type WriteStream,
 } from "node:fs";
-import { chmod, link, lstat, mkdir, open, rm } from "node:fs/promises";
+import { access, chmod, link, lstat, open, rm, stat } from "node:fs/promises";
 import { basename, dirname, extname, isAbsolute, join, resolve } from "node:path";
 import { Readable } from "node:stream";
 import { finished, pipeline } from "node:stream/promises";
@@ -31,14 +31,18 @@ interface WriteOptions {
   mode?: number;
 }
 
+export type OutTargetSource = "--out" | "--save-json" | "default";
+
 export class OutTargetError extends Error {
   readonly code = "invalid_out_target";
   readonly hint: string;
+  readonly source: OutTargetSource;
 
-  constructor(message: string, hint: string) {
+  constructor(message: string, hint: string, source: OutTargetSource = "--out") {
     super(message);
     this.name = "OutTargetError";
     this.hint = hint;
+    this.source = source;
   }
 }
 
@@ -170,32 +174,91 @@ export function resolveOutTarget(
   return { dir: dirname(target), file: basename(target) };
 }
 
-const OUT_TARGET_ERROR_CODES = new Set(["EACCES", "EEXIST", "ENOENT", "ENOTDIR", "EROFS"]);
+const OUT_TARGET_ERROR_CODES = new Set(["EACCES", "ENOENT", "ENOTDIR", "EROFS"]);
 
-/** Prove that the directory used by atomic publication accepts a fresh file. */
+/** Check output reachability without creating directories or probe files. */
 export async function preflightOutTarget(
   out: string,
   multiFile: boolean,
-  flag: "--out" | "--save-json" = "--out",
+  source: OutTargetSource = "--out",
 ): Promise<void> {
-  const target = resolveOutTarget(out, multiFile);
-  const probe = join(target.dir, `.elv-output-probe-${process.pid}-${randomUUID()}`);
-  let handle;
+  let target: ReturnType<typeof resolveOutTarget>;
   try {
-    await mkdir(target.dir, { recursive: true });
-    handle = await open(probe, "wx");
-    await handle.close();
-    handle = undefined;
+    target = resolveOutTarget(out, multiFile);
   } catch (error) {
+    if (!(error instanceof OutTargetError) || error.source === source) throw error;
+    throw new OutTargetError(error.message, error.hint, source);
+  }
+  const expectsFile = target.file !== undefined || source === "--save-json";
+  const requested = expectsFile ? absolute(out) : target.dir;
+  try {
+    const requestedStats = await statIfExists(requested);
+    if (expectsFile && requestedStats?.isDirectory()) {
+      throw new OutTargetError(
+        `Output file target is a directory: ${requested}`,
+        replacementTargetHint(source),
+        source,
+      );
+    }
+    if (!expectsFile && requestedStats && !requestedStats.isDirectory()) {
+      throw new OutTargetError(
+        `Output directory target is not a directory: ${requested}`,
+        replacementTargetHint(source),
+        source,
+      );
+    }
+    const writableDirectory =
+      !expectsFile && requestedStats?.isDirectory()
+        ? requested
+        : await nearestExistingDirectory(expectsFile ? dirname(requested) : target.dir, source);
+    await access(writableDirectory, constants.W_OK | constants.X_OK);
+  } catch (error) {
+    if (error instanceof OutTargetError) throw error;
     if (!OUT_TARGET_ERROR_CODES.has(errorCode(error))) throw error;
     throw new OutTargetError(
-      `Cannot create output files in ${target.dir} (${errorCode(error)})`,
-      `Choose a writable replacement target, for example ${flag} ${flag === "--out" ? "./output" : "./output.json"}.`,
+      `Cannot write output through ${requested} (${errorCode(error)})`,
+      replacementTargetHint(source),
+      source,
     );
-  } finally {
-    await handle?.close().catch(() => undefined);
-    await rm(probe, { force: true }).catch(() => undefined);
   }
+}
+
+async function statIfExists(path: string): Promise<Stats | undefined> {
+  try {
+    return await stat(path);
+  } catch (error) {
+    if (isNodeError(error, "ENOENT") || isNodeError(error, "ENOTDIR")) return undefined;
+    throw error;
+  }
+}
+
+async function nearestExistingDirectory(path: string, source: OutTargetSource): Promise<string> {
+  let candidate = path;
+  while (true) {
+    const stats = await statIfExists(candidate);
+    if (stats) {
+      if (stats.isDirectory()) return candidate;
+      throw new OutTargetError(
+        `Output path crosses a non-directory: ${candidate}`,
+        replacementTargetHint(source),
+        source,
+      );
+    }
+    const parent = dirname(candidate);
+    if (parent === candidate) {
+      throw new OutTargetError(
+        `No existing directory anchors output target ${path}`,
+        replacementTargetHint(source),
+        source,
+      );
+    }
+    candidate = parent;
+  }
+}
+
+function replacementTargetHint(source: OutTargetSource): string {
+  const flag = source === "--save-json" ? "--save-json" : "--out";
+  return `Choose a writable replacement target, for example ${flag} ${flag === "--out" ? "./output" : "./output.json"}.`;
 }
 
 export async function streamToFile(

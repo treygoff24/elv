@@ -4,7 +4,7 @@ import { createServer, type Server } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { arrayValue, errorRecord, parseEnvelope, recordValue, runCli } from "../helpers/cli-result";
+import { arrayValue, parseEnvelope, recordValue, runCli } from "../helpers/cli-result";
 
 interface FailureCase {
   name: string;
@@ -109,13 +109,9 @@ describe("failure recovery hints", () => {
       for (const hint of hints) {
         const command = String(hint.cmd);
         const executed = await runHint(command, env);
-        expect(executed.stdout.trim(), command).not.toBe("");
+        expect(executed.code, command).toBe(0);
         const hintEnvelope = parseEnvelope(executed.stdout);
-        if (hintEnvelope.ok === false) {
-          const error = errorRecord(hintEnvelope);
-          expect(error.code, command).not.toBe("unknown_command");
-          expect(String(error.message), command).not.toMatch(/unknown option/iu);
-        }
+        expect(hintEnvelope.ok, command).toBe(true);
       }
     },
   );
@@ -141,9 +137,86 @@ describe("failure recovery hints", () => {
     const commands = arrayValue(envelope.hints).map((hint) => String(recordValue(hint).cmd));
     expect(commands).toContain("elv --help");
   });
+
+  it.each([
+    {
+      name: "body-only alias",
+      args: ["workspace", "service-accounts", "create", "--name", "Bot"],
+      operationId: "create_service_account",
+      input: { body: { name: "Bot" } },
+    },
+    {
+      name: "path-plus-body alias",
+      args: ["voices", "replicate", "--voice-id", "V1", "--target-workspace-id", "W1"],
+      operationId: "replicate_voice_to_isolated_environment",
+      input: { path: { voice_id: "V1" }, body: { target_workspace_id: "W1" } },
+    },
+  ])("emits a runnable canonical confirmation replay for $name", async (testCase) => {
+    const blocked = await runCli(testCase.args, env);
+    expect(blocked.code).toBe(4);
+    const envelope = parseEnvelope(blocked.stdout);
+    const hints = arrayValue(envelope.hints).map((hint) => recordValue(hint));
+    expect(hints).toEqual([
+      {
+        cmd: `elv call ${testCase.operationId} --json '${JSON.stringify(testCase.input)}' --dry-run`,
+        why: "Preview the normalized request without calling the API or mutating anything.",
+      },
+    ]);
+    const replay = await runHint(String(hints[0]!.cmd), env);
+    expect(replay.code).toBe(0);
+    expect(parseEnvelope(replay.stdout).ok).toBe(true);
+  });
+
+  it("does not replay a ConvAI secret body", async () => {
+    const secret = "PLAIN_VALUE_SECRET_CANARY";
+    const result = await runCli(
+      [
+        "call",
+        "create_secret_route",
+        "--json",
+        JSON.stringify({ body: { type: "new", name: "probe", value: secret } }),
+      ],
+      env,
+    );
+    expect(result.code).toBe(4);
+    const envelope = parseEnvelope(result.stdout);
+    expect(JSON.stringify(envelope.hints)).not.toContain(secret);
+    expect(envelope.hints).toEqual([
+      {
+        cmd: "elv ops schema create_secret_route --example",
+        why: "Build a safe preview from the operation schema; the current input cannot be replayed safely.",
+      },
+    ]);
+  });
+
+  it("quotes raw HTTP query strings in output-target recovery commands", async () => {
+    const blocker = join(root, "not-a-directory");
+    writeFileSync(blocker, "occupied");
+    const result = await runCli(
+      [
+        "http",
+        "GET",
+        "/probe/provider?foo=bar&baz=1",
+        "--out",
+        join(blocker, "response.json"),
+        "--dry-run",
+      ],
+      env,
+    );
+    expect(result.code).toBe(2);
+    const envelope = parseEnvelope(result.stdout);
+    const hint = recordValue(arrayValue(envelope.hints)[0]);
+    expect(hint.cmd).toBe("elv http GET '/probe/provider?foo=bar&baz=1' --out ./output --dry-run");
+    const replay = await runHint(String(hint.cmd), env);
+    expect(replay.code).toBe(0);
+    expect(parseEnvelope(replay.stdout).ok).toBe(true);
+  });
 });
 
-function runHint(command: string, env: Record<string, string>): Promise<{ stdout: string }> {
+function runHint(
+  command: string,
+  env: Record<string, string>,
+): Promise<{ stdout: string; code: number | null }> {
   const cli = `${process.execPath} --import tsx src/cli.ts`;
   const runnable = command.replace(/^elv\b/u, cli);
   return new Promise((resolve, reject) => {
@@ -153,6 +226,6 @@ function runHint(command: string, env: Record<string, string>): Promise<{ stdout
       stdout += chunk.toString();
     });
     child.on("error", reject);
-    child.on("close", () => resolve({ stdout }));
+    child.on("close", (code) => resolve({ stdout, code }));
   });
 }

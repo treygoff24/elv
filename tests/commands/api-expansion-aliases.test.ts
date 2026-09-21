@@ -715,7 +715,10 @@ describe("current API workflow aliases", () => {
     expect(serviceAccountEnvelope.cmd).toBe("elv workspace service-accounts create");
     expect(errorRecord(serviceAccountEnvelope).code).toBe("confirmation");
     expect(serviceAccountEnvelope.hints).toEqual([
-      expect.objectContaining({ cmd: "elv workspace service-accounts create --dry-run" }),
+      {
+        cmd: `elv call create_service_account --json '${JSON.stringify({ body: { name: "CI" } })}' --dry-run`,
+        why: "Preview the normalized request without calling the API or mutating anything.",
+      },
     ]);
 
     const deleteSegment = await runCli([
