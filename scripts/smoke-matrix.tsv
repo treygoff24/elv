@@ -19,6 +19,7 @@
 0	agents
 0	agents procedures
 0	agents tests
+0	agents hold-audio
 0	agents tickets
 0	flows
 0	flows image
@@ -31,6 +32,8 @@
 2	assets get
 2	flows image get
 2	agents conversations summary
+2	agents hold-audio upload --agent-id a --file /nonexistent.mp3 --dry-run
+4	agents hold-audio delete --agent-id a
 2	voices get
 9	call no_such_operation
 # A mistyped subcommand exits differently depending on the parent: registered
