@@ -57,4 +57,17 @@ describe("Ajv 2020 validator", () => {
       }),
     ).toBe(true);
   });
+
+  it("validates both GPT Image 2.5 request variants", async () => {
+    const compiled = await compileSpec({ sourcePath: "spec/openapi.snapshot.json" });
+    const imageCreate = compiled.operations.find(
+      (candidate) => candidate.operationId === "create_image_generation",
+    );
+    expect(imageCreate).toBeDefined();
+
+    const validate = getInputValidator(buildAjv(compiled.bundledSpec), imageCreate!);
+    expect(validate).not.toBeNull();
+    expect(validate!({ prompt: "Sunburst test", model_id: "gpt-image-2.5-sunburst" })).toBe(true);
+    expect(validate!({ prompt: "Flare test", model_id: "gpt-image-2.5-flare" })).toBe(true);
+  });
 });
