@@ -628,6 +628,75 @@ describe("ws session", () => {
     );
   });
 
+  it("records Convai queue events and reports close 4300 as a queue timeout", async () => {
+    const server = await startServer((socket) => {
+      socket.send(JSON.stringify({ type: "queue_status", status: "waiting" }));
+      socket.send(
+        JSON.stringify({
+          type: "agent_response",
+          agent_response_event: {
+            agent_response: "A document is attached.",
+            attachments: [
+              {
+                url: "https://example.test/brief.pdf",
+                name: "brief.pdf",
+                mime_type: "application/pdf",
+              },
+            ],
+          },
+        }),
+      );
+      socket.send(JSON.stringify({ type: "queue_status", status: "timed_out" }), () =>
+        socket.close(4300, "queue wait expired"),
+      );
+    });
+    const dir = await tempDir();
+    const script = join(dir, "agent.ndjson");
+    writeFileSync(script, JSON.stringify({ type: "send", data: { type: "user_message" } }));
+
+    const result = await runWs(
+      {
+        target: "convai",
+        send: script,
+        out: dir,
+        query: { agent_id: "agent-queued" },
+      },
+      { baseUrl: httpBase(server.url), yes: true, timeoutMs: 500 },
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(result.env.ok).toBe(true);
+    expect(result.env.ws).toMatchObject({
+      catalog: "convai",
+      close_code: 4300,
+      close_reason: "queue_timeout",
+      events_received: 3,
+      closed: true,
+    });
+    const events = readFileSync(join(dir, "events.received.ndjson"), "utf8")
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line) as Record<string, unknown>);
+    expect(events).toContainEqual({ type: "queue_status", status: "waiting" });
+    expect(events).toContainEqual({ type: "queue_status", status: "timed_out" });
+    expect(events[1]).toMatchObject({
+      type: "agent_response",
+      agent_response_event: {
+        attachments: [
+          {
+            url: "https://example.test/brief.pdf",
+            name: "brief.pdf",
+            mime_type: "application/pdf",
+          },
+        ],
+      },
+    });
+    expect(JSON.parse(readFileSync(join(dir, "manifest.json"), "utf8"))).toMatchObject({
+      close_code: 4300,
+      close_reason: "queue_timeout",
+    });
+  });
+
   it("inherits agent preflight metadata for named, relative, and absolute known targets", async () => {
     const dir = await tempDir();
     const script = join(dir, "agent.ndjson");

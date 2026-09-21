@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { runWs } from "../../src/commands/ws";
 import { buildCatalogUrl, getWsCatalogEntry, listWsCatalog } from "../../src/ws/catalog";
 
 const names = [
@@ -59,6 +60,30 @@ describe("ws catalog", () => {
     expect(getWsCatalogEntry("convai")?.defaultAudioFormat).toBeUndefined();
     expect(getWsCatalogEntry("convai-monitor")?.costModel).toBe("unknown");
     expect(getWsCatalogEntry("tts-realtime")?.firstMessage).toContain('"text":" "');
+  });
+
+  it("lists Convai queueing, timeout, and response attachment contracts", async () => {
+    const result = await runWs({ list: true, query: {} });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.env.ok).toBe(true);
+    const entries = result.env.ok ? result.env.data : undefined;
+    expect(Array.isArray(entries)).toBe(true);
+    const convai = (entries as Array<Record<string, unknown>>).find(
+      (entry) => entry.name === "convai",
+    );
+    expect(convai).toMatchObject({
+      serverEvents: {
+        queue_status: expect.stringContaining("waiting"),
+        agent_response: expect.stringContaining("attachments"),
+      },
+      terminalCloseCodes: { 4300: "queue_timeout" },
+    });
+    expect(String(convai?.terminalRule)).toContain("4300");
+    const serverEvents = convai?.serverEvents as Record<string, string> | undefined;
+    expect(String(serverEvents?.queue_status)).toContain("admitted");
+    expect(String(serverEvents?.queue_status)).toContain("timed_out");
+    expect(String(serverEvents?.agent_response)).toContain("mime_type");
   });
 
   it("builds regional urls without leaking auth into catalog metadata", () => {

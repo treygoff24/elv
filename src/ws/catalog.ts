@@ -28,6 +28,10 @@ interface WsCatalogFields {
    */
   firstMessage: string;
   terminalRule: string;
+  /** Documented server event shapes that callers may need to branch on. */
+  serverEvents?: Record<string, string>;
+  /** Provider close codes that are terminal protocol outcomes rather than transport failures. */
+  terminalCloseCodes?: Record<number, string>;
   /** Query parameter this route accepts a single-use credential in, for --token-env. */
   tokenParam?: "token" | "single_use_token";
   /** ElevenLabs rejects the eleven_v3 model families on this route (documented, not in the snapshot). */
@@ -141,7 +145,15 @@ const WS_CATALOG = [
     duplex: true,
     firstMessage:
       'Any agent message, for example {"type":"send","data":{"type":"user_message","text":"..."}}; the agent may speak first.',
-    terminalRule: 'Send {"type":"close"} or close stdin; the agent can also end the conversation.',
+    terminalRule:
+      'Send {"type":"close"} or close stdin; the agent can also end the conversation. Queue wait expiry is terminal close code 4300 (queue_timeout).',
+    serverEvents: {
+      queue_status:
+        'The "status" field is "waiting", "admitted", or "timed_out"; hold audio remains ordinary "audio" events.',
+      agent_response:
+        'May carry "attachments" entries with "url", "name", and optional "mime_type" fields.',
+    },
+    terminalCloseCodes: { 4300: "queue_timeout" },
     costModel: "unbounded",
     urlTemplate: "wss://api.elevenlabs.io/v1/convai/conversation?agent_id={agent_id}",
     pathTemplate: "/v1/convai/conversation",
@@ -180,6 +192,8 @@ export function listWsCatalog(): WsCatalogEntry[] {
     ...entry,
     requiredParams: [...entry.requiredParams],
     defaultQuery: entry.defaultQuery ? { ...entry.defaultQuery } : undefined,
+    serverEvents: entry.serverEvents ? { ...entry.serverEvents } : undefined,
+    terminalCloseCodes: entry.terminalCloseCodes ? { ...entry.terminalCloseCodes } : undefined,
   }));
 }
 

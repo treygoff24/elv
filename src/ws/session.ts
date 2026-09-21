@@ -22,7 +22,7 @@ import { isRecord, parseJson as parseJsonValue } from "../util/json";
 import type { FileRecord, SuccessEnvelope, Warning, WsInfo } from "../core/types";
 import type { JsonObject, JsonValue } from "../util/json";
 import type { SendScriptAction } from "./events";
-import type { WsProtocol } from "./catalog";
+import { getWsCatalogEntry, type WsProtocol } from "./catalog";
 
 interface DuplexSessionOptions {
   input: NodeJS.ReadableStream;
@@ -78,6 +78,7 @@ export interface WsSessionState {
   opened: boolean;
   messageChain: Promise<void>;
   binaryPaths: string[];
+  closeCode?: number;
 }
 
 export async function runWsSession(options: WsSessionOptions): Promise<WsSessionResult> {
@@ -164,8 +165,9 @@ function waitForClose(socket: WebSocket, state: WsSessionState): Promise<void> {
 }
 
 async function closeEvent(socket: WebSocket, state: WsSessionState): Promise<void> {
-  await once(socket, "close");
+  const [code] = (await once(socket, "close")) as [number, Buffer];
   state.closed = true;
+  state.closeCode = code;
 }
 
 async function openedErrorEvent(socket: WebSocket, state: WsSessionState): Promise<void> {
@@ -335,6 +337,7 @@ function sessionManifest(
   audioOutputs: AudioOutput[],
   partial = false,
 ): JsonValue {
+  const close = closeDetails(options, state);
   return redactWs({
     catalog: options.catalog,
     path: options.path,
@@ -353,6 +356,7 @@ function sessionManifest(
         }
       : {}),
     closed: state.closed,
+    ...close,
     timed_out: inactivity.timedOut(),
     ...(partial ? { partial: true } : {}),
   });
@@ -363,15 +367,31 @@ function wsInfo(
   state: WsSessionState,
   timedOut: boolean,
   partial: boolean,
-): WsInfo {
+): WsInfo & { close_code?: number; close_reason?: string } {
   return {
     catalog: options.catalog,
     path: options.path,
     events_sent: state.eventsSent,
     events_received: state.eventsReceived,
     closed: state.closed,
+    ...closeDetails(options, state),
     timed_out: timedOut,
     ...(partial ? { partial: true } : {}),
+  };
+}
+
+function closeDetails(
+  options: WsSessionOptions,
+  state: WsSessionState,
+): { close_code?: number; close_reason?: string } {
+  if (state.closeCode === undefined) return {};
+  const closeReason =
+    options.catalog === null
+      ? undefined
+      : getWsCatalogEntry(options.catalog)?.terminalCloseCodes?.[state.closeCode];
+  return {
+    close_code: state.closeCode,
+    ...(closeReason === undefined ? {} : { close_reason: closeReason }),
   };
 }
 
