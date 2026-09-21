@@ -680,7 +680,7 @@ describe("ws session", () => {
         "The agent queue wait expired before the call was admitted; no conversation took place.",
     });
     expect(result.env.hints).toContainEqual({
-      cmd: "elv agents get --agent-id agent-queued",
+      cmd: "elv agents get --agent-id 'agent-queued'",
       why: "Check platform_settings.queueing_config and the hold-audio clip before retrying.",
     });
     const events = readFileSync(join(dir, "events.received.ndjson"), "utf8")

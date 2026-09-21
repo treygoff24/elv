@@ -243,8 +243,20 @@ async function runScriptedWs(
         credits_source: preflight.budget.creditsEstimated === null ? "none" : "estimate",
       },
       warnings: sessionWarnings(preflight, result.warnings),
+      hints:
+        result.ws.close_code_name === "queue_timeout"
+          ? [queueTimeoutHint(resolved.url)]
+          : undefined,
     }),
     exitCode: ExitCode.Success,
+  };
+}
+
+function queueTimeoutHint(url: URL): Hint {
+  const agentId = url.searchParams.get("agent_id");
+  return {
+    cmd: `elv agents get --agent-id ${agentId === null ? "<id>" : shellArg(agentId)}`,
+    why: "Check platform_settings.queueing_config and the hold-audio clip before retrying.",
   };
 }
 

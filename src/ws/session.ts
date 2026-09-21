@@ -78,7 +78,9 @@ export interface WsSessionState {
   opened: boolean;
   messageChain: Promise<void>;
   binaryPaths: string[];
+  localCloseInitiated?: boolean;
   closeCode?: number;
+  closeReason?: string;
 }
 
 export async function runWsSession(options: WsSessionOptions): Promise<WsSessionResult> {
@@ -95,7 +97,7 @@ export async function runWsSession(options: WsSessionOptions): Promise<WsSession
     messageChain: Promise.resolve(),
     binaryPaths: [],
   };
-  const inactivity = new InactivityTimer(socket, timeoutMs);
+  const inactivity = new InactivityTimer(socket, timeoutMs, () => beginLocalClose(state));
   let duplexReader: DuplexActionReader | undefined;
 
   try {
@@ -124,7 +126,7 @@ export async function runWsSession(options: WsSessionOptions): Promise<WsSession
     return await finishSession(options, state, events, audio, inactivity);
   } catch (error) {
     inactivity.clear();
-    terminateSocket(socket);
+    terminateSocket(socket, state);
     await state.messageChain.catch(() => undefined);
     const files = await preserveFailedSession(options, state, events, audio, inactivity);
     const timedOut =
@@ -165,9 +167,12 @@ function waitForClose(socket: WebSocket, state: WsSessionState): Promise<void> {
 }
 
 async function closeEvent(socket: WebSocket, state: WsSessionState): Promise<void> {
-  const [code] = (await once(socket, "close")) as [number, Buffer];
+  const [code, reason] = (await once(socket, "close")) as [number, Buffer];
   state.closed = true;
+  if (state.localCloseInitiated) return;
   state.closeCode = code;
+  const closeReason = reason.toString("utf8");
+  if (closeReason.length > 0) state.closeReason = closeReason;
 }
 
 async function openedErrorEvent(socket: WebSocket, state: WsSessionState): Promise<void> {
@@ -199,6 +204,7 @@ function trackMessages(
       )
       .catch((error: unknown) => {
         if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING) {
+          beginLocalClose(state);
           socket.terminate();
         }
         throw error;
@@ -249,7 +255,7 @@ function waitForOpen(socket: WebSocket, state: WsSessionState, timeoutMs: number
     const timer = setTimeout(() => {
       cleanup();
       reject(new WsConnectTimeoutError());
-      terminateSocket(socket);
+      terminateSocket(socket, state);
     }, timeoutMs);
     timer.unref();
     socket.once("open", opened);
@@ -279,7 +285,7 @@ async function finishSession(
   return {
     ws: wsInfo(options, state, inactivity.timedOut(), false),
     files,
-    warnings: audio.warnings,
+    warnings: [...audio.warnings, ...terminalSessionWarnings(options, state)],
   };
 }
 
@@ -367,7 +373,7 @@ function wsInfo(
   state: WsSessionState,
   timedOut: boolean,
   partial: boolean,
-): WsInfo & { close_code?: number; close_reason?: string } {
+): WsInfo {
   return {
     catalog: options.catalog,
     path: options.path,
@@ -383,19 +389,44 @@ function wsInfo(
 function closeDetails(
   options: WsSessionOptions,
   state: WsSessionState,
-): { close_code?: number; close_reason?: string } {
+): Pick<WsInfo, "close_code" | "close_reason" | "close_code_name"> {
   if (state.closeCode === undefined) return {};
-  const closeReason =
-    options.catalog === null
-      ? undefined
-      : getWsCatalogEntry(options.catalog)?.terminalCloseCodes?.[state.closeCode];
+  const closeCodeName = catalogCloseCodeName(options, state);
   return {
     close_code: state.closeCode,
-    ...(closeReason === undefined ? {} : { close_reason: closeReason }),
+    ...(state.closeReason === undefined ? {} : { close_reason: redactWsString(state.closeReason) }),
+    ...(closeCodeName === undefined ? {} : { close_code_name: closeCodeName }),
   };
 }
 
-function terminateSocket(socket: WebSocket): void {
+function catalogCloseCodeName(
+  options: WsSessionOptions,
+  state: WsSessionState,
+): string | undefined {
+  return options.catalog === null || state.closeCode === undefined
+    ? undefined
+    : getWsCatalogEntry(options.catalog)?.terminalCloseCodes?.[state.closeCode];
+}
+
+function terminalSessionWarnings(options: WsSessionOptions, state: WsSessionState): Warning[] {
+  if (catalogCloseCodeName(options, state) !== "queue_timeout") {
+    return [];
+  }
+  return [
+    {
+      code: "ws_queue_timeout",
+      message:
+        "The agent queue wait expired before the call was admitted; no conversation took place.",
+    },
+  ];
+}
+
+function beginLocalClose(state: WsSessionState): void {
+  state.localCloseInitiated = true;
+}
+
+function terminateSocket(socket: WebSocket, state: WsSessionState): void {
+  beginLocalClose(state);
   if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING) {
     socket.terminate();
   }
@@ -408,6 +439,7 @@ class InactivityTimer {
   constructor(
     private readonly socket: WebSocket,
     private readonly timeoutMs: number,
+    private readonly onLocalClose: () => void,
   ) {}
 
   reset(): void {
@@ -427,6 +459,7 @@ class InactivityTimer {
 
   handleTimeout(): void {
     this.didTimeOut = true;
+    this.onLocalClose();
     if (this.socket.readyState === WebSocket.OPEN) this.socket.close();
     setTimeout(() => {
       if (this.socket.readyState !== WebSocket.CLOSED) this.socket.terminate();
@@ -538,7 +571,7 @@ export async function runDuplexSession(
       guardedInput.then(() => "input_complete" as const),
     ]);
     if (outcome === "input_complete") {
-      closeSocketGracefully(socket);
+      closeSocketGracefully(socket, state);
       await closedPromise;
     }
   } finally {
@@ -571,8 +604,9 @@ async function sendAction(
   else await sendJson(socket, action.data);
 }
 
-function closeSocketGracefully(socket: WebSocket): void {
+function closeSocketGracefully(socket: WebSocket, state: WsSessionState): void {
   if (socket.readyState !== WebSocket.OPEN) return;
+  beginLocalClose(state);
   socket.close(1000, "duplex input complete");
   setTimeout(() => {
     if (socket.readyState !== WebSocket.CLOSED) socket.terminate();
