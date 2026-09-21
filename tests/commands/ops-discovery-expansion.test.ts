@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   handleOpsGet,
   handleOpsList,
+  handleOpsSearch,
   handleOpsSchema,
   listOperations,
   searchOperations,
@@ -129,6 +130,53 @@ describe("expanded operation discovery", () => {
         deprecated: true,
       }),
     ]);
+  });
+
+  it.each([
+    ["make speech", "text_to_speech_full"],
+    ["synthesize speech", "text_to_speech_full"],
+    ["transcribe", "speech_to_text"],
+    ["transcription", "speech_to_text"],
+    ["isolate vocals", "audio_isolation"],
+    ["dub", "create_dubbing"],
+  ])("routes %s to the preferred %s operation", async (query, expected) => {
+    const result = await handleOpsSearch(query);
+    expect(result.env.ok && (result.env.data as { operation_id: string }[])[0]).toMatchObject({
+      operation_id: expected,
+    });
+  });
+
+  it("hints the preferred alias when no public operation names the workflow", async () => {
+    const result = await handleOpsSearch("clone voice");
+    expect(result.env.hints).toContainEqual({
+      cmd: expect.stringMatching(/^elv voices clone-instant/),
+      why: expect.any(String),
+    });
+  });
+
+  it("ranks current operations ahead of equally relevant deprecated operations", () => {
+    const deprecated = operation("a_deprecated", {
+      summary: "Matching voice workflow",
+      deprecated: true,
+    });
+    const current = operation("z_current", { summary: "Matching voice workflow" });
+    const results = searchOperations(
+      new Map([
+        [deprecated.operationId, deprecated],
+        [current.operationId, current],
+      ]),
+      "matching voice workflow",
+    );
+    expect(results.map((result) => result.operation_id)).toEqual(["z_current", "a_deprecated"]);
+  });
+
+  it("keeps the agent hold-audio upload ahead of audio-isolation routes", async () => {
+    const result = await handleOpsSearch("hold audio");
+    expect(result.env.ok).toBe(true);
+    if (!result.env.ok) return;
+    const ids = (result.env.data as { operation_id: string }[]).map((entry) => entry.operation_id);
+    expect(ids.indexOf("post_agent_hold_audio_route")).toBeGreaterThanOrEqual(0);
+    expect(ids.indexOf("post_agent_hold_audio_route")).toBeLessThan(ids.indexOf("audio_isolation"));
   });
 
   it("warns on deprecated get and schema responses and points to a named replacement", async () => {
