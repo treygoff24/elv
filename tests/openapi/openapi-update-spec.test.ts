@@ -1,5 +1,13 @@
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  utimesSync,
+  writeFileSync,
+} from "node:fs";
 import { createServer, type RequestListener, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -97,6 +105,18 @@ describe("spec update", () => {
     expect(result.env.ok).toBe(true);
     if (!result.env.ok) throw new Error("expected success");
     expect(isRecord(result.env.data) && result.env.data.operations).toBe(4);
+  });
+
+  it("uses a local spec file's mtime as its retrieval date", async () => {
+    cacheDir = mkdtempSync(join(tmpdir(), "elv-local-spec-age-"));
+    const specPath = join(cacheDir, "backdated-openapi.json");
+    const retrievedAt = new Date("2026-01-02T03:04:05Z");
+    writeFileSync(specPath, readFileSync("fixtures/fake-openapi.json"));
+    utimesSync(specPath, retrievedAt, retrievedAt);
+
+    const result = await updateSpecCache({ from: specPath, cacheDir });
+
+    expect(result.provenance.retrieved_at).toBe(retrievedAt.toISOString());
   });
 
   it("honors ELV_SPEC_URL when --from is absent", async () => {
