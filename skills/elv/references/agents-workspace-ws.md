@@ -8,15 +8,22 @@ and credential boundaries than ordinary reads.
 
 ```bash
 elv agents list --fields agent_id,name
-elv agents rag-query --agent-id AGENT_ID --query "refund policy"
+elv agents rag-query --agent-id AGENT_ID --query "refund policy" \
+  --max-documents-length 50000 --max-retrieved-rag-chunks-count 20
+elv agents tests list --search "refund"
 elv agents tests create --json-file test.json --dry-run
 elv agents tests run --agent-id AGENT_ID --json-file run.json --dry-run
+elv agents test-runs list --agent-id AGENT_ID --search "refund"
 elv agents procedures list --agent-id AGENT_ID --branch-id BRANCH_ID
 ```
 
 Use `agents tests create` followed by `agents tests run`; `agents simulate` maps
-to a provider-deprecated operation. Discover Procedure create/update/compile and
-branch-management inputs through the nested help and dry-run every mutation.
+to a provider-deprecated operation. `agents tests list --search` matches tests
+and folders; `agents test-runs list --search` filters suite invocations. RAG
+retrieval accepts `--max-documents-length` from 1 to 50000 and
+`--max-retrieved-rag-chunks-count` from 1 to 20. Discover Procedure
+create/update/compile and branch-management inputs through the nested help and
+dry-run every mutation.
 
 Outbound calls or messages require `--yes` after the recipient and payload are
 confirmed. Agent and Procedure deletions inherit the same confirmation gate.
@@ -70,6 +77,24 @@ elv ws stt-realtime --query entity_detection=true \
   --send transcribe.ndjson --out ./session --dry-run
 elv ws convai-monitor --query conversation_id=ID --out ./monitor --dry-run
 ```
+
+### Call queueing and hold audio
+
+Enable queueing with `agents update` by supplying an agent update whose
+`platform_settings.queueing_config` contains the intended provider settings:
+
+```bash
+elv agents update --agent-id AGENT_ID --json-file agent-update.json --dry-run
+elv agents hold-audio upload --agent-id AGENT_ID --file clip.mp3
+elv agents hold-audio delete --agent-id AGENT_ID --yes
+```
+
+Upload accepts MP3 or WAV, replaces the current clip, and is limited to 40 MB
+and 180 seconds. Delete is destructive and restores the default hold tone.
+During `ws convai`, queue waits arrive as `queue_status` events whose `status`
+is `waiting`, `admitted`, or `timed_out`; hold audio remains an ordinary
+`audio` event. Queue expiry closes with code 4300, so the final envelope and
+manifest report `close_code: 4300` and `close_reason: "queue_timeout"`.
 
 Named protocols validate their scripts. For STT, use
 `{"type":"send_audio_file","path":"audio.pcm","sample_rate":16000,"commit":true}`;

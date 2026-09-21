@@ -31,6 +31,7 @@ writes audio plus a timestamp sidecar. For long text, use a file input shown by
 
 ```bash
 elv stt --file note.m4a --model scribe_v2
+elv stt --file clinical-note.m4a --model scribe_v2_medical
 elv stt --file note.m4a --model scribe_v2 \
   --webhook --webhook-id WEBHOOK_ID
 SCRIBE_TOKEN=... elv stt --file note.m4a --model scribe_v2 \
@@ -39,7 +40,9 @@ SCRIBE_TOKEN=... elv stt --file note.m4a --model scribe_v2 \
 
 `--webhook` is a boolean provider field; it is not a callback URL. Supply a
 configured webhook ID when required. A single-use token belongs in the named
-environment variable, not in an argument.
+environment variable, not in an argument. `scribe_v2_medical` is for medical
+and clinical batch transcription through `POST /v1/speech-to-text`; it is not a
+realtime model.
 
 `--timestamps` accepts `none`, `word`, or `character`, not `segment`.
 Rebuild speaker turns from `words[].speaker_id` when needed. Plain STT calls
@@ -55,15 +58,17 @@ that is one observed duration, not a latency guarantee.
 ```bash
 elv sfx --prompt "distant thunder" --duration 5 \
   --max-credits 100 --out thunder.mp3 --dry-run
-elv music --prompt "warm jazz trio" --model music_v2 \
+elv music --prompt "warm jazz trio" --model music_v2_5 \
   --length-ms 30000 --max-credits 1000 --out track.mp3 --dry-run
-elv music detailed-stream --prompt "warm jazz trio" --model music_v2 \
+elv music detailed-stream --prompt "warm jazz trio" --model music_v2_5 \
   --out ./music-session --dry-run
 ```
 
 `music detailed-stream` writes audio and metadata NDJSON separately. Discover
 Music Finetune commands with `elv music finetunes`; generation accepts
-`--finetune-id` when the installed help exposes it.
+`--finetune-id` when the installed help exposes it. `music_v2_5` is the current
+product default, but the API schema still defaults `MusicModelID` to
+`music_v1`; pass the model explicitly.
 
 `elv call compose_detailed` returns separate audio and JSON metadata files from
 a multipart response. Pass a directory to `--out` and inspect every returned
@@ -103,8 +108,9 @@ For transcript inspection or editing, use the Dubbing Project reference in
 `elv models list` reports models visible to the current account; it is not an
 exhaustive cross-product catalog. Prefer current installed help and provider
 responses over a memorized model list. For new examples, start with `scribe_v2`
-for STT and a current Flash model for low-latency TTS, then honor the user's
-quality, language, latency, and availability requirements.
+for general STT, batch-only `scribe_v2_medical` for medical or clinical audio,
+and a current Flash model for low-latency TTS, then honor the user's quality,
+language, latency, and availability requirements.
 
 ## Flows and Assets
 
@@ -114,6 +120,15 @@ to poll to completion (`--timeout-ms`, default 600000, and `--interval-ms` bound
 the poll; a `wait_timeout` exits 7 with a hint naming the `get` re-poll). Discover the body with `ops schema
 create_image_generation --example` (or the video/text-to-speech operation).
 `assets upload --file reference.png` creates reusable input media.
+
+For image generation, `gpt-image-2.5-flare` and
+`gpt-image-2.5-sunburst` are current example model IDs:
+
+```bash
+elv flows image create \
+  --json '{"prompt":"A paper-cut city at sunrise","model_id":"gpt-image-2.5-flare"}' \
+  --dry-run
+```
 
 Generation costs are model-specific and cannot currently be bounded; a
 configured credit ceiling blocks Flows creation even with `--yes`.

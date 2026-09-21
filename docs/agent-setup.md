@@ -151,9 +151,9 @@ elv ops schema text_to_speech_full --example
 elv spec status
 ```
 
-The `--example` output is a ready-to-run `elv call` skeleton; required arrays include one placeholder item when the schema provides an item shape. Fourteen common workflow aliases include `tts`, `stt`, `music`, `dubbing-project`, `agents`, and `workspace`; they build input and call the same runner. For the rest of the pinned REST surface, use `elv call <operation_id> --json '{...}'`. Use `http` for a published REST path newer than the snapshot, `ws` for the named client-side realtime protocols, and `wait` for polling.
+The `--example` output is a ready-to-run `elv call` skeleton; required arrays include one placeholder item when the schema provides an item shape. Sixteen common workflow aliases include `tts`, `stt`, `music`, `dubbing-project`, `agents`, and `workspace`; they build input and call the same runner. For the rest of the pinned REST surface, use `elv call <operation_id> --json '{...}'`. Use `http` for a published REST path newer than the snapshot, `ws` for the named client-side realtime protocols, and `wait` for polling.
 
-`elv models list` is account-visible state from `/v1/models`, not a complete cross-product model catalog. Use documented model IDs for each service; current STT examples should use `scribe_v2` rather than deprecated `scribe_v1`.
+`elv models list` is account-visible state from `/v1/models`, not a complete cross-product model catalog. Use documented model IDs for each service; current STT examples should use `scribe_v2` rather than deprecated `scribe_v1`, or `scribe_v2_medical` for medical and clinical batch transcription. Select `music_v2_5` explicitly when you want the current Music product default because the API schema still defaults `MusicModelID` to `music_v1`.
 
 Music Finetunes use `elv music finetunes list|get|create|update|delete`; training files are repeatable `--file` arguments, and generation accepts `--finetune-id`. The provider's entitlement, charges, and ownership/copyright rules still apply. For STT webhook delivery, configure a workspace webhook and use bare `--webhook` plus optional `--webhook-id`; use `--token-env ENV_NAME` for a single-use token so the credential value stays out of argv.
 
