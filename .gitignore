@@ -18,3 +18,8 @@ model-performance-journal.md
 *.db
 .beads-credential-key
 .beads/proxieddb/
+
+# Root-level lock written by bd ready (see .beads/.gitignore for the rest)
+/.beads.gate.lock
+# Per-machine Claude Code settings
+.claude/settings.local.json

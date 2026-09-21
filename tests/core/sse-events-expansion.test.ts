@@ -179,6 +179,9 @@ describe("SSE response normalization", () => {
     const body = Readable.from(
       (async function* () {
         yield Buffer.from('data: {"status":"started"}\n\n');
+        // Node 26.9.0 (nodejs/node#65548) can destroy the fromWeb() readable before a
+        // same-turn pending push; yield one turn so the paid chunk is delivered first.
+        await new Promise((resolve) => setImmediate(resolve));
         throw new Error("socket reset");
       })(),
     );
