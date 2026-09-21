@@ -8,7 +8,7 @@ Independent project; not affiliated with or endorsed by ElevenLabs.
 
 Agents need predictable inputs, small outputs, and a way to discover unfamiliar API operations without writing a new wrapper each time.
 
-So we built `elv`: a simple, token-efficient, agent-first CLI over ElevenLabs' published API. The vendored September 6, 2026 OpenAPI document contains 388 operations; `elv` compiles 387 of them and deliberately skips one deprecated signed-URL route whose replacement is available. Each command returns one JSON envelope and an exit code an agent can branch on before parsing the result.
+So we built `elv`: a simple, token-efficient, agent-first CLI over ElevenLabs' published API. The vendored September 21, 2026 OpenAPI document contains 391 operations; `elv` compiles 390 of them and deliberately skips one deprecated signed-URL route whose replacement is available. Each command returns one JSON envelope and an exit code an agent can branch on before parsing the result.
 
 ## What is this?
 
@@ -34,7 +34,7 @@ The short version of the contract: run a command, check the exit code, and read 
 
 Three layers sit over the ElevenLabs OpenAPI spec, from most general to most convenient.
 
-The generic runner, `elv call <operation_id> --json '{...}'`, can invoke all 387 operations compiled from the pinned OpenAPI document. Nothing is hidden behind a hand-written subset. Escape hatches cover published endpoints that have not reached the pinned registry yet: `elv http <METHOD> <path>` makes an arbitrary REST call against the configured base URL, `elv ws <catalog|url>` runs a scripted WebSocket session, and `elv wait` polls an operation until a status field resolves. Known raw REST requests inherit registry metadata. Otherwise, safety and budget behavior depends on what protocol information is available.
+The generic runner, `elv call <operation_id> --json '{...}'`, can invoke all 390 operations compiled from the pinned OpenAPI document. Nothing is hidden behind a hand-written subset. Escape hatches cover published endpoints that have not reached the pinned registry yet: `elv http <METHOD> <path>` makes an arbitrary REST call against the configured base URL, `elv ws <catalog|url>` runs a scripted WebSocket session, and `elv wait` polls an operation until a status field resolves. Known raw REST requests inherit registry metadata. Otherwise, safety and budget behavior depends on what protocol information is available.
 
 Thin aliases wrap common workflows: `tts`, `stt`, `music`, `sfx`, `voice-change`, `voice-isolate`, `dubbing`, `dubbing-project`, `voices`, `agents`, `models`, `history`, `usage`, `workspace`, `flows`, and `assets`. Each builds an input and calls the same runner as `call`. Discovery is built in too: `elv capabilities` reports the machine contract and service map; `elv ops list`, `ops search`, `ops get`, and `ops schema` inspect the registry; and `elv spec status`, `spec diff`, and `spec update` expose and refresh the active spec provenance.
 

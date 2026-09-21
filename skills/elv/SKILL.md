@@ -14,7 +14,7 @@ Use the installed `elv` binary for ElevenLabs work. In this repository,
 vendored operation registry are the source of truth; discover instead of
 guessing flags, operation IDs, models, or API coverage.
 
-The shipped September 6, 2026 registry documents 388 operations: 387 callable
+The shipped September 21, 2026 registry documents 391 operations: 390 callable
 and one skipped deprecated route. Confirm the active contract with
 `elv capabilities` and `elv spec status` when freshness matters.
 

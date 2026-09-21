@@ -17,7 +17,7 @@ function metadata(): SnapshotMetadata {
   return JSON.parse(readFileSync("spec/openapi.snapshot.meta.json", "utf8")) as SnapshotMetadata;
 }
 
-/** Documentation writes 1507 as "1,507"; accept either grouping of the same number. */
+/** Documentation writes 1524 as "1,524"; accept either grouping of the same number. */
 function count(value: number): string {
   return `(?:${value.toLocaleString("en-US")}|${value})`;
 }

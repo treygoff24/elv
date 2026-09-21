@@ -140,7 +140,7 @@ elv usage
 
 ## Step 6: Discover capabilities and operations
 
-The pinned September 6, 2026 ElevenLabs OpenAPI document contains 388 operations. `elv` compiles 387 and skips one deprecated signed-URL operation whose current replacement is available. Start with the service map, then search the registry, inspect an operation, and copy a runnable skeleton:
+The pinned September 21, 2026 ElevenLabs OpenAPI document contains 391 operations. `elv` compiles 390 and skips one deprecated signed-URL operation whose current replacement is available. Start with the service map, then search the registry, inspect an operation, and copy a runnable skeleton:
 
 ```bash
 elv capabilities

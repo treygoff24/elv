@@ -4,16 +4,16 @@
 
 ## Pinned REST contract
 
-The vendored OpenAPI document was retrieved from `https://api.elevenlabs.io/openapi.json` on September 6, 2026 at `2026-09-06T04:06:22Z`:
+The vendored OpenAPI document was retrieved from `https://api.elevenlabs.io/openapi.json` on September 21, 2026 at `2026-09-21T13:17:57Z`:
 
 | Measure | Value |
 | --- | ---: |
-| SHA-256 | `587ca2ac585d793cbf210512806bfcdf78e6c4ee187fcd756bb25f764b8cfd39` |
-| Paths | 300 |
-| Documented operations | 388 |
-| Callable operations | 387 |
+| SHA-256 | `e1bb68b2a601803c4c080972dc14a6c62565b60ed1b1fee04ac047badbe06ebe` |
+| Paths | 302 |
+| Documented operations | 391 |
+| Callable operations | 390 |
 | Skipped operations | 1 |
-| Schemas | 1,507 |
+| Schemas | 1,524 |
 
 The skipped operation is `get_signed_url_deprecated`, an obsolete route marked `x-skip-spec` by the source document. Its replacement, `get_conversation_signed_link`, is callable.
 

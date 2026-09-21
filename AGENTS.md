@@ -58,7 +58,7 @@ elv ops schema text_to_speech_full --example   # runnable skeleton
 elv spec status
 ```
 
-The pinned September 6, 2026 spec contains 388 documented operations (source URL, retrieval date, and SHA-256 in `spec/openapi.snapshot.meta.json`); 387 are callable and one deprecated signed-URL route is skipped. Use `elv call <operation_id> --json …` for that compiled REST surface. Use aliases (`tts`, `stt`, `music`, `sfx`, `voice-isolate`, `dubbing-project`, `voices`, `models`, `agents`, `workspace`, …) for common workflows. `elv http` is the forward-compatible REST escape hatch.
+The pinned September 21, 2026 spec contains 391 documented operations (source URL, retrieval date, and SHA-256 in `spec/openapi.snapshot.meta.json`); 390 are callable and one deprecated signed-URL route is skipped. Use `elv call <operation_id> --json …` for that compiled REST surface. Use aliases (`tts`, `stt`, `music`, `sfx`, `voice-isolate`, `dubbing-project`, `voices`, `models`, `agents`, `workspace`, …) for common workflows. `elv http` is the forward-compatible REST escape hatch.
 
 `elv models list` reports account-visible `/v1/models` results, not every model across every product. Current examples should prefer `scribe_v2` over deprecated `scribe_v1`, Flash over deprecated Turbo, and `agents tests create` plus `agents tests run` over deprecated `agents simulate`.
 

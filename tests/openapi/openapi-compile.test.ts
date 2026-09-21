@@ -110,7 +110,7 @@ describe("OpenAPI compiler", () => {
 
   it("compiles the default vendored source without external resolution", async () => {
     const compiled = await compileSpec();
-    expect(compiled.operations).toHaveLength(387);
+    expect(compiled.operations).toHaveLength(390);
     expect(compiled.bundledSpec.components.schemas["ArrayJsonSchemaProperty-Input"]).toBeDefined();
     expect(() => JSON.stringify(compiled.bundledSpec)).not.toThrow();
   });
@@ -142,9 +142,9 @@ describe("OpenAPI compiler", () => {
     const compiled = await compileSpec({ sourcePath: snapshotPath });
     const ids = compiled.operations.map((op) => op.operationId);
 
-    expect(compiled.totalOperations).toBe(388);
+    expect(compiled.totalOperations).toBe(391);
     expect(compiled.skippedOperations).toBe(1);
-    expect(compiled.operations).toHaveLength(387);
+    expect(compiled.operations).toHaveLength(390);
     expect(new Set(ids).size).toBe(ids.length);
     expect(() => JSON.stringify(compiled.operations)).not.toThrow();
 

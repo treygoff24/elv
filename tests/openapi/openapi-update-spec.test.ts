@@ -47,14 +47,14 @@ describe("spec update", () => {
       provenance: { sha256: string; schemas: number };
     };
 
-    expect(result.operations).toBe(387);
-    expect(result.totalOperations).toBe(388);
+    expect(result.operations).toBe(390);
+    expect(result.totalOperations).toBe(391);
     expect(result.skippedOperations).toBe(1);
     expect(cache.schema).toBe("elv.openapi.cache.v3");
-    expect(cache.operations).toHaveLength(387);
+    expect(cache.operations).toHaveLength(390);
     expect(cache.provenance).toMatchObject({
-      sha256: "587ca2ac585d793cbf210512806bfcdf78e6c4ee187fcd756bb25f764b8cfd39",
-      schemas: 1507,
+      sha256: "e1bb68b2a601803c4c080972dc14a6c62565b60ed1b1fee04ac047badbe06ebe",
+      schemas: 1524,
     });
     expect(existsSync(rawSpecCachePath({ cacheDir }))).toBe(false);
   });
@@ -401,7 +401,7 @@ describe("spec status", () => {
     const status = await specStatus({ cacheDir });
 
     expect(status.vendored_metadata_verified).toBe(true);
-    expect(status.vendored.callable_operations).toBe(387);
+    expect(status.vendored.callable_operations).toBe(390);
     expect(status.active.present).toBe(true);
     expect(status.active.counts).toMatchObject({ callable_operations: 4 });
     expect(status.active_differs_from_vendored).toBe(true);
