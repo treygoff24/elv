@@ -23,7 +23,7 @@ interface VendoredOrigin {
 }
 
 const MILLISECONDS_PER_DAY = 24 * 60 * 60 * 1000;
-const SPEC_STALE_AFTER_DAYS = 7;
+const SPEC_STALE_AFTER_DAYS = 90;
 
 const COMMAND_FAMILIES = [
   ["capabilities", "Describe the bounded machine contract and discovery entry points."],
@@ -318,15 +318,19 @@ export async function handleCapabilities(
         ? [
             {
               code: "spec_check_stale",
-              message: `The active OpenAPI spec was retrieved ${spec.spec_age_days} days ago; check for provider drift.`,
+              message: `The pinned OpenAPI snapshot is ${spec.spec_age_days} days old; upgrade eleven-agent-cli for current operations.`,
             },
           ]
         : undefined,
       hints: stale
         ? [
             {
+              cmd: "npm install -g eleven-agent-cli@latest",
+              why: "Install the current pinned snapshot.",
+            },
+            {
               cmd: "elv spec diff",
-              why: "Compare the active registry with the current provider spec.",
+              why: "Compare the pinned snapshot with the provider spec when network access is available.",
             },
           ]
         : undefined,
@@ -397,8 +401,8 @@ function specAgeDays(retrievedAt: string | null, now: Date): number | null {
 }
 
 function specIsStale(retrievedAt: string | null, now: Date): boolean {
-  const ageMs = specAgeMilliseconds(retrievedAt, now);
-  return ageMs !== null && ageMs > SPEC_STALE_AFTER_DAYS * MILLISECONDS_PER_DAY;
+  const ageDays = specAgeDays(retrievedAt, now);
+  return ageDays !== null && ageDays >= SPEC_STALE_AFTER_DAYS;
 }
 
 function specAgeMilliseconds(retrievedAt: string | null, now: Date): number | null {

@@ -142,26 +142,36 @@ describe("capabilities machine contract", () => {
     expect(String(spec.source)).not.toContain("openapi.snapshot.json");
   });
 
-  it("warns when pinned provenance is older than seven days", async () => {
+  it("warns at 90 days but not 89 days with upgrade-first remediation", async () => {
     const metadata = JSON.parse(
       readFileSync("spec/openapi.snapshot.meta.json", "utf8"),
     ) as VendoredMetadata;
     const now = new Date("2026-09-21T12:00:00Z");
 
-    const old = await handleCapabilities(
+    const stale = await handleCapabilities(
       { version: "9.8.7" },
       {
         now: () => now,
-        readMetadata: () => ({ ...metadata, retrieved_at: "2026-09-13T11:59:59Z" }),
+        readMetadata: () => ({ ...metadata, retrieved_at: "2026-06-23T12:00:00Z" }),
       },
     );
 
-    expect(record(record(old.env.ok ? old.env.data : undefined).spec).spec_age_days).toBe(8);
-    expect(old.env.warnings).toEqual([expect.objectContaining({ code: "spec_check_stale" })]);
-    expect(old.env.hints).toEqual([
+    expect(record(record(stale.env.ok ? stale.env.data : undefined).spec).spec_age_days).toBe(90);
+    expect(stale.env.warnings).toEqual([
+      {
+        code: "spec_check_stale",
+        message:
+          "The pinned OpenAPI snapshot is 90 days old; upgrade eleven-agent-cli for current operations.",
+      },
+    ]);
+    expect(stale.env.hints).toEqual([
+      {
+        cmd: "npm install -g eleven-agent-cli@latest",
+        why: "Install the current pinned snapshot.",
+      },
       {
         cmd: "elv spec diff",
-        why: "Compare the active registry with the current provider spec.",
+        why: "Compare the pinned snapshot with the provider spec when network access is available.",
       },
     ]);
 
@@ -169,11 +179,11 @@ describe("capabilities machine contract", () => {
       { version: "9.8.7" },
       {
         now: () => now,
-        readMetadata: () => ({ ...metadata, retrieved_at: "2026-09-15T12:00:00Z" }),
+        readMetadata: () => ({ ...metadata, retrieved_at: "2026-06-24T12:00:00Z" }),
       },
     );
 
-    expect(record(record(recent.env.ok ? recent.env.data : undefined).spec).spec_age_days).toBe(6);
+    expect(record(record(recent.env.ok ? recent.env.data : undefined).spec).spec_age_days).toBe(89);
     expect(recent.env.warnings).toBeUndefined();
     expect(recent.env.hints).toBeUndefined();
   });
