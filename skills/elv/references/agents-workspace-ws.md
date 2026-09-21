@@ -19,8 +19,9 @@ elv agents procedures list --agent-id AGENT_ID --branch-id BRANCH_ID
 
 Use `agents tests create` followed by `agents tests run`; `agents simulate` maps
 to a provider-deprecated operation. `agents tests list --search` matches tests
-and folders; `agents test-runs list --search` filters suite invocations. RAG
-retrieval accepts `--max-documents-length` from 1 to 50000 and
+and folders; `agents test-runs list --search` uses the same provider wording and
+filters tests and folders by name. RAG retrieval accepts
+`--max-documents-length` from 1 to 50000 and
 `--max-retrieved-rag-chunks-count` from 1 to 20. Discover Procedure
 create/update/compile and branch-management inputs through the nested help and
 dry-run every mutation.
@@ -93,7 +94,11 @@ Upload accepts MP3 or WAV, replaces the current clip, and is limited to 40 MB
 and 180 seconds. Delete is destructive and restores the default hold tone.
 During `ws convai`, queue waits arrive as `queue_status` events whose `status`
 is `waiting`, `admitted`, or `timed_out`; hold audio remains an ordinary
-`audio` event.
+`audio` event. After a peer-initiated close, the final envelope's `ws` object
+and session manifest may include `close_code` and `close_reason`, plus
+`close_code_name` when the catalog names the code; CLI timeout and EOF teardown
+omit all three. The catalog maps code 4300 to `queue_timeout`, which adds a
+`ws_queue_timeout` warning and an `elv agents get --agent-id <id>` hint.
 
 Named protocols validate their scripts. For STT, use
 `{"type":"send_audio_file","path":"audio.pcm","sample_rate":16000,"commit":true}`;

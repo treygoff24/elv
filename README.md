@@ -108,7 +108,7 @@ The `--example` flag prints an `elv call` skeleton with the parameter shape fill
 
 ### Aliases
 
-The fourteen aliases are sugar over the same runner as `call`.
+The sixteen aliases are sugar over the same runner as `call`.
 
 | Alias | Purpose |
 | --- | --- |
@@ -126,6 +126,8 @@ The fourteen aliases are sugar over the same runner as `call`.
 | `history` | Generated-audio history list, audio, delete |
 | `usage` | Subscription balance or date-range character stats |
 | `workspace` | List members and create or list service accounts |
+| `flows` | Image, video, and speech generation, with optional waiting |
+| `assets` | Reusable media upload, list, get, and delete workflows |
 
 ```bash
 elv tts --voice-id JBFqnCBsd6RMkjVDRZzb --text "Hello from elv." --out ./out
@@ -229,7 +231,7 @@ elv wait --operation get_dubbed_metadata \
 
 The WebSocket catalog contains `tts-realtime`, `tts-multi`, `ttd-realtime`, `ttd-multi`, `stt-realtime`, `convai`, and `convai-monitor`. Dialogue sessions use a voices initialization message and `inputs` arrays, not TTS's initial space. TTD supports v3 dialogue models; the older TTS protocol rejects `eleven_v3`. Multi-context audio is saved separately with context-to-file mappings in the result. `--dry-run`, `--yes`, and `--max-credits` apply; a ceiling rejects STT and agent sessions whose cost cannot be bounded.
 
-Queued `convai` calls emit `queue_status` events with `waiting`, `admitted`, or `timed_out`; configured hold audio arrives as ordinary `audio` events. Configure the clip with `agents hold-audio`.
+Queued `convai` calls emit `queue_status` events with `waiting`, `admitted`, or `timed_out`; configured hold audio arrives as ordinary `audio` events. After a peer-initiated close, the final envelope's `ws` object and the session manifest may carry `close_code` and `close_reason`, plus `close_code_name` when the catalog names the code; CLI timeout and EOF teardown leave all three absent. The catalog names code 4300 as `queue_timeout`, which adds a `ws_queue_timeout` warning and an `elv agents get --agent-id <id>` hint. Configure the clip with `agents hold-audio`.
 
 Use `--token-env TOKEN_VARIABLE` for single-use authentication and `--url-env URL_VARIABLE` for a signed WebSocket URL. Neither secret needs to appear in argv. `--token-env` only works against the configured API host, because the token travels in the connection URL; reach any other host through a signed `--url-env` URL, which carries its own credential. `elv ws --list` shows each route's protocol, duplex support, first message, and terminal rule. Agent audio of an undeclared encoding is written as `audio.bin` with a `ws_audio_format_unknown` warning unless the session sets `output_format`. STT's `send_audio_file` action wraps PCM bytes in the published JSON audio-chunk message:
 
@@ -306,11 +308,11 @@ The official model references retrieved on September 21, 2026 list these current
 | Speech to Speech | `eleven_multilingual_sts_v2`, `eleven_english_sts_v2` |
 | Speech to Text | `scribe_v2`, `scribe_v2_medical` (batch only), `scribe_v2_realtime` |
 | Sound Effects | `eleven_text_to_sound_v2` |
-| Music | `music_v2_5`, `music_v2`, `music_v1` |
+| Music | `music_v2_5`, `music_v2`, `music_v1` (deprecated) |
 | Image generation (flows) | `gpt-image-2.5-flare`, `gpt-image-2.5-sunburst` |
 | Agent LLMs (examples) | `gemini-3.8-flash`, `gpt-6-astra` |
 
-ElevenLabs marks `eleven_turbo_v2_5`, `eleven_turbo_v2`, and `scribe_v1` deprecated. Use `eleven_flash_v2_5`, `eleven_flash_v2`, and `scribe_v2` respectively. `music_v2_5` is the current product default, but the API's `MusicModelID` default remains `music_v1`; pass `--model music_v2_5` explicitly when that choice matters. The agent LLM enum is longer than the two September additions shown here. Model availability still depends on the account, region, plan, and rollout. See [API coverage](./docs/api-coverage.md) for the pinned source and limits.
+ElevenLabs marks `eleven_turbo_v2_5`, `eleven_turbo_v2`, `scribe_v1`, and `music_v1` deprecated. Use `eleven_flash_v2_5`, `eleven_flash_v2`, `scribe_v2`, and `music_v2_5` respectively. `music_v2_5` is the current product default, but the API's `MusicModelID` default remains `music_v1`; pass `--model music_v2_5` explicitly when that choice matters. The agent LLM enum is longer than the two September additions shown here. Model availability still depends on the account, region, plan, and rollout. See [API coverage](./docs/api-coverage.md) for the pinned source and limits.
 
 ## Safety and budget
 

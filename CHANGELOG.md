@@ -28,7 +28,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Tests default to two workers, configurable by environment. CI adds Linux Node 26; bin-symlink tests no longer rebuild shared output.
 - Upstream removed `convai_coaching_proposals` from `WorkspaceResourceType` and added `dubbing_project` without notice. The CLI passes this enum through, so callers using the removed value now fail validation.
 - Upstream deprecated crawl `max_depth`; it is now a no-op and will be removed in a future provider revision.
-- Published conversation-history filters no longer document `neq`, `in`, `exists`, or `missing`. The server still accepted them in a September 21, 2026 probe, but callers should treat them as unsupported going forward.
+- Published conversation-history filters no longer document `neq`, `in`, `exists`, or `missing`. The server still accepted them in a September 21, 2026 probe, but callers should treat them as unsupported going forward. Replace `missing` with an empty value, which matches conversations where the field was not collected.
 - New model IDs remain passthrough strings: batch-only `scribe_v2_medical` for `POST /v1/speech-to-text` at the Scribe v2 price, `music_v2_5` as the product default, `gpt-image-2.5-flare` and `gpt-image-2.5-sunburst` for `flows image`, and agent LLMs `gemini-3.8-flash` and `gpt-6-astra`. The API's `MusicModelID` default remains `music_v1`, so select `music_v2_5` explicitly.
 
 ### Added
@@ -36,9 +36,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Offline Node transport guards, production-only packed-install smoke, and local runtime/skill verification. Skill sync refuses dirty/unknown targets and symlink escapes, preserves foreign files, and verifies afterward.
 - Refreshed the September 21, 2026 public API snapshot to 302 paths, 391 documented operations, 390 callable operations, one skipped operation, and 1,524 schemas. The three new operations are `post_agent_hold_audio_route`, `delete_agent_hold_audio_route`, and `list_phone_numbers_page_route`; the paged phone-number list is available through `elv call` and its generic paginator clamps page size to 1,000.
 - Added `agents hold-audio upload|delete`. Upload accepts MP3 or WAV clips up to 40 MB and 180 seconds and replaces the existing clip; delete restores the default tone and, as a destructive action, requires `--yes`.
-- Added `--search` to `agents test-runs list`; `agents tests list --search` now matches folders as well as tests.
+- Added `--search` to `agents test-runs list`; both agent test list routes describe it as filtering tests and folders by name.
 - Added `--max-documents-length` (1-50000) and `--max-retrieved-rag-chunks-count` (1-20) to `agents rag-query`.
-- The `ws convai` catalog documents `queue_status` values `waiting`, `admitted`, and `timed_out`, plus `agent_response.attachments`.
+- The `ws convai` catalog documents `queue_status` values `waiting`, `admitted`, and `timed_out`, plus `agent_response.attachments`. After a peer-initiated close, the envelope's `ws` information and session manifest may carry `close_code` and `close_reason`, plus `close_code_name` when the catalog names the code; CLI timeout and EOF teardown leave those fields absent. Code 4300 maps to `queue_timeout`, adds a `ws_queue_timeout` warning, and hints `elv agents get --agent-id <id>`.
 - `ops search` resolves intent phrases such as "make speech," "synthesize speech," "transcribe," "isolate vocals," and "dub" toward their canonical operations, ranks current operations ahead of deprecated ties, and hints `elv voices clone-instant` for "clone voice."
 - `capabilities` reports `spec.spec_age_days` and emits `spec_check_stale` when the pinned snapshot reaches 90 days old. The warning says to upgrade the package; hints name `npm install -g eleven-agent-cli@latest` first and the network-dependent `elv spec diff` second.
 - `elv spec update --from <file>` records the local file's modification time as `retrieved_at` instead of the time the command ran.
