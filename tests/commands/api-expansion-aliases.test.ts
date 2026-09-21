@@ -248,8 +248,11 @@ describe("current API workflow aliases", () => {
     const oversized = join(directory, "oversized.mp3");
     writeFileSync(audio, "RIFF");
     writeFileSync(wrongExtension, "audio");
+    const atLimit = join(directory, "at-limit.mp3");
     writeFileSync(oversized, "");
     truncateSync(oversized, 40 * 1024 * 1024 + 1);
+    writeFileSync(atLimit, "");
+    truncateSync(atLimit, 40 * 1024 * 1024);
 
     try {
       expect(buildAgentHoldAudioUploadInput({ agentId: "agent_1", file: audio })).toEqual({
@@ -269,6 +272,12 @@ describe("current API workflow aliases", () => {
       expect(() => buildAgentHoldAudioUploadInput({ agentId: "agent_1", file: oversized })).toThrow(
         "exceeds the 40 MB hold-audio limit",
       );
+      // The provider says "40 MB"; the local guard is permissive at exactly 40 MiB so a
+      // borderline clip reaches the provider's own check instead of failing here.
+      expect(buildAgentHoldAudioUploadInput({ agentId: "agent_1", file: atLimit }).input).toEqual({
+        path: { agent_id: "agent_1" },
+        files: { hold_audio_file: atLimit },
+      });
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }
