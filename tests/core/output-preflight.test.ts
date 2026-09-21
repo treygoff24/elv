@@ -1,4 +1,5 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -37,9 +38,81 @@ describe("multi-file output preflight", () => {
         );
         expect(valid.ok).toBe(true);
         expect(fetch).not.toHaveBeenCalled();
+        expect(readdirSync(join(dir, "output"))).toEqual([]);
       } finally {
         rmSync(dir, { recursive: true, force: true });
       }
     },
   );
+});
+
+describe("single-file output preflight", () => {
+  it("rejects an unpublishable --save-json target before dry-run or network", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "elv-output-preflight-"));
+    const blocked = join(dir, "not-a-directory");
+    const target = join(blocked, "response.json");
+    writeFileSync(blocked, "occupied");
+    vi.stubEnv("ELV_CACHE_DIR", join(dir, "cache"));
+    vi.stubEnv("ELV_MAX_CREDITS", undefined);
+    const fetch = vi.fn();
+    vi.stubGlobal("fetch", fetch);
+    try {
+      for (const dryRun of [true, false]) {
+        const result = await runOperation("get_models", {}, { dryRun, saveJson: target });
+        expect(result.ok).toBe(false);
+        if (result.ok) throw new Error("Expected invalid output target");
+        expect(result.error).toMatchObject({
+          type: "validation_error",
+          code: "invalid_out_target",
+        });
+        expect(result.retry).toEqual({ recommended: false, after_ms: null });
+        expect(result.hints?.[0]).toMatchObject({
+          cmd: expect.stringContaining("--save-json ./output.json"),
+        });
+      }
+      expect(fetch).not.toHaveBeenCalled();
+      expect(readdirSync(dir).some((name) => name.includes("elv-output-probe"))).toBe(false);
+
+      const cli = spawnSync(
+        process.execPath,
+        ["--import", "tsx", "src/cli.ts", "call", "get_models", "--save-json", target, "--dry-run"],
+        {
+          encoding: "utf8",
+          env: { ...process.env, ELV_CACHE_DIR: join(dir, "cli-cache") },
+        },
+      );
+      expect(cli.status).toBe(2);
+      expect(JSON.parse(cli.stdout)).toMatchObject({
+        ok: false,
+        error: { type: "validation_error", code: "invalid_out_target" },
+        retry: { recommended: false },
+      });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("preflights the default output directory for a file-producing operation", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "elv-output-preflight-"));
+    const blocked = join(dir, "not-a-directory");
+    writeFileSync(blocked, "occupied");
+    vi.stubEnv("ELV_CACHE_DIR", join(dir, "cache"));
+    vi.stubEnv("ELV_OUTPUT_DIR", join(blocked, "output"));
+    const fetch = vi.fn();
+    vi.stubGlobal("fetch", fetch);
+    try {
+      const result = await runOperation(
+        "text_to_speech_full",
+        { path: { voice_id: "voice_1" }, body: { text: "hello" } },
+        { dryRun: true },
+      );
+      expect(result).toMatchObject({
+        ok: false,
+        error: { type: "validation_error", code: "invalid_out_target" },
+      });
+      expect(fetch).not.toHaveBeenCalled();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });

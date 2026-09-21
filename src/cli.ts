@@ -550,7 +550,10 @@ function envelopeForError(
           cmd,
           error: { type: "not_found_error", code: "unknown_command", message: error.message },
           retry: { recommended: false, after_ms: null },
-          ...(hints ? { hints } : {}),
+          hints: [
+            ...(hints ?? []),
+            { cmd: "elv --help", why: "List available top-level commands." },
+          ],
         },
         exitCode: ExitCode.NotFound,
       };
@@ -603,6 +606,7 @@ function envelopeForError(
         raw: error,
       },
       retry: { recommended: false, after_ms: null },
+      hints: [{ cmd: "elv --help", why: "Inspect valid commands and flags before retrying." }],
     },
     exitCode: ExitCode.ProviderError,
   };
