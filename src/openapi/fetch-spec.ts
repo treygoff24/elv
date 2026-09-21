@@ -74,6 +74,7 @@ interface SpecStatus {
     counts: SpecCounts | null;
   };
   active_differs_from_vendored: boolean | null;
+  active_differs_from_vendored_description: string;
 }
 
 interface SpecDocument {
@@ -147,6 +148,8 @@ export async function specStatus(options: RegistryOptions = {}): Promise<SpecSta
       activeProvenance === "unknown"
         ? null
         : activeProvenance.sha256 !== vendored.provenance.sha256,
+    active_differs_from_vendored_description:
+      "Compares the active cache with the vendored snapshot, not with the current provider spec.",
   };
 }
 

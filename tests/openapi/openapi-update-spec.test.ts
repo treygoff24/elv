@@ -406,6 +406,43 @@ describe("spec status", () => {
     expect(status.active.counts).toMatchObject({ callable_operations: 4 });
     expect(status.active_differs_from_vendored).toBe(true);
   });
+
+  it("does not treat a newer provider candidate as active-versus-vendored drift", async () => {
+    cacheDir = mkdtempSync(join(tmpdir(), "elv-spec-status-"));
+    const snapshot = readFileSync("fixtures/fake-openapi.json", "utf8");
+    const vendored = parseJsonRecord(snapshot, "fake OpenAPI fixture") as OpenApiDocument;
+    const moduleUrl = vendoredPackage(cacheDir, snapshot, {
+      schema: "elv.openapi.snapshot.v1",
+      source: "https://provider.example/openapi.json",
+      retrieved_at: "2026-08-01T00:00:00Z",
+      sha256: sha256(snapshot),
+      paths: 4,
+      total_operations: 4,
+      callable_operations: 4,
+      skipped_operations: 0,
+      schemas: 3,
+    });
+    await updateSpecCache({ offline: true, cacheDir, moduleUrl });
+
+    const providerCandidate = structuredClone(vendored);
+    providerCandidate.paths["/v1/provider-new"] = { get: operation("provider_new") };
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify(providerCandidate)));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const providerDiff = await diffSpec({
+      cacheDir,
+      moduleUrl,
+      specUrl: "https://provider.example/openapi.json",
+    });
+    const status = await specStatus({ cacheDir, moduleUrl });
+
+    expect(providerDiff.diff.added_operations).toEqual(["provider_new"]);
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(status.active_differs_from_vendored).toBe(false);
+    expect(status.active_differs_from_vendored_description).toBe(
+      "Compares the active cache with the vendored snapshot, not with the current provider spec.",
+    );
+  });
 });
 
 function operation(operationId: string) {
