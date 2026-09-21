@@ -721,7 +721,9 @@ function errorEnvelope(error: unknown): CommandResult {
   }
   if (error instanceof OutTargetError) {
     return {
-      env: outTargetError("elv ws", error),
+      env: outTargetError("elv ws", error, {
+        hintCmd: "elv ws <catalog-name|url> --out ./output --dry-run",
+      }),
       exitCode: ExitCode.InputValidation,
     };
   }

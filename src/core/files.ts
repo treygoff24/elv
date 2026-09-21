@@ -189,7 +189,9 @@ export async function preflightOutTarget(
     if (!(error instanceof OutTargetError) || error.source === source) throw error;
     throw new OutTargetError(error.message, error.hint, source);
   }
-  const expectsFile = target.file !== undefined || source === "--save-json";
+  // An existing directory is a directory target for every source; the JSON spill derives a
+  // filename inside it, so only a resolved file name means "expects a file".
+  const expectsFile = target.file !== undefined;
   const requested = expectsFile ? absolute(out) : target.dir;
   try {
     const requestedStats = await statIfExists(requested);

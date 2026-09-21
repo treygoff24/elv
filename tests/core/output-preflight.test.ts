@@ -92,17 +92,14 @@ describe("single-file output preflight", () => {
     }
   });
 
-  it("rejects an existing directory where --save-json names a file", async () => {
+  it("accepts an existing directory for --save-json because the spill derives a filename", async () => {
     const dir = mkdtempSync(join(tmpdir(), "elv-output-preflight-"));
-    const target = join(dir, "response.json");
+    const target = join(dir, "reports");
     mkdirSync(target);
     vi.stubEnv("ELV_CACHE_DIR", join(dir, "cache"));
     try {
       const result = await runOperation("get_models", {}, { dryRun: true, saveJson: target });
-      expect(result).toMatchObject({
-        ok: false,
-        error: { type: "validation_error", code: "invalid_out_target" },
-      });
+      expect(result).toMatchObject({ ok: true });
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
