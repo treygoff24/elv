@@ -261,6 +261,51 @@ describe("OpenAPI compiler", () => {
     expect(aliasIds.every((id) => ids.has(id))).toBe(true);
   });
 
+  it("compiles the September 21 hold-audio and phone-number operation cards", async () => {
+    const compiled = await compileSpec({ sourcePath: snapshotPath });
+    const byId = new Map(compiled.operations.map((op) => [op.operationId, op]));
+
+    expect(byId.get("post_agent_hold_audio_route")).toMatchObject({
+      method: "POST",
+      pathTemplate: "/v1/convai/agents/{agent_id}/hold-audio",
+      risk: "mutate",
+      costHint: "unknown",
+      streamKind: "none",
+      secretResult: false,
+      requestBody: {
+        contentType: "multipart/form-data",
+        multipart: true,
+        fileFields: ["hold_audio_file"],
+      },
+    });
+    expect(byId.get("delete_agent_hold_audio_route")).toMatchObject({
+      method: "DELETE",
+      pathTemplate: "/v1/convai/agents/{agent_id}/hold-audio",
+      risk: "destructive",
+      costHint: "unknown",
+      streamKind: "none",
+      secretResult: false,
+    });
+    expect(byId.get("list_phone_numbers_page_route")).toMatchObject({
+      method: "GET",
+      pathTemplate: "/v1/convai/v2/phone-numbers",
+      risk: "read",
+      costHint: "unknown",
+      streamKind: "none",
+      secretResult: false,
+    });
+  });
+
+  it("tracks the current WorkspaceResourceType enum", async () => {
+    const compiled = await compileSpec({ sourcePath: snapshotPath });
+    const workspaceResourceType = compiled.bundledSpec.components.schemas[
+      "WorkspaceResourceType"
+    ] as JsonObject;
+
+    expect(workspaceResourceType.enum).toContain("dubbing_project");
+    expect(workspaceResourceType.enum).not.toContain("convai_coaching_proposals");
+  });
+
   it("detects array binary multipart fields", async () => {
     const compiled = await compileSpec({ sourcePath: snapshotPath });
     const byId = new Map(compiled.operations.map((op) => [op.operationId, op]));

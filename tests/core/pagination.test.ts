@@ -11,6 +11,7 @@ import {
 } from "../../src/core/pagination";
 import { success } from "../../src/core/envelope";
 import { runOperation } from "../../src/core/client";
+import { compileSpec } from "../../src/openapi/compile-spec";
 import * as registry from "../../src/openapi/registry";
 import type { Envelope } from "../../src/core/types";
 import type { OperationCard } from "../../src/openapi/types";
@@ -42,6 +43,69 @@ function ok(data: JsonValue): Envelope {
 }
 
 describe("pagination cursor derivation", () => {
+  it("uses the published phone-number page limit, cursor, and collection", async () => {
+    const compiled = await compileSpec({ sourcePath: "spec/openapi.snapshot.json" });
+    const operation = compiled.operations.find(
+      (candidate) => candidate.operationId === "list_phone_numbers_page_route",
+    );
+    expect(operation).toBeDefined();
+
+    expect(applyPaginationDefaults(operation!, {}, 1201)).toEqual({
+      query: { page_size: 1000 },
+    });
+    expect(pageSizeClampWarning(operation!, {}, 1201)).toEqual({
+      code: "page_size_clamped",
+      message:
+        "page_size was clamped from 1201 to the provider maximum of 1000; --limit still bounds the items inlined in the envelope.",
+    });
+    expect(
+      nextCursor(operation!, {
+        phone_numbers: [{ phone_number_id: "pn_1" }],
+        has_more: true,
+        next_cursor: "cur_2",
+      }),
+    ).toEqual({ hasMore: true, cursorParam: "cursor", cursor: "cur_2", warnings: [] });
+
+    const out = mkdtempSync(join(tmpdir(), "elv-phone-pages-"));
+    const inputs: unknown[] = [];
+    try {
+      const env = await collectAllPages({
+        op: operation!,
+        input: {},
+        out,
+        limit: 1201,
+        command: { kind: "call" },
+        fetchPage: async (input) => {
+          inputs.push(input);
+          return input.query?.cursor === "cur_2"
+            ? ok({
+                phone_numbers: [{ phone_number_id: "pn_2" }],
+                has_more: false,
+                next_cursor: null,
+              })
+            : ok({
+                phone_numbers: [{ phone_number_id: "pn_1" }],
+                has_more: true,
+                next_cursor: "cur_2",
+              });
+        },
+      });
+
+      expect(inputs).toEqual([
+        { query: { page_size: 1000 } },
+        { query: { page_size: 1000, cursor: "cur_2" } },
+      ]);
+      expect(env.ok).toBe(true);
+      if (!env.ok) throw new Error("expected success");
+      expect(JSON.parse(readFileSync(env.files![0]!.path, "utf8"))).toEqual([
+        { phone_number_id: "pn_1" },
+        { phone_number_id: "pn_2" },
+      ]);
+    } finally {
+      rmSync(out, { recursive: true, force: true });
+    }
+  });
+
   it("caps automatic page sizes at the provider maximum without changing explicit input", () => {
     const schemas: JsonValue[] = [
       { type: "integer", maximum: 100 },

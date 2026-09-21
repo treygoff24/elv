@@ -251,8 +251,15 @@ describe("compact schema", () => {
     const isolation = compiled.operations.find(
       (candidate) => candidate.operationId === "audio_isolation",
     );
+    const holdAudio = compiled.operations.find(
+      (candidate) => candidate.operationId === "post_agent_hold_audio_route",
+    );
     expect(upload?.requestBody?.fileFields).toEqual(["asset"]);
     expect(isolation?.requestBody?.fileFields).toEqual(["audio"]);
+    expect(holdAudio?.requestBody).toMatchObject({
+      multipart: true,
+      fileFields: ["hold_audio_file"],
+    });
 
     expect(exampleArgs(buildExampleCommand(upload!, compiled.bundledSpec).cmd)).toEqual([
       "call",
@@ -272,6 +279,14 @@ describe("compact schema", () => {
       "audio=./path/to/audio",
       "--out",
       "./out",
+    ]);
+    expect(exampleArgs(buildExampleCommand(holdAudio!, compiled.bundledSpec).cmd)).toEqual([
+      "call",
+      "post_agent_hold_audio_route",
+      "--json",
+      '{"path":{"agent_id":"<agent_id>"}}',
+      "--file",
+      "hold_audio_file=./path/to/hold_audio_file",
     ]);
   });
 
