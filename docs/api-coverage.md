@@ -72,11 +72,11 @@ and 2 MiB per metadata part. Missing boundaries cannot yield reliable split file
 | Speech to Speech | `eleven_multilingual_sts_v2`, `eleven_english_sts_v2` |
 | Speech to Text | `scribe_v2`, `scribe_v2_medical` (batch only), `scribe_v2_realtime` |
 | Sound Effects | `eleven_text_to_sound_v2` |
-| Music | `music_v2_5`, `music_v2`, `music_v1` |
+| Music | `music_v2_5`, `music_v2`, `music_v1` (deprecated) |
 | Image generation (flows) | `gpt-image-2.5-flare`, `gpt-image-2.5-sunburst` |
 | Agent LLMs (examples) | `gemini-3.8-flash`, `gpt-6-astra` |
 
-ElevenLabs marks `eleven_turbo_v2_5`, `eleven_turbo_v2`, and `scribe_v1` deprecated and recommends `eleven_flash_v2_5`, `eleven_flash_v2`, and `scribe_v2` respectively.
+ElevenLabs marks `eleven_turbo_v2_5`, `eleven_turbo_v2`, `scribe_v1`, and `music_v1` deprecated and recommends `eleven_flash_v2_5`, `eleven_flash_v2`, `scribe_v2`, and `music_v2_5` respectively.
 
 `music_v2_5` is the current product default, but the API's `MusicModelID` default remains `music_v1`; select `music_v2_5` explicitly. The agent LLM enum is longer than the two September additions shown above.
 
