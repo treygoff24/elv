@@ -17,6 +17,12 @@ type OperationSummary = Omit<SearchResult, "cost_hint" | "deprecated">;
 
 type OpsSearchOptions = Pick<CliOptionValues, "limit">;
 
+interface SearchIntent {
+  query: string;
+  preferredOperationId?: string;
+  hints?: Hint[];
+}
+
 type OpsListOptions = Pick<
   CliOptionValues,
   "group" | "method" | "risk" | "stream" | "cost" | "deprecated" | "uploads" | "limit"
@@ -66,10 +72,12 @@ export async function handleOpsSearch(
     };
   }
   const registry = await loadRegistry();
+  const intent = resolveSearchIntent(query);
   return {
     env: success({
       cmd: `elv ops search ${query}`,
       data: searchOperations(registry, query, limit),
+      ...(intent.hints ? { hints: intent.hints } : {}),
     }),
     exitCode: ExitCode.Success,
   };
@@ -165,13 +173,21 @@ export function searchOperations(
   query: string,
   limit = 10,
 ): SearchResult[] {
-  const expanded = expandAliases(query);
-  const queryTokens = tokenize(expanded);
-  const normalizedQuery = normalizePhrase(expanded);
+  const intent = resolveSearchIntent(query);
+  const queryTokens = tokenize(intent.query);
+  const normalizedQuery = normalizePhrase(intent.query);
   const scored = [...registry.values()]
-    .map((op) => ({ op, score: scoreOperation(op, queryTokens, normalizedQuery) }))
+    .map((op) => ({
+      op,
+      score: scoreOperation(op, queryTokens, normalizedQuery, intent.preferredOperationId),
+    }))
     .filter((entry) => entry.score > 0)
-    .sort((a, b) => b.score - a.score || a.op.operationId.localeCompare(b.op.operationId));
+    .sort(
+      (a, b) =>
+        b.score - a.score ||
+        Number(a.op.deprecated) - Number(b.op.deprecated) ||
+        a.op.operationId.localeCompare(b.op.operationId),
+    );
 
   return scored.slice(0, limit).map(({ op }) => ({
     ...operationSummary(op),
@@ -207,7 +223,12 @@ export function listOperations(
     }));
 }
 
-function scoreOperation(op: OperationCard, queryTokens: string[], normalizedQuery: string): number {
+function scoreOperation(
+  op: OperationCard,
+  queryTokens: string[],
+  normalizedQuery: string,
+  preferredOperationId?: string,
+): number {
   const id = op.operationId.toLowerCase();
   const path = op.pathTemplate.toLowerCase();
   if (id === normalizedQuery || path === normalizedQuery) return 1_000_000;
@@ -217,7 +238,8 @@ function scoreOperation(op: OperationCard, queryTokens: string[], normalizedQuer
     scoreField(op.pathTemplate, queryTokens, normalizedQuery, 7) +
     scoreField(op.summary ?? "", queryTokens, normalizedQuery, 3) +
     scoreField(op.description ?? "", queryTokens, normalizedQuery, 1) +
-    scoreField([...op.group, ...op.tags].join(" "), queryTokens, normalizedQuery, 2)
+    scoreField([...op.group, ...op.tags].join(" "), queryTokens, normalizedQuery, 2) +
+    (op.operationId === preferredOperationId ? 100 : 0)
   );
 }
 
@@ -244,6 +266,55 @@ const QUERY_ALIASES: Record<string, string> = {
   sfx: "sound effects",
   isolate: "audio isolation",
 };
+
+const SEARCH_INTENTS: ReadonlyArray<{
+  pattern: RegExp;
+  replacement?: string;
+  preferredOperationId?: string;
+  hint?: Hint;
+}> = [
+  {
+    pattern: /\b(?:make|synthesize) speech\b/u,
+    replacement: "text to speech",
+    preferredOperationId: "text_to_speech_full",
+  },
+  {
+    pattern: /\b(?:transcribe|transcription)\b/u,
+    replacement: "speech to text",
+    preferredOperationId: "speech_to_text",
+  },
+  {
+    pattern: /\bclone voice\b/u,
+    hint: {
+      cmd: "elv voices clone-instant --name <name> --file <audio-file>",
+      why: "Use the curated instant voice-cloning workflow.",
+    },
+  },
+  {
+    pattern: /\bisolate vocals?\b/u,
+    replacement: "audio isolation",
+    preferredOperationId: "audio_isolation",
+  },
+  {
+    pattern: /\bdub\b/u,
+    replacement: "dubbing",
+    preferredOperationId: "create_dubbing",
+  },
+];
+
+function resolveSearchIntent(query: string): SearchIntent {
+  const normalized = normalizePhrase(query);
+  const intent = SEARCH_INTENTS.find(({ pattern }) => pattern.test(normalized));
+  if (!intent) return { query: expandAliases(normalized) };
+  const rewritten = intent.replacement
+    ? normalized.replace(intent.pattern, intent.replacement)
+    : normalized;
+  return {
+    query: expandAliases(rewritten),
+    preferredOperationId: intent.preferredOperationId,
+    hints: intent.hint ? [intent.hint] : undefined,
+  };
+}
 
 function expandAliases(query: string): string {
   return tokenize(query)
