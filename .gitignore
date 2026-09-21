@@ -21,5 +21,6 @@ model-performance-journal.md
 
 # Root-level lock written by bd ready (see .beads/.gitignore for the rest)
 /.beads.gate.lock
-# Per-machine Claude Code settings
+# Per-machine Claude Code settings and pool-skill links (claude-skill add)
 .claude/settings.local.json
+.claude/skills/cli-monthly-update

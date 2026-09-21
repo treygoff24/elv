@@ -29,6 +29,8 @@ Run `npm run gate` before and after a change. Never reach for `npx prettier` or 
 
 Searching: `spec/openapi.snapshot.json` is one ~1.8 MB line, so a broad `rg` or `git grep` that hits it floods and truncates the output you wanted. A checked-in `.ignore` keeps ripgrep out of it and `.gitattributes` marks it binary for git. Search it on purpose with `rg --no-ignore <pattern> spec/openapi.snapshot.json`, or better, use `elv ops search` / `elv ops get` / `elv ops schema`. `src/commands/aliases/README.md` maps that directory; the shared helper is `shared.ts`.
 
+The monthly upstream-drift and papercut cycle runs from the `cli-monthly-update` skill (skill pool) with this repo's facts in `docs/monthly-update.md`.
+
 ## One envelope per command
 
 Stdout is always a single `SuccessEnvelope` or `ErrorEnvelope` (`v: 1`, `ok: true|false`). Binary and large payloads go to disk; paths appear in `files[]`. Never expect human prose, spinners, or multiple JSON lines.
