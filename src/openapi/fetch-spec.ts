@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { readFileSync, statSync } from "node:fs";
 import { resolve } from "node:path";
 import { compileSpec } from "./compile-spec";
 import {
@@ -269,7 +269,13 @@ async function documentForUpdate(options: UpdateSpecOptions): Promise<SpecDocume
   }
   const path = resolve(from);
   const rawText = readBoundedFile(path);
-  return { document: parseSpecJson(rawText, path), rawText, source: "file", label: path };
+  return {
+    document: parseSpecJson(rawText, path),
+    rawText,
+    source: "file",
+    label: path,
+    retrievedAt: localFileModifiedAt(path),
+  };
 }
 
 function validateOptions(options: UpdateSpecOptions): void {
@@ -282,6 +288,16 @@ function validateOptions(options: UpdateSpecOptions): void {
 
 function readBoundedFile(path: string): string {
   return readBoundedBuffer(path).toString("utf8");
+}
+
+function localFileModifiedAt(path: string): string {
+  try {
+    return statSync(path).mtime.toISOString();
+  } catch (error) {
+    throw new SpecInputError(`Unable to read OpenAPI spec ${path}: ${errorMessage(error)}`, {
+      path,
+    });
+  }
 }
 
 function readBoundedBuffer(path: string): Buffer {
