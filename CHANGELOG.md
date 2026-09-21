@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-09-21
+
 ### Security
 
 - Implicit project config cannot select credential variables or redirect the endpoint. Project budgets may lower trusted ceilings, not raise them. Explicit `ELV_CONFIG`, environment, and flag overrides retain user authority.
