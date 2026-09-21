@@ -155,8 +155,17 @@ export async function runPreparedOperation({
     );
   if (opts.out !== undefined) await preflightOutTarget(opts.out, multiFileOutput, "--out");
   if (opts.saveJson !== undefined) await preflightOutTarget(opts.saveJson, false, "--save-json");
-  if (opts.out === undefined && opts.saveJson === undefined && operationEmitsFiles(op, opts)) {
-    await preflightOutTarget(config.outputDir, multiFileOutput, "--out");
+  if (opts.out === undefined && opts.saveJson === undefined && operationEmitsFiles(op)) {
+    try {
+      await preflightOutTarget(config.outputDir, multiFileOutput, "default");
+    } catch (error) {
+      if (!(error instanceof OutTargetError)) throw error;
+      const replay = confirmationReplay(op, input, command);
+      return outTargetError(cmd, error, {
+        operationId: op.operationId,
+        hintCmd: replay ? `${replay} --out ./output --dry-run` : undefined,
+      });
+    }
   }
   const budget = budgetDecision(op, creditsEstimated, effectiveOpts);
   const effectiveWarnings = [
@@ -258,7 +267,7 @@ function preparedOperationPreflight({
     return withWarnings(
       confirmationRequired(cmd, `${op.operationId} (${op.risk}) requires --yes`, {
         operationId: op.operationId,
-        hints: [confirmationPreviewHint(cmd, op, input, command)],
+        hints: [confirmationPreviewHint(op, input, command)],
       }),
       warnings,
     );
@@ -277,11 +286,11 @@ function preparedOperationPreflight({
   return null;
 }
 
-function operationEmitsFiles(op: OperationCard, opts: OperationRunOpts): boolean {
+function operationEmitsFiles(op: OperationCard): boolean {
   return Boolean(
     op.secretResult ||
     op.returnsBinary ||
-    (op.returnsJson && !opts.inline) ||
+    potentiallySpending(op) ||
     op.streamKind !== "none" ||
     op.responses.some(
       (response) =>
@@ -293,17 +302,10 @@ function operationEmitsFiles(op: OperationCard, opts: OperationRunOpts): boolean
 }
 
 function confirmationPreviewHint(
-  cmd: string,
   op: OperationCard,
   input: AgentInput,
   command: PaginationCommand,
 ): Hint {
-  if (isAliasCommand(cmd) && isBodyOnlyAliasInput(input)) {
-    return {
-      cmd: `${cmd} --dry-run`,
-      why: "Preview the request through the same alias without calling the API or mutating anything.",
-    };
-  }
   const replay = confirmationReplay(op, input, command);
   return replay
     ? {
@@ -318,21 +320,6 @@ function confirmationPreviewHint(
         };
 }
 
-function isAliasCommand(cmd: string): boolean {
-  return !cmd.startsWith("elv call ") && !cmd.startsWith("elv http ");
-}
-
-function isBodyOnlyAliasInput(input: AgentInput): boolean {
-  return (
-    input.body !== undefined &&
-    input.path === undefined &&
-    input.query === undefined &&
-    Object.keys(input.headers ?? {}).length === 0 &&
-    Object.keys(input.files ?? {}).length === 0 &&
-    !containsCredential(input.body)
-  );
-}
-
 function confirmationReplay(
   op: OperationCard,
   input: AgentInput,
@@ -340,7 +327,7 @@ function confirmationReplay(
 ): string | undefined {
   if (
     containsCredential(input) ||
-    input.body !== undefined ||
+    isConvaiSecretCreate(op) ||
     Object.keys(input.headers ?? {}).length > 0 ||
     Object.keys(input.files ?? {}).length > 0
   ) {
@@ -350,6 +337,7 @@ function confirmationReplay(
     const replayInput = {
       ...(input.path ? { path: input.path } : {}),
       ...(input.query ? { query: input.query } : {}),
+      ...(input.body !== undefined ? { body: input.body } : {}),
     };
     const serialized = JSON.stringify(replayInput);
     return `elv call ${op.operationId}${serialized === "{}" ? "" : ` --json ${shellArg(serialized)}`}`;
@@ -363,7 +351,12 @@ function confirmationReplay(
       replay += ` --query ${shellArg(`${key}=${String(item)}`)}`;
     }
   }
+  if (input.body !== undefined) replay += ` --body-json ${shellArg(JSON.stringify(input.body))}`;
   return replay;
+}
+
+function isConvaiSecretCreate(op: OperationCard): boolean {
+  return op.method === "POST" && op.pathTemplate === "/v1/convai/secrets";
 }
 
 type RequestFactory = (nextInput: AgentInput) => Promise<HttpRequest>;

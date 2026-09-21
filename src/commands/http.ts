@@ -17,6 +17,7 @@ import { classifyRisk } from "../openapi/risk";
 import { HTTP_METHODS } from "../openapi/types";
 import { errorMessage } from "../util/error";
 import { parseJson } from "../util/json";
+import { shellArg } from "../util/shell";
 import type { JsonObjectInput } from "../util/json";
 import type { AgentInput, CommandResult, Envelope, RunOpts, Warning } from "../core/types";
 import type { HttpMethod, OperationCard } from "../openapi/types";
@@ -53,7 +54,7 @@ export async function runHttp(
   path: string,
   options: HttpOptions = {},
 ): Promise<Envelope> {
-  const cmd = `elv http ${method.toUpperCase()} ${path}`;
+  const cmd = httpCommand(method, path);
   const parsed = parseHttpInput(method, path, options);
   if (!parsed.ok) return parsed.env;
 
@@ -110,7 +111,7 @@ function parseHttpInput(
 ):
   | { ok: true; method: HttpMethod; path: string; input: AgentInput }
   | { ok: false; env: ReturnType<typeof validationError> } {
-  const cmd = `elv http ${methodRaw} ${path}`;
+  const cmd = httpCommand(methodRaw, path);
   const method = methodRaw.toUpperCase();
   if (!isHttpMethod(method))
     return {
@@ -140,6 +141,11 @@ function parseHttpInput(
       env: validationError(cmd, errorMessage(error)),
     };
   }
+}
+
+function httpCommand(method: string, path: string): string {
+  const pathArg = /^[A-Za-z0-9_./:@%+,=-]+$/u.test(path) ? path : shellArg(path);
+  return `elv http ${method.toUpperCase()} ${pathArg}`;
 }
 
 function httpOperation(

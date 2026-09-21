@@ -366,6 +366,16 @@ describe("raw HTTP registry metadata and budget policy", () => {
     ]);
     expect(fetch).not.toHaveBeenCalled();
 
+    const shellUnsafePath = await handleHttp("POST", "/v1/private/new-surface?foo=bar&baz=1", {
+      bodyJson: "{}",
+      maxCredits: 1,
+      baseUrl: "https://api.test",
+    });
+    expect(shellUnsafePath.env.hints?.[0]?.cmd).toBe(
+      "elv http POST '/v1/private/new-surface?foo=bar&baz=1' --yes",
+    );
+    expect(fetch).not.toHaveBeenCalled();
+
     const accepted = await runHttp("POST", "/v1/private/new-surface", {
       bodyJson: "{}",
       maxCredits: 1,

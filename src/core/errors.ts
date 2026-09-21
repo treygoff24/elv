@@ -77,10 +77,14 @@ const HINT_RULES: HintRule[] = [
   },
   {
     codes: new Set(["not_found", "not-found"]),
-    hints: ({ operationId }) =>
-      operationId && operationId !== "http"
+    hints: ({ operationId }) => {
+      if (operationId === "http") {
+        return [{ cmd: "elv http --help", why: "Inspect raw HTTP input and output options." }];
+      }
+      return operationId
         ? [{ cmd: `elv ops get ${operationId}`, why: "Confirm the operation and required ids." }]
-        : [{ cmd: "elv http --help", why: "Inspect raw HTTP input and output options." }],
+        : [];
+    },
   },
   {
     codes: new Set(["invalid_api_key", "missing_api_key"]),
@@ -206,10 +210,14 @@ export function outTargetError(
   error: OutTargetError,
   options: Pick<PreflightOptions, "operationId"> & { hintCmd?: string } = {},
 ): ErrorEnvelope {
-  const replacementFlag = error.hint.includes("--save-json") ? "--save-json" : "--out";
+  const replacementFlag = error.source === "--save-json" ? "--save-json" : "--out";
   const replacement = replacementFlag === "--save-json" ? "./output.json" : "./output";
   const baseCommand =
     options.operationId && options.operationId !== "http" ? `elv call ${options.operationId}` : cmd;
+  const replacementHint = {
+    cmd: options.hintCmd ?? `${baseCommand} ${replacementFlag} ${replacement} --dry-run`,
+    why: error.hint,
+  };
   return failure({
     cmd,
     operation_id: options.operationId,
@@ -220,12 +228,16 @@ export function outTargetError(
       raw: { hint: error.hint },
     },
     retry: { recommended: false, after_ms: null },
-    hints: [
-      {
-        cmd: options.hintCmd ?? `${baseCommand} ${replacementFlag} ${replacement} --dry-run`,
-        why: error.hint,
-      },
-    ],
+    hints:
+      error.source === "default"
+        ? [
+            {
+              cmd: "elv config get",
+              why: "Show the output_dir / ELV_OUTPUT_DIR that failed the writability check.",
+            },
+            replacementHint,
+          ]
+        : [replacementHint],
   });
 }
 
@@ -299,8 +311,8 @@ export function budgetExceeded(
 
 export function hintsForError(err: NormalizedError, operationId?: string, cmd?: string): Hint[] {
   const code = err.code.toLowerCase();
-  const matched = HINT_RULES.find((rule) => rule.codes.has(code))?.hints({ operationId, cmd });
-  if (matched?.length) return matched;
+  const matchingRule = HINT_RULES.find((rule) => rule.codes.has(code));
+  if (matchingRule) return matchingRule.hints({ operationId, cmd });
   if (err.type === "validation_error" || INPUT_CODES.has(code)) {
     return [inputRecoveryHint(operationId, cmd)];
   }
@@ -377,8 +389,10 @@ function inputRecoveryHint(operationId?: string, cmd?: string): Hint {
 }
 
 function commandHelp(cmd?: string): string {
-  const command = cmd?.trim().split(/\s+/u)[1];
-  return command ? `elv ${command} --help` : "elv --help";
+  const tokens = cmd?.trim().split(/\s+/u) ?? [];
+  const flag = tokens.findIndex((token) => token.startsWith("-"));
+  const command = tokens.slice(0, flag < 0 ? tokens.length : flag).join(" ");
+  return command ? `${command} --help` : "elv --help";
 }
 
 export function unknownOperation(id: string, suggestions: string[] = []): ErrorEnvelope {

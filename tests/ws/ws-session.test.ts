@@ -1,4 +1,4 @@
-import { readFileSync, rmSync, truncateSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, rmSync, truncateSync, writeFileSync } from "node:fs";
 import { mkdtemp } from "node:fs/promises";
 import type { IncomingHttpHeaders } from "node:http";
 import { createServer as createTcpServer, type Socket } from "node:net";
@@ -813,6 +813,33 @@ describe("ws session", () => {
     expect(serialized).not.toContain("URL_SECRET");
     expect(serialized).not.toContain("HEADER_SECRET");
     expect(serialized).toContain("would_require_yes");
+  });
+
+  it("rejects an invalid output target before dry-run or WebSocket connection", async () => {
+    const server = await startServer(() => undefined);
+    const dir = await tempDir();
+    const blocker = join(dir, "not-a-directory");
+    const out = join(blocker, "session-output");
+    const script = join(dir, "control.ndjson");
+    writeFileSync(blocker, "occupied");
+    writeFileSync(script, JSON.stringify({ type: "send", data: { text: " " } }));
+
+    const result = await runWs(
+      {
+        target: "tts-realtime",
+        send: script,
+        out,
+        query: { voice_id: "voice-1" },
+      },
+      { baseUrl: httpBase(server.url), dryRun: true },
+    );
+
+    expect(result).toMatchObject({
+      exitCode: 2,
+      env: { ok: false, error: { code: "invalid_out_target" } },
+    });
+    expect(server.connected).toBe(false);
+    expect(existsSync(out)).toBe(false);
   });
 
   it("reads protocol-specific WebSocket tokens from an environment variable", async () => {

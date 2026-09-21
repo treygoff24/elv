@@ -489,6 +489,14 @@ function resolveCommandPath(program: Command, argv: string[]): Command {
   return walkCommandPath(program, argv).command;
 }
 
+function commandPath(command: Command): string {
+  const names: string[] = [];
+  for (let current: Command | null = command; current; current = current.parent) {
+    if (current.name()) names.push(current.name());
+  }
+  return names.reverse().join(" ");
+}
+
 function suggestionHint(bad: string, argv: string[], candidates: string[]): Hint[] | undefined {
   const guess = nearest(bad, candidates);
   if (!guess) return undefined;
@@ -576,9 +584,14 @@ function envelopeForError(
       const hints =
         unmatched && subcommands.length > 0
           ? suggestionHint(unmatched, argv, subcommands)
-          : undefined;
+          : [
+              {
+                cmd: `${commandPath(owner)} --help`,
+                why: "Inspect valid commands and flags.",
+              },
+            ];
       return {
-        env: validationError(cmd, error.message, hints ? { hints } : {}),
+        env: validationError(cmd, error.message, { hints }),
         exitCode: ExitCode.InputValidation,
       };
     }

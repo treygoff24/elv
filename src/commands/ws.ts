@@ -10,7 +10,7 @@ import {
   validationError,
 } from "../core/errors";
 import { ExitCode } from "../core/types";
-import { resolveOutTarget, OutTargetError } from "../core/files";
+import { preflightOutTarget, resolveOutTarget, OutTargetError } from "../core/files";
 import {
   buildCatalogUrl,
   getWsCatalogEntry,
@@ -194,6 +194,11 @@ async function runScriptedWs(
     input.duplex === true,
   );
   const headers = headersForTarget(resolved.usesProfileAuth, options);
+  await preflightOutTarget(
+    input.out ?? config.outputDir,
+    true,
+    input.out === undefined ? "default" : "--out",
+  );
 
   if (options.dryRun) {
     return dryRunResult(entry, catalogName, protocol, script, resolved, headers, preflight);
@@ -704,7 +709,7 @@ function errorEnvelope(error: unknown): CommandResult {
   }
   if (error instanceof OutTargetError) {
     return {
-      env: outTargetError("elv ws", error, { hintCmd: "elv ws --out <dir>" }),
+      env: outTargetError("elv ws", error),
       exitCode: ExitCode.InputValidation,
     };
   }
