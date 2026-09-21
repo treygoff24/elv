@@ -1,3 +1,5 @@
+import { statSync } from "node:fs";
+import { extname, resolve } from "node:path";
 import type { Command } from "commander";
 import type { CliOptionValues } from "../options";
 import { numberValue } from "../options";
@@ -21,6 +23,45 @@ interface AgentsFlags extends JsonBodyFlags, Pick<CliOptionValues, "text" | "sea
   procedureId?: string;
   versionId?: string;
   query?: string;
+  file?: string;
+  maxDocumentsLength?: string;
+  maxRetrievedRagChunksCount?: string;
+}
+
+const MAX_HOLD_AUDIO_BYTES = 40 * 1024 * 1024;
+
+function boundedIntegerValue(
+  value: string | number | undefined,
+  label: string,
+  maximum: number,
+): number | undefined {
+  const parsed = numberValue(value);
+  if (parsed === undefined) return undefined;
+  if (!Number.isInteger(parsed) || parsed < 1 || parsed > maximum)
+    throw new Error(`${label} must be an integer from 1 to ${maximum}`);
+  return parsed;
+}
+
+function holdAudioPath(value: string | undefined): string {
+  const path = resolve(required(value, "--file"));
+  if (![".mp3", ".wav"].includes(extname(path).toLowerCase())) {
+    throw new Error("--file must be an MP3 or WAV file; choose a .mp3 or .wav clip and retry");
+  }
+  let stats: ReturnType<typeof statSync>;
+  try {
+    stats = statSync(path);
+  } catch {
+    throw new Error(`--file does not exist: ${path}; choose an existing MP3 or WAV clip and retry`);
+  }
+  if (!stats.isFile()) {
+    throw new Error(`--file is not a file: ${path}; choose an MP3 or WAV clip and retry`);
+  }
+  if (stats.size > MAX_HOLD_AUDIO_BYTES) {
+    throw new Error(
+      `--file exceeds the 40 MB hold-audio limit (${stats.size} bytes); choose a smaller clip and retry`,
+    );
+  }
+  return path;
 }
 
 interface TicketFlags extends JsonBodyFlags {
@@ -224,7 +265,7 @@ export function buildAgentTestsRunInput(flags: AgentsFlags): BuiltOperation {
 export function buildAgentTestRunsListInput(flags: AgentsFlags): BuiltOperation {
   return {
     operationId: "list_test_invocations_route",
-    input: compactInput({ query: compact({ agent_id: flags.agentId }) }),
+    input: compactInput({ query: compact({ agent_id: flags.agentId, search: flags.search }) }),
   };
 }
 
@@ -253,8 +294,37 @@ export function buildAgentRagQueryInput(flags: AgentsFlags): BuiltOperation {
     input: compactInput({
       path: { agent_id: required(flags.agentId, "--agent-id") },
       query: compact({ branch_id: flags.branchId }),
-      body: { query: required(flags.query, "--query") },
+      body: compact({
+        query: required(flags.query, "--query"),
+        max_documents_length: boundedIntegerValue(
+          flags.maxDocumentsLength,
+          "--max-documents-length",
+          50_000,
+        ),
+        max_retrieved_rag_chunks_count: boundedIntegerValue(
+          flags.maxRetrievedRagChunksCount,
+          "--max-retrieved-rag-chunks-count",
+          20,
+        ),
+      }),
     }),
+  };
+}
+
+export function buildAgentHoldAudioUploadInput(flags: AgentsFlags): BuiltOperation {
+  return {
+    operationId: "post_agent_hold_audio_route",
+    input: {
+      path: { agent_id: required(flags.agentId, "--agent-id") },
+      files: { hold_audio_file: holdAudioPath(flags.file) },
+    },
+  };
+}
+
+export function buildAgentHoldAudioDeleteInput(flags: AgentsFlags): BuiltOperation {
+  return {
+    operationId: "delete_agent_hold_audio_route",
+    input: { path: { agent_id: required(flags.agentId, "--agent-id") } },
   };
 }
 
@@ -436,7 +506,7 @@ export function registerAgentsCommand(
   addCommonFlags(
     addPaginationFlags(tests.command("list"))
       .description("List agent response tests")
-      .option("--search <query>", "filter tests by name")
+      .option("--search <query>", "filter tests and folders by name")
       .action((options: AgentsFlags, command: Command) =>
         runListAlias(buildAgentTestsListInput, options, command, { mergeOptions: true }),
       ),
@@ -496,6 +566,7 @@ export function registerAgentsCommand(
     addPaginationFlags(testRuns.command("list"))
       .description("List test-suite invocations")
       .option("--agent-id <id>", "filter by conversational agent id")
+      .option("--search <query>", "filter test-suite invocations by search query")
       .action((options: AgentsFlags, command: Command) =>
         runListAlias(buildAgentTestRunsListInput, options, command, { mergeOptions: true }),
       ),
@@ -527,8 +598,34 @@ export function registerAgentsCommand(
       .option("--agent-id <id>", "conversational agent id")
       .option("--query <text>", "query to run against the knowledge base")
       .option("--branch-id <id>", "agent branch id")
+      .option("--max-documents-length <n>", "maximum document text length (1-50000)")
+      .option("--max-retrieved-rag-chunks-count <n>", "maximum retrieved RAG chunks (1-20)")
       .action((options: AgentsFlags, command: Command) =>
         runAlias(buildAgentRagQueryInput, options, command),
+      ),
+  );
+  const holdAudio = agents
+    .command("hold-audio")
+    .description(
+      "Manage queue hold audio; enable queueing with agents update platform_settings.queueing_config",
+    );
+  addCommonFlags(
+    holdAudio
+      .command("upload")
+      .description("Upload and replace custom hold audio (MP3 or WAV, <=40 MB, <=180 seconds)")
+      .option("--agent-id <id>", "conversational agent id")
+      .option("--file <path>", "MP3 or WAV hold clip (<=40 MB, <=180 seconds)")
+      .action((options: AgentsFlags, command: Command) =>
+        runAlias(buildAgentHoldAudioUploadInput, options, command),
+      ),
+  );
+  addCommonFlags(
+    holdAudio
+      .command("delete")
+      .description("Delete custom hold audio and restore the default hold tone")
+      .option("--agent-id <id>", "conversational agent id")
+      .action((options: AgentsFlags, command: Command) =>
+        runAlias(buildAgentHoldAudioDeleteInput, options, command),
       ),
   );
   addCommonFlags(

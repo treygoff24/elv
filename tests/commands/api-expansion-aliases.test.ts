@@ -1,7 +1,12 @@
 import { randomUUID } from "node:crypto";
+import { mkdtempSync, rmSync, truncateSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { Command } from "commander";
 import { describe, expect, it } from "vitest";
 import {
+  buildAgentHoldAudioDeleteInput,
+  buildAgentHoldAudioUploadInput,
   buildAgentProcedureCreateInput,
   buildAgentProcedureDraftDeleteInput,
   buildAgentProcedureDraftGetInput,
@@ -177,9 +182,9 @@ describe("current API workflow aliases", () => {
       operationId: "run_agent_test_suite_route",
       input: { path: { agent_id: "agent_1" }, body: { tests: [] } },
     });
-    expect(buildAgentTestRunsListInput({ agentId: "agent_1" })).toEqual({
+    expect(buildAgentTestRunsListInput({ agentId: "agent_1", search: "refund" })).toEqual({
       operationId: "list_test_invocations_route",
-      input: { query: { agent_id: "agent_1" } },
+      input: { query: { agent_id: "agent_1", search: "refund" } },
     });
     expect(buildAgentTestRunsGetInput({ invocationId: "inv_1" })).toEqual({
       operationId: "get_test_invocation_route",
@@ -198,15 +203,75 @@ describe("current API workflow aliases", () => {
       },
     });
     expect(
-      buildAgentRagQueryInput({ agentId: "agent_1", query: "Refund?", branchId: "branch_1" }),
+      buildAgentRagQueryInput({
+        agentId: "agent_1",
+        query: "Refund?",
+        branchId: "branch_1",
+        maxDocumentsLength: "50000",
+        maxRetrievedRagChunksCount: "20",
+      }),
     ).toEqual({
       operationId: "query_agent_knowledge_base_rag_route",
       input: {
         path: { agent_id: "agent_1" },
         query: { branch_id: "branch_1" },
-        body: { query: "Refund?" },
+        body: {
+          query: "Refund?",
+          max_documents_length: 50_000,
+          max_retrieved_rag_chunks_count: 20,
+        },
       },
     });
+    expect(() =>
+      buildAgentRagQueryInput({
+        agentId: "agent_1",
+        query: "Refund?",
+        maxDocumentsLength: "50001",
+      }),
+    ).toThrow("--max-documents-length must be an integer from 1 to 50000");
+    expect(() =>
+      buildAgentRagQueryInput({
+        agentId: "agent_1",
+        query: "Refund?",
+        maxRetrievedRagChunksCount: "1.5",
+      }),
+    ).toThrow("--max-retrieved-rag-chunks-count must be an integer from 1 to 20");
+    expect(buildAgentRagQueryInput({ agentId: "agent_1", query: "Refund?" }).input.body).toEqual({
+      query: "Refund?",
+    });
+  });
+
+  it("builds hold-audio lifecycle inputs and validates local upload limits", () => {
+    const directory = mkdtempSync(join(tmpdir(), "elv-hold-audio-"));
+    const audio = join(directory, "hold.WAV");
+    const wrongExtension = join(directory, "hold.aac");
+    const oversized = join(directory, "oversized.mp3");
+    writeFileSync(audio, "RIFF");
+    writeFileSync(wrongExtension, "audio");
+    writeFileSync(oversized, "");
+    truncateSync(oversized, 40 * 1024 * 1024 + 1);
+
+    try {
+      expect(buildAgentHoldAudioUploadInput({ agentId: "agent_1", file: audio })).toEqual({
+        operationId: "post_agent_hold_audio_route",
+        input: {
+          path: { agent_id: "agent_1" },
+          files: { hold_audio_file: audio },
+        },
+      });
+      expect(buildAgentHoldAudioDeleteInput({ agentId: "agent_1" })).toEqual({
+        operationId: "delete_agent_hold_audio_route",
+        input: { path: { agent_id: "agent_1" } },
+      });
+      expect(() =>
+        buildAgentHoldAudioUploadInput({ agentId: "agent_1", file: wrongExtension }),
+      ).toThrow("choose a .mp3 or .wav clip and retry");
+      expect(() => buildAgentHoldAudioUploadInput({ agentId: "agent_1", file: oversized })).toThrow(
+        "exceeds the 40 MB hold-audio limit",
+      );
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
   });
 
   it("builds every Agent Procedures input", () => {
@@ -483,6 +548,33 @@ describe("current API workflow aliases", () => {
     );
 
     const agents = program.commands.find((command) => command.name() === "agents")!;
+    const agentTestsList = agents.commands
+      .find((command) => command.name() === "tests")!
+      .commands.find((command) => command.name() === "list")!;
+    expect(agentTestsList.options.find((option) => option.long === "--search")!.description).toBe(
+      "filter tests and folders by name",
+    );
+
+    const testRunsList = agents.commands
+      .find((command) => command.name() === "test-runs")!
+      .commands.find((command) => command.name() === "list")!;
+    expect(testRunsList.options.map((option) => option.long)).toContain("--search");
+
+    const ragQuery = agents.commands.find((command) => command.name() === "rag-query")!;
+    expect(ragQuery.options.map((option) => option.long)).toEqual(
+      expect.arrayContaining(["--max-documents-length", "--max-retrieved-rag-chunks-count"]),
+    );
+
+    const holdAudio = agents.commands.find((command) => command.name() === "hold-audio")!;
+    expect(holdAudio.description()).toContain("platform_settings.queueing_config");
+    expect(holdAudio.commands.map((command) => command.name())).toEqual(["upload", "delete"]);
+    expect(holdAudio.commands.find((command) => command.name() === "upload")!.description()).toBe(
+      "Upload and replace custom hold audio (MP3 or WAV, <=40 MB, <=180 seconds)",
+    );
+    expect(holdAudio.commands.find((command) => command.name() === "delete")!.description()).toBe(
+      "Delete custom hold audio and restore the default hold tone",
+    );
+
     const procedures = agents.commands.find((command) => command.name() === "procedures")!;
     expect(procedures.commands.map((command) => command.name())).toEqual([
       "list",
@@ -569,6 +661,8 @@ describe("current API workflow aliases", () => {
       "get_test_invocation_route",
       "resubmit_tests_route",
       "query_agent_knowledge_base_rag_route",
+      "post_agent_hold_audio_route",
+      "delete_agent_hold_audio_route",
       "list_procedures_route",
       "create_procedure_route",
       "get_procedure_route",
@@ -655,6 +749,86 @@ describe("current API workflow aliases", () => {
     ]);
     expect(conflict.code).toBe(2);
     expect(errorRecord(parseEnvelope(conflict.stdout)).message).toContain("--json or --json-file");
+
+    const deleteHoldAudio = await runCli([
+      "agents",
+      "hold-audio",
+      "delete",
+      "--agent-id",
+      "agent_1",
+    ]);
+    expect(deleteHoldAudio.code).toBe(4);
+    expect(parseEnvelope(deleteHoldAudio.stdout)).toMatchObject({
+      cmd: "elv agents hold-audio delete",
+      operation_id: "delete_agent_hold_audio_route",
+      error: { code: "confirmation" },
+    });
+
+    const deletePreview = await runCli([
+      "agents",
+      "hold-audio",
+      "delete",
+      "--agent-id",
+      "agent_1",
+      "--dry-run",
+    ]);
+    expect(deletePreview.code).toBe(0);
+    const deletePreviewData = recordValue(parseEnvelope(deletePreview.stdout).data);
+    expect(deletePreviewData).toMatchObject({
+      would_require_yes: true,
+      request: {
+        method: "DELETE",
+        path: "/v1/convai/agents/{agent_id}/hold-audio",
+        input: { path: { agent_id: "agent_1" } },
+      },
+    });
+  });
+
+  it("validates hold-audio uploads locally and previews the multipart field", async () => {
+    const missing = await runCli([
+      "agents",
+      "hold-audio",
+      "upload",
+      "--agent-id",
+      "agent_1",
+      "--file",
+      "/nonexistent.mp3",
+      "--dry-run",
+    ]);
+    expect(missing.code).toBe(2);
+    expect(errorRecord(parseEnvelope(missing.stdout)).message).toContain(
+      "choose an existing MP3 or WAV clip and retry",
+    );
+
+    const directory = mkdtempSync(join(tmpdir(), "elv-hold-audio-preview-"));
+    const audio = join(directory, "hold.mp3");
+    writeFileSync(audio, "ID3");
+    try {
+      const preview = await runCli([
+        "agents",
+        "hold-audio",
+        "upload",
+        "--agent-id",
+        "agent_1",
+        "--file",
+        audio,
+        "--dry-run",
+      ]);
+      expect(preview.code).toBe(0);
+      const data = recordValue(parseEnvelope(preview.stdout).data);
+      expect(data).toMatchObject({
+        request: {
+          method: "POST",
+          path: "/v1/convai/agents/{agent_id}/hold-audio",
+          input: {
+            path: { agent_id: "agent_1" },
+            files: { hold_audio_file: audio },
+          },
+        },
+      });
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
   });
 
   it("preserves replication ids by default and honors --no-preserve-voice-id", async () => {

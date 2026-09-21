@@ -19,6 +19,10 @@ themselves.
   `register<Name>Command` plus `build<Thing>Input` functions. The `build*`
   functions are pure — flags in, `{ operationId, input }` out — which is what the
   tests in `tests/commands/aliases*.test.ts` exercise directly.
+- **`agents.ts`** — agent lifecycle, tests and test runs, RAG queries, procedures,
+  tickets, conversation summaries, and `hold-audio upload|delete`. Hold-audio
+  commands manage the queue clip; queue enablement stays in
+  `platform_settings.queueing_config` through `agents update`.
 
 ## Conventions
 
