@@ -28,8 +28,11 @@ elv spec status
 Bare parent commands are discovery commands: they return a success envelope
 containing their subcommands. `ops search` finds candidate operation IDs;
 `ops get` confirms method, path, inputs, risk, cost policy, and deprecation;
-`ops schema --example` supplies a runnable skeleton. Treat this installed output
-as authoritative over remembered counts or documentation snapshots.
+`ops schema --example` supplies a runnable skeleton, including
+`--file <field>=./path/to/file` for multipart uploads. `speech_to_text` requires
+exactly one media source: `--file file=PATH`, `body.source_url`, or
+`body.cloud_storage_url`. Treat the installed example as authoritative over
+remembered counts or documentation snapshots.
 
 Use `spec diff` to inspect drift. Refresh the active cache with `spec update`
 only when the task calls for a new contract; the vendored registry remains the
@@ -43,6 +46,10 @@ offline fallback.
 elv call text_to_speech_full \
   --json '{"path":{"voice_id":"VOICE_ID"},"body":{"text":"Hello","model_id":"eleven_flash_v2_5"}}' \
   --out ./out
+
+elv call speech_to_text \
+  --json '{"body":{"model_id":"scribe_v2"}}' \
+  --file file=./note.m4a --dry-run
 ```
 
 Equivalent input sources are `--json-file <path>` and `--stdin-json`. Repeated

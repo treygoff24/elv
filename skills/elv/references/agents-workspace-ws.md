@@ -93,8 +93,7 @@ Upload accepts MP3 or WAV, replaces the current clip, and is limited to 40 MB
 and 180 seconds. Delete is destructive and restores the default hold tone.
 During `ws convai`, queue waits arrive as `queue_status` events whose `status`
 is `waiting`, `admitted`, or `timed_out`; hold audio remains an ordinary
-`audio` event. Queue expiry closes with code 4300, so the final envelope and
-manifest report `close_code: 4300` and `close_reason: "queue_timeout"`.
+`audio` event.
 
 Named protocols validate their scripts. For STT, use
 `{"type":"send_audio_file","path":"audio.pcm","sample_rate":16000,"commit":true}`;

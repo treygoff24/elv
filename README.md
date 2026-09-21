@@ -229,7 +229,7 @@ elv wait --operation get_dubbed_metadata \
 
 The WebSocket catalog contains `tts-realtime`, `tts-multi`, `ttd-realtime`, `ttd-multi`, `stt-realtime`, `convai`, and `convai-monitor`. Dialogue sessions use a voices initialization message and `inputs` arrays, not TTS's initial space. TTD supports v3 dialogue models; the older TTS protocol rejects `eleven_v3`. Multi-context audio is saved separately with context-to-file mappings in the result. `--dry-run`, `--yes`, and `--max-credits` apply; a ceiling rejects STT and agent sessions whose cost cannot be bounded.
 
-Queued `convai` calls emit `queue_status` events with `waiting`, `admitted`, or `timed_out`; configured hold audio arrives as ordinary `audio` events. A queue timeout closes with code 4300, recorded as `close_reason: "queue_timeout"` in the final envelope and session manifest. Configure the clip with `agents hold-audio`.
+Queued `convai` calls emit `queue_status` events with `waiting`, `admitted`, or `timed_out`; configured hold audio arrives as ordinary `audio` events. Configure the clip with `agents hold-audio`.
 
 Use `--token-env TOKEN_VARIABLE` for single-use authentication and `--url-env URL_VARIABLE` for a signed WebSocket URL. Neither secret needs to appear in argv. `--token-env` only works against the configured API host, because the token travels in the connection URL; reach any other host through a signed `--url-env` URL, which carries its own credential. `elv ws --list` shows each route's protocol, duplex support, first message, and terminal rule. Agent audio of an undeclared encoding is written as `audio.bin` with a `ws_audio_format_unknown` warning unless the session sets `output_format`. STT's `send_audio_file` action wraps PCM bytes in the published JSON audio-chunk message:
 
@@ -323,6 +323,8 @@ elv call delete_voice --path voice_id=VOICE_ID --yes
 Credit-consuming calls can be capped before they run. With `--max-credits` (or `ELV_MAX_CREDITS`, or a profile default), `elv` estimates supported operations and fails with exit 5 before touching the network when the estimate exceeds the ceiling. It also fails closed for generation operations and STT or agent WebSocket sessions whose cost cannot be bounded. A raw or non-generation operation with unknown cost reports `unknown_unbounded`; its ceiling is not a guarantee.
 
 Current estimates use about 0.5 credits per character for TTS Flash and Turbo, 1.0 for other TTS models, and about 27 credits per minute for speech-to-text. Music uses a conservative five-minute cap when generated length is unknown. Treat every estimate as a pre-flight guard, not an invoice; provider response headers remain the source for charged credits when available.
+
+Before dry-run, confirmation, budget checks, or network access, file-emitting commands verify that `--out`, `--save-json`, or the configured default output directory is writable; `invalid_out_target` exits 2 with a replacement-target hint. Speech-to-text likewise fails before network access unless exactly one media source is supplied: `stt --file PATH`, generic `--file file=PATH`, `body.source_url`, or `body.cloud_storage_url`.
 
 ```bash
 elv tts --voice-id VOICE --text "Long script..." --max-credits 500 --out ./out
