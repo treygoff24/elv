@@ -248,7 +248,7 @@ function preparedOperationPreflight({
     return withWarnings(
       confirmationRequired(cmd, `${op.operationId} (${op.risk}) requires --yes`, {
         operationId: op.operationId,
-        hints: [confirmationPreviewHint(op, input, command)],
+        hints: [confirmationPreviewHint(cmd, op, input, command)],
       }),
       warnings,
     );
@@ -283,10 +283,17 @@ function operationEmitsFiles(op: OperationCard, opts: OperationRunOpts): boolean
 }
 
 function confirmationPreviewHint(
+  cmd: string,
   op: OperationCard,
   input: AgentInput,
   command: PaginationCommand,
 ): Hint {
+  if (isAliasCommand(cmd) && isBodyOnlyAliasInput(input)) {
+    return {
+      cmd: `${cmd} --dry-run`,
+      why: "Preview the request through the same alias without calling the API or mutating anything.",
+    };
+  }
   const replay = confirmationReplay(op, input, command);
   return replay
     ? {
@@ -299,6 +306,21 @@ function confirmationPreviewHint(
           cmd: `elv ops schema ${op.operationId} --example`,
           why: "Build a safe preview from the operation schema; the current input cannot be replayed safely.",
         };
+}
+
+function isAliasCommand(cmd: string): boolean {
+  return !cmd.startsWith("elv call ") && !cmd.startsWith("elv http ");
+}
+
+function isBodyOnlyAliasInput(input: AgentInput): boolean {
+  return (
+    input.body !== undefined &&
+    input.path === undefined &&
+    input.query === undefined &&
+    Object.keys(input.headers ?? {}).length === 0 &&
+    Object.keys(input.files ?? {}).length === 0 &&
+    !containsCredential(input.body)
+  );
 }
 
 function confirmationReplay(

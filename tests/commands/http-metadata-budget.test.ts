@@ -353,11 +353,17 @@ describe("raw HTTP registry metadata and budget policy", () => {
     });
 
     expect(blocked.exitCode).toBe(5);
-    expect(blocked.env).toMatchObject({
-      ok: false,
-      error: { code: "budget" },
-      hints: [{ cmd: expect.stringContaining("--yes") }],
-    });
+    expect(blocked.env).toMatchObject({ ok: false, error: { code: "budget" } });
+    expect(blocked.env.hints).toEqual([
+      {
+        cmd: "elv http POST /v1/private/new-surface --yes",
+        why: "Proceed only when you explicitly accept that the configured ceiling cannot bound this operation's cost.",
+      },
+      {
+        cmd: "elv usage",
+        why: "Inspect current usage before accepting an unbounded-cost request.",
+      },
+    ]);
     expect(fetch).not.toHaveBeenCalled();
 
     const accepted = await runHttp("POST", "/v1/private/new-surface", {

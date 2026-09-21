@@ -719,7 +719,16 @@ describe("current API workflow aliases", () => {
       "segment_1",
     ]);
     expect(deleteSegment.code).toBe(4);
-    expect(errorRecord(parseEnvelope(deleteSegment.stdout)).code).toBe("confirmation");
+    const deleteSegmentEnvelope = parseEnvelope(deleteSegment.stdout);
+    expect(errorRecord(deleteSegmentEnvelope).code).toBe("confirmation");
+    expect(deleteSegmentEnvelope.hints).toEqual([
+      {
+        cmd: `elv call dubbing_transcript_segment_delete --json '${JSON.stringify({
+          path: { project_id: "project_1", segment_id: "segment_1" },
+        })}' --dry-run`,
+        why: "Preview the normalized request without calling the API or mutating anything.",
+      },
+    ]);
 
     for (const action of ["remove", "delete-draft"]) {
       const procedure = await runCli([
