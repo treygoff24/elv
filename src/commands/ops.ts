@@ -19,7 +19,7 @@ type OpsSearchOptions = Pick<CliOptionValues, "limit">;
 
 interface SearchIntent {
   query: string;
-  preferredOperationId?: string;
+  preferredOperationIds?: ReadonlySet<string>;
   hints?: Hint[];
 }
 
@@ -179,7 +179,7 @@ export function searchOperations(
   const scored = [...registry.values()]
     .map((op) => ({
       op,
-      score: scoreOperation(op, queryTokens, normalizedQuery, intent.preferredOperationId),
+      score: scoreOperation(op, queryTokens, normalizedQuery, intent.preferredOperationIds),
     }))
     .filter((entry) => entry.score > 0)
     .sort(
@@ -227,7 +227,7 @@ function scoreOperation(
   op: OperationCard,
   queryTokens: string[],
   normalizedQuery: string,
-  preferredOperationId?: string,
+  preferredOperationIds?: ReadonlySet<string>,
 ): number {
   const id = op.operationId.toLowerCase();
   const path = op.pathTemplate.toLowerCase();
@@ -239,7 +239,7 @@ function scoreOperation(
     scoreField(op.summary ?? "", queryTokens, normalizedQuery, 3) +
     scoreField(op.description ?? "", queryTokens, normalizedQuery, 1) +
     scoreField([...op.group, ...op.tags].join(" "), queryTokens, normalizedQuery, 2) +
-    (op.operationId === preferredOperationId ? 100 : 0)
+    (preferredOperationIds?.has(op.operationId) ? 100 : 0)
   );
 }
 
@@ -279,7 +279,7 @@ const SEARCH_INTENTS: ReadonlyArray<{
     preferredOperationId: "text_to_speech_full",
   },
   {
-    pattern: /\b(?:transcribe|transcription)\b/u,
+    pattern: /\btranscribe[sd]?\b/u,
     replacement: "speech to text",
     preferredOperationId: "speech_to_text",
   },
@@ -304,15 +304,20 @@ const SEARCH_INTENTS: ReadonlyArray<{
 
 function resolveSearchIntent(query: string): SearchIntent {
   const normalized = normalizePhrase(query);
-  const intent = SEARCH_INTENTS.find(({ pattern }) => pattern.test(normalized));
-  if (!intent) return { query: expandAliases(normalized) };
-  const rewritten = intent.replacement
-    ? normalized.replace(intent.pattern, intent.replacement)
-    : normalized;
+  const intents = SEARCH_INTENTS.filter(({ pattern }) => pattern.test(normalized));
+  if (intents.length === 0) return { query: expandAliases(normalized) };
+  const preferredOperationIds = new Set<string>();
+  const hintsByCommand = new Map<string, Hint>();
+  let rewritten = normalized;
+  for (const intent of intents) {
+    if (intent.replacement) rewritten = rewritten.replace(intent.pattern, intent.replacement);
+    if (intent.preferredOperationId) preferredOperationIds.add(intent.preferredOperationId);
+    if (intent.hint) hintsByCommand.set(intent.hint.cmd, intent.hint);
+  }
   return {
     query: expandAliases(rewritten),
-    preferredOperationId: intent.preferredOperationId,
-    hints: intent.hint ? [intent.hint] : undefined,
+    preferredOperationIds: preferredOperationIds.size > 0 ? preferredOperationIds : undefined,
+    hints: hintsByCommand.size > 0 ? [...hintsByCommand.values()] : undefined,
   };
 }
 

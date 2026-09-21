@@ -136,13 +136,41 @@ describe("expanded operation discovery", () => {
     ["make speech", "text_to_speech_full"],
     ["synthesize speech", "text_to_speech_full"],
     ["transcribe", "speech_to_text"],
-    ["transcription", "speech_to_text"],
     ["isolate vocals", "audio_isolation"],
     ["dub", "create_dubbing"],
   ])("routes %s to the preferred %s operation", async (query, expected) => {
     const result = await handleOpsSearch(query);
     expect(result.env.ok && (result.env.data as { operation_id: string }[])[0]).toMatchObject({
       operation_id: expected,
+    });
+  });
+
+  it("preserves dubbing intent in a transcription search", async () => {
+    const result = await handleOpsSearch("dubbing transcription");
+    if (!result.env.ok) throw new Error("expected a successful search");
+    const ids = (result.env.data as { operation_id: string }[]).map((entry) => entry.operation_id);
+    expect(ids[0]).toMatch(/dubb/iu);
+  });
+
+  it("keeps transcript lookup operations discoverable for transcription", async () => {
+    const result = await handleOpsSearch("transcription");
+    if (!result.env.ok) throw new Error("expected a successful search");
+    const ids = (result.env.data as { operation_id: string }[]).map((entry) => entry.operation_id);
+    expect(ids.slice(0, 5)).toContain("get_transcript_by_id");
+  });
+
+  it("applies a dubbing intent after a hint-only cloning intent", async () => {
+    const result = await handleOpsSearch("clone voice and dub it");
+    if (!result.env.ok) throw new Error("expected a successful search");
+    const ids = (result.env.data as { operation_id: string }[]).map((entry) => entry.operation_id);
+    expect(ids).toContain("create_dubbing");
+  });
+
+  it("retains clone hints when a later transcribe intent also matches", async () => {
+    const result = await handleOpsSearch("clone voice then transcribe");
+    expect(result.env.hints).toContainEqual({
+      cmd: expect.stringMatching(/^elv voices clone-instant/),
+      why: expect.any(String),
     });
   });
 
