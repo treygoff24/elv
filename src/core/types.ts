@@ -103,6 +103,9 @@ export interface WsInfo {
   events_sent: number;
   events_received: number;
   closed: boolean;
+  close_code?: number;
+  close_reason?: string;
+  close_code_name?: string;
   timed_out: boolean;
   partial?: boolean;
 }

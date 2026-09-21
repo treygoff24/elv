@@ -669,9 +669,19 @@ describe("ws session", () => {
     expect(result.env.ws).toMatchObject({
       catalog: "convai",
       close_code: 4300,
-      close_reason: "queue_timeout",
+      close_reason: "queue wait expired",
+      close_code_name: "queue_timeout",
       events_received: 3,
       closed: true,
+    });
+    expect(result.env.warnings).toContainEqual({
+      code: "ws_queue_timeout",
+      message:
+        "The agent queue wait expired before the call was admitted; no conversation took place.",
+    });
+    expect(result.env.hints).toContainEqual({
+      cmd: "elv agents get --agent-id 'agent-queued'",
+      why: "Check platform_settings.queueing_config and the hold-audio clip before retrying.",
     });
     const events = readFileSync(join(dir, "events.received.ndjson"), "utf8")
       .trim()
@@ -693,7 +703,8 @@ describe("ws session", () => {
     });
     expect(JSON.parse(readFileSync(join(dir, "manifest.json"), "utf8"))).toMatchObject({
       close_code: 4300,
-      close_reason: "queue_timeout",
+      close_reason: "queue wait expired",
+      close_code_name: "queue_timeout",
     });
   });
 
@@ -1956,6 +1967,7 @@ describe("ws session", () => {
 
     expect(result.exitCode).toBe(0);
     expect(clientClosed).toBe(true);
+    expect(result.env.ws).not.toHaveProperty("close_code");
   });
 
   it("stops its duplex reader after remote close and timeout", async () => {
@@ -2245,6 +2257,7 @@ describe("ws session", () => {
     if (result.env.ok) throw new Error("expected inactivity timeout");
     expect(result.env.error.code).toBe("ws_inactivity_timeout");
     expect(result.env.ws).toMatchObject({ timed_out: true, closed: true });
+    expect(result.env.ws).not.toHaveProperty("close_code");
   });
 
   it("rejects invalid base64 and preserves prior event, audio, and binary files", async () => {
